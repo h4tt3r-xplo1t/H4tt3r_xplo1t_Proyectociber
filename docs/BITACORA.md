@@ -82,9 +82,13 @@ requiere operación remota y autorización explícita, según `AGENTS.md` §2.
 Veredicto: listo para push, sin hallazgos críticos, altos ni medios.
 
 - **B3 (corregido).** `cancel-in-progress: true` también cancelaba ejecuciones en push a `main`: dos merges seguidos podían cancelar el escaneo de secretos del primero. Ahora solo se cancela en PR (`${{ github.event_name == 'pull_request' }}`).
-- **B1 (pendiente, acción humana).** El token de `gh` conserva el scope `workflow` añadido para el push. Tras subir esta rama hay que quitarlo (`gh auth refresh --remove-scopes workflow`), porque un token filtrado con ese scope podría modificar workflows.
+- **B1 (resuelto).** El token de `gh` conservaba el scope `workflow` añadido para el push; un token filtrado con ese scope podría modificar workflows. Se quitó con `gh auth refresh --remove-scopes workflow` tras el push de `4fd87eb` (CI run `36496048552` en verde). Verificado con `gh auth status`: scopes `gist`, `read:org`, `repo`. Nota: cualquier push futuro que toque `.github/workflows/` por HTTPS necesita volver a añadirlo temporalmente (o usar SSH).
 - **B2 (para la Fase 2).** Los checks requeridos del ruleset deben fijar `integration_id` de GitHub Actions; sin él, cualquier app con permiso de escribir checks podría satisfacerlos.
-- **I1 (no verificado).** Los sha256 de gitleaks y actionlint son coherentes entre workflow y tarea, pero falta contrastarlos con los `checksums.txt` oficiales de cada release antes del merge.
+- **I1 (verificado, 2026-09-28).** Los pines de `seguridad.yml` coinciden con las fuentes oficiales, obtenidas con `gh release download` y `gh api`:
+  - gitleaks v8.30.1 `linux_x64.tar.gz`: `551f6fc8…2470eb`, igual a `gitleaks_8.30.1_checksums.txt`.
+  - actionlint v1.7.12 `linux_amd64.tar.gz`: `8aca8db9…9a3d8`, igual a `actionlint_1.7.12_checksums.txt`.
+  - `actions/checkout` v7.0.1: el tag apunta al commit `3d3c42e5…a90b1`, igual al pin.
+  - Límite: confirma que los hashes son los publicados por cada proyecto; no protege frente a una release comprometida en origen.
 
 ## Pendientes
 - [ ] Probar el kit dentro de Claude Code (/memory, /permissions, /hooks, /agents; commit en main debe bloquearse).
@@ -94,5 +98,5 @@ Veredicto: listo para push, sin hallazgos críticos, altos ni medios.
 - [ ] Elegir lenguaje y stack; añadir sus comandos de prueba/lint a .claude/settings.json.
 - [ ] Issue #1: cubrir bypasses restantes de guardia.sh (push -uf, git -C, rutas absolutas, core.hooksPath, CODEOWNERS, pinning por SHA, imágenes rotas en PROJECT_CONTEXT.md). El falso positivo de nombre de rama (`feature/main-page`) quedó resuelto como efecto de la corrección del Bypass B de la segunda revisión (regla de segmento que exige un espacio antes de `main`, no `/` ni `-`). **Nota (2026-09-28):** el issue #1 aparece CLOSED en GitHub, pero los bypasses restantes siguen pendientes sin corregir; hace falta reconciliar (reabrirlo o crear un issue nuevo que los cubra). Además, la regla de push de `guardia.sh` bloquea ramas cuyo nombre contiene `-main` (p. ej. `ci/4-proteccion-main`) porque `\bmain\b` coincide tras un guion; hay que exigir `main` como destino real y añadir la prueba de regresión.
 - [ ] Issue #4 Fase 2: ruleset como código + PUT sobre protege + desactivar merge commit/rebase + 4 verificaciones. Incluir `integration_id` de GitHub Actions en los checks requeridos (hallazgo B2).
-- [ ] Quitar el scope `workflow` del token de `gh` tras el push de `ci/4-proteccion-main` (hallazgo B1).
-- [ ] Contrastar los sha256 de gitleaks y actionlint con los `checksums.txt` oficiales antes del merge de PR #5 (hallazgo I1).
+- [x] Quitar el scope `workflow` del token de `gh` tras el push de `ci/4-proteccion-main` (hallazgo B1).
+- [x] Contrastar los sha256 de gitleaks y actionlint con los `checksums.txt` oficiales antes del merge de PR #5 (hallazgo I1).

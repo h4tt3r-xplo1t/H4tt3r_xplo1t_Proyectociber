@@ -44,4 +44,5 @@ Delegated writer (writer trigger: 2+ non-trivial files, workflow + ADR).
 - T3 commit: pending in this same task run (`docs: log issue 4 phase 1 in bitacora (#4)`), covering `docs/BITACORA.md` and this file.
 - PR #5 opened (push run by the user because guardia.sh false-positive on `-main` in the branch name; `gh` token needed the `workflow` scope).
 - First CI run red: YAML treated ` #4)"` as a comment in the `pruebas` echo. Fixed in `c639e94` (`run: |`). CI run `36480098678`: `secretos`, `workflows`, `pruebas` all pass.
+- revisor-seguridad review of `main...HEAD`: ready for push, no critical/high/medium findings. B3 fixed (`cancel-in-progress` only on pull requests, so pushes to `main` always finish their secrets scan). B1 (drop `gh` `workflow` scope after push), B2 (`integration_id` for required checks, Phase 2) and I1 (compare sha256 pins with official `checksums.txt`) tracked in BITACORA.
 - Next: human review and squash merge of PR #5, then T4 (Phase 2) on a new branch.

@@ -11,7 +11,9 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded runs only on pull requests; on main every push must
+  # finish its scan, so back-to-back merges never skip a secrets check.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # No `name:` on any job: the check name shown to GitHub is the job id,

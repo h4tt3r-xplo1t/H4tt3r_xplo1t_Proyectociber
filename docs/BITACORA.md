@@ -90,6 +90,18 @@ Veredicto: listo para push, sin hallazgos críticos, altos ni medios.
   - `actions/checkout` v7.0.1: el tag apunta al commit `3d3c42e5…a90b1`, igual al pin.
   - Límite: confirma que los hashes son los publicados por cada proyecto; no protege frente a una release comprometida en origen.
 
+## 2026-09-28 · Issue #4: protección de main (Fase 2, parte local)
+
+Rama `ci/4-ruleset-como-codigo` (el nombre evita el falso positivo de `guardia.sh` con `-main`).
+
+- **Ruleset como código.** `.github/rulesets/main.json` define `protege` según el ADR 0001: sin bypass, borrado y force push bloqueados, historial lineal, PR obligatorio con 0 aprobaciones, aprobaciones obsoletas descartadas, conversaciones resueltas, solo squash, y checks `secretos`/`workflows`/`pruebas` en modo `strict`.
+- **Hallazgo B2 aplicado.** Cada check requerido se fija a GitHub Actions (`integration_id` 15368, leído de los check runs de `a85401a`), para que otra app o token no pueda satisfacerlo con un check del mismo nombre.
+- **Esquema verificado** contra la descripción OpenAPI oficial de la REST API de GitHub (`allowed_merge_methods`, `integration_id`).
+- **Prueba de política.** `tests/rulesets/main_ruleset_test.sh` (15 casos, `jq`). RED: sin archivo, y el `protege` vivo falla 10/15. GREEN: 15/15 contra el archivo. La misma prueba sirve como detector de deriva contra la salida de `gh api`.
+- **Observación.** El job `pruebas` del CI sigue siendo un placeholder: ni esta prueba ni la de `guardia.sh` corren en CI. Conectarlas requiere tocar el workflow (y el scope `workflow` para el push); queda como pendiente.
+
+Pendiente (operación remota, con autorización explícita por paso): push y PR, `PUT` del ruleset tras la fusión, desactivar merge commit y rebase merge, y las cuatro verificaciones de bloqueo.
+
 ## Pendientes
 - [ ] Probar el kit dentro de Claude Code (/memory, /permissions, /hooks, /agents; commit en main debe bloquearse).
 - [ ] Fase E0: completar docs/PROJECT_CONTEXT.md.
@@ -97,6 +109,7 @@ Veredicto: listo para push, sin hallazgos críticos, altos ni medios.
 - [ ] Confirmar política institucional sobre dónde alojar el repositorio.
 - [ ] Elegir lenguaje y stack; añadir sus comandos de prueba/lint a .claude/settings.json.
 - [ ] Issue #1: cubrir bypasses restantes de guardia.sh (push -uf, git -C, rutas absolutas, core.hooksPath, CODEOWNERS, pinning por SHA, imágenes rotas en PROJECT_CONTEXT.md). El falso positivo de nombre de rama (`feature/main-page`) quedó resuelto como efecto de la corrección del Bypass B de la segunda revisión (regla de segmento que exige un espacio antes de `main`, no `/` ni `-`). **Nota (2026-09-28):** el issue #1 aparece CLOSED en GitHub, pero los bypasses restantes siguen pendientes sin corregir; hace falta reconciliar (reabrirlo o crear un issue nuevo que los cubra). Además, la regla de push de `guardia.sh` bloquea ramas cuyo nombre contiene `-main` (p. ej. `ci/4-proteccion-main`) porque `\bmain\b` coincide tras un guion; hay que exigir `main` como destino real y añadir la prueba de regresión.
-- [ ] Issue #4 Fase 2: ruleset como código + PUT sobre protege + desactivar merge commit/rebase + 4 verificaciones. Incluir `integration_id` de GitHub Actions en los checks requeridos (hallazgo B2).
+- [ ] Issue #4 Fase 2: ~~ruleset como código con `integration_id` (B2)~~ hecho en local; falta PUT sobre protege + desactivar merge commit/rebase + 4 verificaciones.
+- [ ] Ejecutar `tests/hooks/guardia_test.sh` y `tests/rulesets/main_ruleset_test.sh` en el job `pruebas` del CI (hoy es un placeholder).
 - [x] Quitar el scope `workflow` del token de `gh` tras el push de `ci/4-proteccion-main` (hallazgo B1).
 - [x] Contrastar los sha256 de gitleaks y actionlint con los `checksums.txt` oficiales antes del merge de PR #5 (hallazgo I1).

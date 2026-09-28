@@ -33,7 +33,12 @@ Delegated writer (writer trigger: 2+ non-trivial files, workflow + ADR).
 - [x] **T1** — `.github/workflows/seguridad.yml` (`9fb5766`) + `.github/dependabot.yml` (`bd6e25a`), validated with actionlint.
 - [x] **T2** — ADR `docs/adr/0001-proteccion-rama-main.md` (`9438209`).
 - [x] **T3** — BITACORA entry (issue #4, `protege` finding, PR #3 cleanup done, issue #1 closed-vs-pending discrepancy).
-- [ ] **T4** — (Phase 2, later) ruleset as code + PUT + repo merge settings + 4 verification scenarios.
+- [ ] **T4** — Phase 2 on branch `ci/4-ruleset-como-codigo` (name avoids the guardia `-main` push false positive).
+  - [x] **T4a** — `.github/rulesets/main.json` + `tests/rulesets/main_ruleset_test.sh` + ADR "Aplicación (Fase 2)". Route: inline (1 JSON + 1 test, already-understood). TDD: RED (file missing; live `protege` 10/15 failing) → GREEN 15/15.
+  - [ ] **T4b** — (remote, needs authorization) push + PR; human squash merge.
+  - [ ] **T4c** — (remote, needs authorization) `gh api -X PUT .../rulesets/24097824 --input .github/rulesets/main.json`; drift check: test against live ruleset → 15/15.
+  - [ ] **T4d** — (remote, needs authorization) repo settings: `allow_merge_commit=false`, `allow_rebase_merge=false`.
+  - [ ] **T4e** — verification scenarios: direct push to main rejected; force push rejected; PR with failing/missing check not mergeable; merge-commit/rebase unavailable.
 
 ## Progress
 - Issue #4 created (authorized). Branch `ci/4-proteccion-main` from `main` at `0fad25e`. Guardia suite on main: 29/29.
@@ -45,4 +50,6 @@ Delegated writer (writer trigger: 2+ non-trivial files, workflow + ADR).
 - PR #5 opened (push run by the user because guardia.sh false-positive on `-main` in the branch name; `gh` token needed the `workflow` scope).
 - First CI run red: YAML treated ` #4)"` as a comment in the `pruebas` echo. Fixed in `c639e94` (`run: |`). CI run `36480098678`: `secretos`, `workflows`, `pruebas` all pass.
 - revisor-seguridad review of `main...HEAD`: ready for push, no critical/high/medium findings. B3 fixed (`cancel-in-progress` only on pull requests, so pushes to `main` always finish their secrets scan). B1 (drop `gh` `workflow` scope after push), B2 (`integration_id` for required checks, Phase 2) and I1 (compare sha256 pins with official `checksums.txt`) tracked in BITACORA. B1 done (scope removed after push of `4fd87eb`, CI run `36496048552` green). I1 verified: gitleaks, actionlint and checkout pins match official checksums/tag.
-- Next: human review and squash merge of PR #5, then T4 (Phase 2) on a new branch.
+- PR #5 squash-merged as `a85401a`; branch deleted local+remote.
+- Phase 2 facts: live `protege` still has Admin + 3 integrations bypass `always`, and `creation`/`update`/`required_signatures`/code_* rules. Repo allows merge commit, squash and rebase. GitHub Actions app id 15368 (check runs on `a85401a`). Schema verified against GitHub REST OpenAPI (pull_request.allowed_merge_methods, required_status_checks[].integration_id).
+- Next: T4b.

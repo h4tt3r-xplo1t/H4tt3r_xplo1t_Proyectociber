@@ -12,6 +12,9 @@ fi
 if echo "$CMD" | grep -qE '(^|[;&| ])git (commit|merge)( |$)' && [ "$RAMA" = "main" ]; then
   echo "Bloqueado: estás en main. Crea una rama tipo/ID-descripcion." >&2; exit 2
 fi
+if echo "$CMD" | grep -qE 'git (switch|checkout) main([[:space:];&|]|$)' && echo "$CMD" | grep -qE '(^|[;&| ])git (commit|merge)( |$)'; then
+  echo "Bloqueado: no combines el cambio a main con commit o merge." >&2; exit 2
+fi
 if echo "$CMD" | grep -qE '(^|[;&| ])git push' && echo "$CMD" | grep -qE '(\bmain\b|--force|-f\b)'; then
   echo "Bloqueado: push a main o forzado no permitido. Usa PR." >&2; exit 2
 fi

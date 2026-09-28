@@ -58,6 +58,10 @@ siguientes reglas:
   deshabilitados también en la configuración general del repositorio).
 - Checks requeridos: `secretos`, `workflows` y `pruebas` (los tres jobs del
   workflow `Seguridad`), con la rama actualizada (`strict`) antes de fusionar.
+  Cada check se fija a la app GitHub Actions (`integration_id` 15368, observado
+  en los check runs de `a85401a`): sin ese campo, cualquier app o token con
+  permiso para escribir checks podría publicar un check con el mismo nombre y
+  satisfacer la regla.
 - Historial lineal.
 - Sin lista de bypass.
 
@@ -73,6 +77,18 @@ remota del `PUT` sobre `protege` y el cambio de configuración de fusión del
 repositorio quedan para la Fase 2, en una rama distinta y solo con
 autorización explícita del usuario para la operación remota, según lo exigido
 por `AGENTS.md` (sección 2, MODOS DE TRABAJO).
+
+### Aplicación (Fase 2)
+
+- La definición vive en `.github/rulesets/main.json` y
+  `tests/rulesets/main_ruleset_test.sh` comprueba que respeta cada punto de
+  esta decisión.
+- Se aplica, una vez fusionada en `main`, con
+  `gh api -X PUT repos/h4tt3r-xplo1t/H4tt3r_xplo1t_Proyectociber/rulesets/24097824 --input .github/rulesets/main.json`.
+- La misma prueba sirve para detectar deriva: se ejecuta contra la salida de
+  `gh api .../rulesets/24097824` y debe pasar igual que contra el archivo.
+- GitHub no aplica el archivo por sí solo; cualquier cambio en la interfaz
+  web se considera deriva y se corrige volviendo a aplicar el archivo.
 
 ## Consecuencias
 

@@ -72,4 +72,5 @@ jobs:
       # TODO(#4): replace this placeholder with the real test command once the
       # language/stack is chosen (see docs/BITACORA.md, section "Pendientes").
       - name: Placeholder de pruebas
-        run: echo "Sin stack definido todavia (ver docs/BITACORA.md, issue #4)"
+        run: |
+          echo "Sin stack definido todavia (ver docs/BITACORA.md, issue #4)"

@@ -39,10 +39,43 @@ Una revisión posterior encontró tres formas adicionales de evadir `guardia.sh`
 
 **Prueba de regresión (segunda revisión):** `bash tests/hooks/guardia_test.sh` (29 casos; RED: 8 fallidos antes de la corrección, GREEN: 29/29 después).
 
+## 2026-09-28 · Issue #4: protección de main (Fase 1)
+
+Issue #4 creado a partir del borrador de una sesión previa desde iPhone: `main`
+necesita protección efectiva del lado de GitHub, porque `guardia.sh` y los
+hooks de `pre-commit` solo corren en el cliente local y no se ejecutan desde
+Claude Code web o móvil.
+
+- **Hallazgo:** el ruleset existente `protege` (id `24097824`) tiene una lista
+  de bypass `always` que exime al rol Admin (el propio desarrollador) y a tres
+  integraciones instaladas, además de reglas de `code_scanning`
+  (CodeQL/Snyk/Trivy), `code_quality` y `code_coverage` apuntando a
+  herramientas que hoy no están configuradas. En la práctica no bloquea nada.
+  Decisión: reemplazarlo por una definición versionada como código, sin lista
+  de bypass. Detalle completo en `docs/adr/0001-proteccion-rama-main.md`.
+- **CI:** se añadió `.github/workflows/seguridad.yml` con tres jobs
+  (`secretos`, `workflows`, `pruebas`) usando los binarios oficiales de
+  `gitleaks` (v8.30.1) y `actionlint` (v1.7.12) descargados y verificados por
+  `sha256` en el propio workflow, en vez de `gitleaks/gitleaks-action`
+  (licencia no-SPDX, requiere `GITHUB_TOKEN`). Se añadió también
+  `.github/dependabot.yml` para mantener actualizadas las acciones de
+  `github-actions`.
+- **Línea base de secretos:** `gitleaks git --redact --no-banner .` sobre el
+  historial completo (11 commits) → sin hallazgos.
+- **Limpieza de PR #3:** confirmada. La rama local `chore/2-configuracion-inicial`
+  fue borrada; en GitHub el PR #3 quedó fusionado con un commit de un solo
+  padre, con árbol idéntico al de `81f9c44`.
+
+Fase 1 (esta rama, `ci/4-proteccion-main`) queda limitada a la definición del
+workflow, dependabot, el ADR y esta entrada. La Fase 2 (aplicar el `PUT` sobre
+`protege`, desactivar merge commit/rebase merge y verificar el bloqueo real)
+requiere operación remota y autorización explícita, según `AGENTS.md` §2.
+
 ## Pendientes
 - [ ] Probar el kit dentro de Claude Code (/memory, /permissions, /hooks, /agents; commit en main debe bloquearse).
 - [ ] Fase E0: completar docs/PROJECT_CONTEXT.md.
 - [x] Contacto en SECURITY.md.
 - [ ] Confirmar política institucional sobre dónde alojar el repositorio.
 - [ ] Elegir lenguaje y stack; añadir sus comandos de prueba/lint a .claude/settings.json.
-- [ ] Issue #1: cubrir bypasses restantes de guardia.sh (push -uf, git -C, rutas absolutas, core.hooksPath, CODEOWNERS, pinning por SHA, imágenes rotas en PROJECT_CONTEXT.md). El falso positivo de nombre de rama (`feature/main-page`) quedó resuelto como efecto de la corrección del Bypass B de la segunda revisión (regla de segmento que exige un espacio antes de `main`, no `/` ni `-`).
+- [ ] Issue #1: cubrir bypasses restantes de guardia.sh (push -uf, git -C, rutas absolutas, core.hooksPath, CODEOWNERS, pinning por SHA, imágenes rotas en PROJECT_CONTEXT.md). El falso positivo de nombre de rama (`feature/main-page`) quedó resuelto como efecto de la corrección del Bypass B de la segunda revisión (regla de segmento que exige un espacio antes de `main`, no `/` ni `-`). **Nota (2026-09-28):** el issue #1 aparece CLOSED en GitHub, pero los bypasses restantes siguen pendientes sin corregir; hace falta reconciliar (reabrirlo o crear un issue nuevo que los cubra).
+- [ ] Issue #4 Fase 2: ruleset como código + PUT sobre protege + desactivar merge commit/rebase + 4 verificaciones.

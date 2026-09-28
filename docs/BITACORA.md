@@ -28,10 +28,21 @@ La revisión de seguridad del PR #3 (rama `chore/2-configuracion-inicial`, issue
 
 **Prueba de regresión:** `bash tests/hooks/guardia_test.sh` (16 casos, ver `tests/hooks/guardia_test.sh`).
 
+### Segunda revisión
+
+Una revisión posterior encontró tres formas adicionales de evadir `guardia.sh`, todas corregidas con el mismo ciclo TDD estricto (RED confirmado antes de tocar el hook: 8 de 29 casos fallando; GREEN después: 29/29).
+
+- **Bypass A — abreviaturas de `--no-verify`.** Git acepta abreviaturas únicas de opciones largas, así que `git commit --no-verif` (o `--no-veri`, `--no-ver`, etc.) también desactiva los hooks, pero la regla original solo buscaba la cadena exacta `--no-verify`. Se reemplazó por una coincidencia de prefijo (`--no-ve?r?i?f?y?` seguido de un límite que no sea letra) que cubre desde `--no-v` hasta `--no-verify` sin coincidir con opciones distintas como `--no-verbose`.
+- **Bypass B — crear o pasar a `main` con flags intermedios.** `git switch -c main`, `git checkout -B main` o `git switch --create main` combinados con un commit o merge evadían la regla, que solo buscaba el literal `git switch main`/`git checkout main` sin nada en medio. Se cambió a una regla de segmento (`git (switch|checkout)[^;&|]* main([ ;&|]|$)`) que permite cualquier flag entre el subcomando y `main`, sin cruzar separadores de comando (`;`, `&`, `|`). Se verificó que `git switch -c feat/main-page` sigue permitido, porque ahí "main" está precedido por `/`, no por un espacio.
+- **Bypass C — espacios repetidos o tabuladores.** `git  switch  main` (doble espacio) o el mismo comando separado por tabuladores rompían la coincidencia literal de un solo espacio. Se añadió una normalización (`tr -s '[:space:]' ' '`) inmediatamente después de leer `CMD`, antes de aplicar cualquier regla, para que toda la lógica existente opere sobre espacios simples sin importar el separador original.
+- **Falso positivo D (aceptado, sin cambios de código).** `git commit -m y && git log -n 5` sigue bloqueado porque la regla de flag corto `-n` busca ese patrón en todo el comando, no solo en la porción de `git commit`; el `-n` de `git log -n 5` la activa igual. Se documenta como aceptado (fail-closed): ante la duda entre un `-n` legítimo de otro subcomando y un intento real de saltarse los hooks, el hook debe bloquear.
+
+**Prueba de regresión (segunda revisión):** `bash tests/hooks/guardia_test.sh` (29 casos; RED: 8 fallidos antes de la corrección, GREEN: 29/29 después).
+
 ## Pendientes
 - [ ] Probar el kit dentro de Claude Code (/memory, /permissions, /hooks, /agents; commit en main debe bloquearse).
 - [ ] Fase E0: completar docs/PROJECT_CONTEXT.md.
 - [x] Contacto en SECURITY.md.
 - [ ] Confirmar política institucional sobre dónde alojar el repositorio.
 - [ ] Elegir lenguaje y stack; añadir sus comandos de prueba/lint a .claude/settings.json.
-- [ ] Issue #1: cubrir bypasses restantes de guardia.sh (push -uf, git -C, rutas absolutas, core.hooksPath, falso positivo de nombre de rama, CODEOWNERS, pinning por SHA, imágenes rotas en PROJECT_CONTEXT.md).
+- [ ] Issue #1: cubrir bypasses restantes de guardia.sh (push -uf, git -C, rutas absolutas, core.hooksPath, CODEOWNERS, pinning por SHA, imágenes rotas en PROJECT_CONTEXT.md). El falso positivo de nombre de rama (`feature/main-page`) quedó resuelto como efecto de la corrección del Bypass B de la segunda revisión (regla de segmento que exige un espacio antes de `main`, no `/` ni `-`).

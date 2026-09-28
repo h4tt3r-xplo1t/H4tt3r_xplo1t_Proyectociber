@@ -40,6 +40,24 @@ Delegated writer (writer trigger: 2+ non-trivial files — `.claude/hooks/guardi
 - [x] **T4** — Documented the fixes in `docs/BITACORA.md` (dated section, Spanish, neutral tone) and this task file.
   Commit: pending in this same task (docs commit below).
 
+## Second review (2026-09-28)
+
+A follow-up review found three more `guardia.sh` bypasses, verified directly (exit 0 = allowed) before any fix:
+- A) `git commit -q -m t --no-verif` — git accepts unique abbreviations of long options, so `--no-verif`/`--no-veri`/etc. also skip hooks; the rule only matched the exact `--no-verify` string.
+- B) `git switch -c main && git commit -m x` / `git checkout -B main && git commit -m x` — flags between the subcommand and `main` (`-c`, `-B`, `--create`) evaded the literal `git switch main`/`git checkout main` match.
+- C) `git  switch  main && git commit -am x` (double space) / tab-separated variant — repeated whitespace broke the single-space literal match.
+- D) `git commit -m y && git log -n 5` — accepted false positive (fail-closed), not a new bypass: the short `-n`-flag rule scans the whole command, not just the `commit` segment, so a trailing `git log -n 5` also triggers it.
+
+- [x] **T5** — Fix bypasses A–C with regression tests; document D as an accepted false positive; route: delegated writer (writer trigger: 2 non-trivial files — `.claude/hooks/guardia.sh` and `tests/hooks/guardia_test.sh` — plus docs).
+  - `tests/hooks/guardia_test.sh`: added 8 new block cases (A: 3, B: 3, C: 2), 4 new allow cases (`--verbose`, `--no-verbose`, `switch -c feat/main-page`, `checkout feat/x`), and 1 new documented-FP case (D). Kept all 16 existing cases unchanged. 29 cases total.
+    Commit: `08eda53` — `test(hooks): cover abbreviated flag and create-main bypasses (#2)`
+  - `.claude/hooks/guardia.sh`: (1) normalize `CMD` whitespace once after reading it (`tr -s '[:space:]' ' '`), fixing C generically; (2) replace the exact `--no-verify` match with a prefix-abbreviation regex `--no-ve?r?i?f?y?([^a-z-]|$)`, fixing A while still excluding `--no-verbose`; (3) replace the switch/checkout-main rule with a segment-scoped regex `git (switch|checkout)[^;&|]* main([ ;&|]|$)` combined with the existing commit/merge check, fixing B without matching `git switch -c feat/main-page`.
+    Commit: `9815bd4` — `fix(hooks): block abbreviated no-verify and create-main compound commits (#2)`
+  - RED (before fix): 8 of 29 cases failing (exactly the A/B/C cases). GREEN (after fix): 29/29 passing.
+  - Side effect: fixing B's segment-scoped regex also resolves the previously pending "branch name containing main" false positive (`feature/main-page` no longer falsely blocked), since the regex requires a literal space before `main`, not `/` or `-`.
+  - Documented in `docs/BITACORA.md` under "Segunda revisión" (2026-09-28 section) and here.
+    Commit: docs commit (see below, same run as this task-file update).
+
 ## Acceptance criteria
 - `bash tests/hooks/guardia_test.sh` passes 16/16 after the fix, failed 7/16 before it.
 - `pre-commit run --all-files` passes (`gitleaks`, `no-commit-to-branch`).
@@ -51,6 +69,12 @@ Delegated writer (writer trigger: 2+ non-trivial files — `.claude/hooks/guardi
 - `pre-commit run --all-files` — `Detect hardcoded secrets`: Passed. `don't commit to branch`: Passed.
 - `git log --oneline main..HEAD` — shows the 3 fix/test commits ahead of `main` (plus prior branch history); see report for exact hashes.
 - `git status` — clean except this task's own files and the pre-existing untracked `.atl/` directory (not part of this PR's scope).
+
+### Second review evidence
+- `bash tests/hooks/guardia_test.sh` — RED (before fix): 8 of 29 cases failing. GREEN (after fix): 29 of 29 cases passing.
+- `pre-commit run --all-files` — see report for this run's exact result.
+- `git log --oneline -4` — see report for exact hashes of this round's 3 commits.
+- `git status --short` — see report; only this task's authorized files plus the pre-existing untracked `.atl/` directory expected.
 
 ## Next step
 - Re-run `revisor-seguridad` against the updated diff before proposing the PR again.

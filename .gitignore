@@ -1,0 +1,6 @@
+# --- DevSecOps ---
+.env
+.env.*
+!.env.example
+secrets/
+.claude/settings.local.json

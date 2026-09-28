@@ -104,6 +104,18 @@ por `AGENTS.md` (sección 2, MODOS DE TRABAJO).
 
 - Sin lista de bypass, ni siquiera el rol Admin puede hacer push directo a
   `main`: todo cambio, incluidos los de emergencia, pasa por pull request.
+- **Riesgo residual aceptado: autofusión sin revisión técnica.** Con 0
+  aprobaciones y sin `CODEOWNERS`, un PR puede modificar
+  `.github/workflows/seguridad.yml` (o `.github/rulesets/main.json`) para
+  que los checks requeridos pasen siempre y fusionarse a sí mismo: el
+  workflow de `pull_request` se ejecuta con la versión del propio PR. La
+  revisión humana de rutas sensibles exigida por `AGENTS.md` §5 depende hoy
+  de la disciplina del desarrollador, no de un control técnico. Por el mismo
+  motivo, `dismiss_stale_reviews_on_push` no tiene efecto práctico.
+  Mitigación futura: añadir `CODEOWNERS` para `.github/**`, `tests/**` y
+  `docs/adr/**` y activar `require_code_owner_review` en cuanto exista un
+  segundo revisor (persona o bot). Hallazgo M1 de la revisión de seguridad
+  de la Fase 2.
 - Se elimina la regla `required_signatures` presente en `protege`. Se anota
   como una concesión consciente a revisar más adelante (retomar firma de
   commits cuando el flujo de trabajo lo permita).

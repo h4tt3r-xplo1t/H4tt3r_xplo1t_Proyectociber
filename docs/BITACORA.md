@@ -100,6 +100,8 @@ Rama `ci/4-ruleset-como-codigo` (el nombre evita el falso positivo de `guardia.s
 - **Prueba de política.** `tests/rulesets/main_ruleset_test.sh` (15 casos, `jq`). RED: sin archivo, y el `protege` vivo falla 10/15. GREEN: 15/15 contra el archivo. La misma prueba sirve como detector de deriva contra la salida de `gh api`.
 - **Observación.** El job `pruebas` del CI sigue siendo un placeholder: ni esta prueba ni la de `guardia.sh` corren en CI. Conectarlas requiere tocar el workflow (y el scope `workflow` para el push); queda como pendiente.
 
+- **Revisión de seguridad (revisor-seguridad):** listo para PR, sin críticos ni altos. `integration_id` 15368 verificado contra los check runs de `a85401a`. M1 (autofusión sin revisión técnica por 0 aprobaciones y sin CODEOWNERS) registrado como riesgo residual aceptado en el ADR 0001. M2 (`pruebas` placeholder como check requerido) pasa a un issue aparte. Antes del `PUT`, identificar las tres integraciones con bypass actual (IDs 946600, 1143301, 1236702; la API devolvió 403 con el token de `gh`).
+
 Pendiente (operación remota, con autorización explícita por paso): push y PR, `PUT` del ruleset tras la fusión, desactivar merge commit y rebase merge, y las cuatro verificaciones de bloqueo.
 
 ## Pendientes

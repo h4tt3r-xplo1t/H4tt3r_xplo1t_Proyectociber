@@ -10,6 +10,6 @@ Registro de decisiones y estado. Claude Code lo lee al iniciar (importado desde 
 ## Pendientes
 - [ ] Probar el kit dentro de Claude Code (/memory, /permissions, /hooks, /agents; commit en main debe bloquearse).
 - [ ] Fase E0: completar docs/PROJECT_CONTEXT.md.
-- [ ] Contacto en SECURITY.md.
+- [x] Contacto en SECURITY.md.
 - [ ] Confirmar política institucional sobre dónde alojar el repositorio.
 - [ ] Elegir lenguaje y stack; añadir sus comandos de prueba/lint a .claude/settings.json.

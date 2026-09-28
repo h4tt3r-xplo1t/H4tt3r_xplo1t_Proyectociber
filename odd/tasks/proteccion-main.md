@@ -42,3 +42,6 @@ Delegated writer (writer trigger: 2+ non-trivial files, workflow + ADR).
   - `python3 -c "import yaml..."` over both YAML files: parsed without error.
 - T2 commit: `9438209` (`docs(adr): record main branch protection decision (#4)`).
 - T3 commit: pending in this same task run (`docs: log issue 4 phase 1 in bitacora (#4)`), covering `docs/BITACORA.md` and this file.
+- PR #5 opened (push run by the user because guardia.sh false-positive on `-main` in the branch name; `gh` token needed the `workflow` scope).
+- First CI run red: YAML treated ` #4)"` as a comment in the `pruebas` echo. Fixed in `c639e94` (`run: |`). CI run `36480098678`: `secretos`, `workflows`, `pruebas` all pass.
+- Next: human review and squash merge of PR #5, then T4 (Phase 2) on a new branch.

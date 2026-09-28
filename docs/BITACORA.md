@@ -71,11 +71,17 @@ workflow, dependabot, el ADR y esta entrada. La Fase 2 (aplicar el `PUT` sobre
 `protege`, desactivar merge commit/rebase merge y verificar el bloqueo real)
 requiere operación remota y autorización explícita, según `AGENTS.md` §2.
 
+### Apertura del PR #5 (Fase 1)
+
+- **Falso positivo de `guardia.sh` con el push.** La regla de push (`guardia.sh:22`) busca `\bmain\b` en todo el comando, y el guion de `ci/4-proteccion-main` cuenta como límite de palabra. El push de la rama quedó bloqueado. No se eludió el hook: el push lo ejecutó una persona directamente (`! git push`). La corrección de la regla, con su prueba de regresión, pasa al pendiente del issue #1.
+- **Push rechazado por GitHub por falta del scope `workflow`.** El token OAuth de `gh` no podía crear archivos en `.github/workflows/`. Se amplió con `gh auth refresh -s workflow`. Alternativa más restrictiva, no adoptada por ahora: SSH o un token fine-grained limitado a este repositorio.
+- **Primer CI en rojo (`workflows` y `pruebas`).** Causa: `run: echo "... issue #4)"` iba sin comillas externas y YAML interpretó ` #4)"` como comentario, así que bash recibió una comilla sin cerrar. En local no se detectó porque actionlint solo usa shellcheck si está instalado. Corregido con `run: |` en `c639e94`. Después de la corrección, los tres checks pasan (run `36480098678`). Convención adoptada: usar siempre `run: |` para los comandos de shell.
+
 ## Pendientes
 - [ ] Probar el kit dentro de Claude Code (/memory, /permissions, /hooks, /agents; commit en main debe bloquearse).
 - [ ] Fase E0: completar docs/PROJECT_CONTEXT.md.
 - [x] Contacto en SECURITY.md.
 - [ ] Confirmar política institucional sobre dónde alojar el repositorio.
 - [ ] Elegir lenguaje y stack; añadir sus comandos de prueba/lint a .claude/settings.json.
-- [ ] Issue #1: cubrir bypasses restantes de guardia.sh (push -uf, git -C, rutas absolutas, core.hooksPath, CODEOWNERS, pinning por SHA, imágenes rotas en PROJECT_CONTEXT.md). El falso positivo de nombre de rama (`feature/main-page`) quedó resuelto como efecto de la corrección del Bypass B de la segunda revisión (regla de segmento que exige un espacio antes de `main`, no `/` ni `-`). **Nota (2026-09-28):** el issue #1 aparece CLOSED en GitHub, pero los bypasses restantes siguen pendientes sin corregir; hace falta reconciliar (reabrirlo o crear un issue nuevo que los cubra).
+- [ ] Issue #1: cubrir bypasses restantes de guardia.sh (push -uf, git -C, rutas absolutas, core.hooksPath, CODEOWNERS, pinning por SHA, imágenes rotas en PROJECT_CONTEXT.md). El falso positivo de nombre de rama (`feature/main-page`) quedó resuelto como efecto de la corrección del Bypass B de la segunda revisión (regla de segmento que exige un espacio antes de `main`, no `/` ni `-`). **Nota (2026-09-28):** el issue #1 aparece CLOSED en GitHub, pero los bypasses restantes siguen pendientes sin corregir; hace falta reconciliar (reabrirlo o crear un issue nuevo que los cubra). Además, la regla de push de `guardia.sh` bloquea ramas cuyo nombre contiene `-main` (p. ej. `ci/4-proteccion-main`) porque `\bmain\b` coincide tras un guion; hay que exigir `main` como destino real y añadir la prueba de regresión.
 - [ ] Issue #4 Fase 2: ruleset como código + PUT sobre protege + desactivar merge commit/rebase + 4 verificaciones.

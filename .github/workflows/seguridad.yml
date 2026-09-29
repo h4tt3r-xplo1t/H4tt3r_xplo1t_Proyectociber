@@ -71,8 +71,12 @@ jobs:
         with:
           persist-credentials: false
 
-      # TODO(#4): replace this placeholder with the real test command once the
-      # language/stack is chosen (see docs/BITACORA.md, section "Pendientes").
-      - name: Placeholder de pruebas
+      # Each suite exits non-zero on any failed case, which fails this job.
+      # Add the application test commands here once the stack is chosen.
+      - name: Pruebas de guardia.sh
         run: |
-          echo "Sin stack definido todavia (ver docs/BITACORA.md, issue #4)"
+          bash tests/hooks/guardia_test.sh
+
+      - name: Pruebas de politica del ruleset de main
+        run: |
+          bash tests/rulesets/main_ruleset_test.sh

@@ -724,7 +724,7 @@ Estado: E0 (Descubrimiento), decisiones del 2026-09-29. Las fuentes externas se 
 
 **H4tt3r_1nf0rm4t1v0** (slug técnico `h4tt3r-1nf0rm4t1v0`) es un agregador de las noticias más relevantes de medios colombianos y de habla hispana, más tendencias, con búsqueda por tema. Los resultados se agrupan por noticia entre medios y llevan una etiqueta de sentimiento (positivo, negativo o neutral).
 
-Principio de diseño: se guarda solo el titular, el enlace, la fecha y un resumen corto (nunca el artículo completo); se respetan `robots.txt` y los términos de uso; el bot se identifica con un `User-Agent` propio; solo se usa acceso gratuito y legítimo; no se recogen datos personales de terceros.
+Principio de diseño: se guarda solo el titular, el enlace, la fecha y un resumen corto (nunca el artículo completo); se respetan `robots.txt` y los términos de uso; el bot se identifica con un `User-Agent` propio que no suplanta a ningún navegador ni a otro bot; solo se usa acceso gratuito y legítimo; no se recogen datos personales como objetivo (un titular puede nombrar a personas públicas, pero no se perfila a nadie).
 
 Licencia: Apache 2.0 (el `LICENSE` existente). La licencia del modelo de sentimiento se declara aparte (ver §9).
 
@@ -746,7 +746,7 @@ Alojamiento: el trabajo se mantiene en este repositorio; el traslado a una rama 
 | Registro e inicio de sesión (JWT, roles), temas favoritos | Aplicación móvil |
 | Lectura periódica de RSS y sitemaps de cinco medios | Almacenar artículos completos |
 | Tendencias de YouTube, Google Trends (RSS) y Mastodon | Redes sociales cerradas (Facebook, Instagram, TikTok, X, Reddit) |
-| Búsqueda por tema con resultados agrupados por noticia | Datos personales de terceros |
+| Búsqueda por tema con resultados agrupados por noticia | Recolección de datos personales; publicaciones y cuentas de usuarios de Mastodon |
 | Sentimiento en español por noticia | Publicar contenido en redes sociales |
 | Registro de auditoría de las búsquedas | Observabilidad (Fase 6, opcional): se decide más adelante |
 
@@ -763,7 +763,7 @@ Estado al 2026-09-29. Las URL son las verificadas en la investigación.
 | Citytv (citytv.eltiempo.com) | Sin RSS; sitemap de noticias `https://citytv.eltiempo.com/sitemap-news.xml` | `robots.txt` bloquea por nombre varios rastreadores de IA | Incluida |
 | YouTube Data API | `videos.list` con `chart=mostPopular`: 1 unidad de cuota; cuota por defecto de 10 000 unidades/día ([fuente](https://developers.google.com/youtube/v3/determine_quota_cost)) | `regionCode=CO`: **NO VERIFICADO**. Costo de la búsqueda por palabra clave con `search.list`: **NO VERIFICADO** | Incluida |
 | Google Trends | RSS `https://trends.google.com/trending/rss?geo=CO`: funciona, pero es **no oficial** (sin garantía de estabilidad; sus términos, **NO VERIFICADO**). La API oficial está en alfa con acceso bajo petición ([fuente](https://developers.google.com/search/apis/trends)) | Consultado el 2026-09-29 | Incluida con riesgo |
-| Mastodon | `GET /api/v1/trends/tags`, `/statuses`, `/links`: públicos, sin autenticación ([fuente](https://docs.joinmastodon.org/methods/trends/)) | Tendencias globales por instancia, no específicas de Colombia | Incluida |
+| Mastodon | Solo `GET /api/v1/trends/tags` y `/links`: públicos, sin autenticación ([fuente](https://docs.joinmastodon.org/methods/trends/)). `/statuses` queda excluido porque devuelve publicaciones y autores | Tendencias globales por instancia, no específicas de Colombia | Incluida |
 
 Los términos de uso de los medios **no se leyeron textualmente**: riesgo abierto, con revisión manual obligatoria antes de la entrega (§10).
 
@@ -786,7 +786,7 @@ Cuatro servicios desplegables, decisión registrada en [ADR 0003](adr/0003-agrup
 |---|---|
 | `gateway` (FastAPI) | Autenticación (JWT y roles), usuarios, temas favoritos, API de búsqueda, registro de auditoría, límite de tasa |
 | `worker-noticias` | Lee los RSS y sitemaps de los medios |
-| `worker-tendencias` | YouTube, Google Trends RSS y tendencias de Mastodon |
+| `worker-tendencias` | YouTube, Google Trends RSS y etiquetas y enlaces en tendencia de Mastodon |
 | `worker-analisis` | Agrupa la misma noticia entre medios y calcula el sentimiento en español |
 
 La comunicación pasa por RabbitMQ; los datos, por PostgreSQL; los secretos de servicio (clave de la API de YouTube, credenciales de base de datos, clave de firma JWT), por Vault. El frontend es una SPA en React (requisito del curso).
@@ -811,8 +811,9 @@ Notas: `pysentimiento` requiere `torch`, así que la imagen es pesada; el modelo
 ## 8. Datos y restricciones
 
 - Solo se almacenan titular, enlace, fecha y resumen corto; nunca el artículo completo.
-- Se respetan `robots.txt` y los términos de uso de cada fuente; el bot usa un `User-Agent` identificable.
-- Sin datos personales de terceros. De los usuarios de la aplicación solo se guarda lo mínimo para autenticarse; el registro de auditoría de una búsqueda guarda el identificador de usuario y no más datos personales.
+- Se respetan `robots.txt` y los términos de uso de cada fuente. El bot usa un `User-Agent` propio e identificable y nunca suplanta a un navegador ni a otro bot; si el `robots.txt` de una fuente lo bloquea, esa fuente se desactiva.
+- El contenido que llega de las fuentes (titulares, resúmenes, XML de RSS y sitemaps, respuestas de API) es entrada no confiable: se analiza sin entidades externas (XXE), se escapa al mostrarlo (XSS) y solo se consultan dominios de una lista fija (SSRF). Se detalla en el modelo de amenazas (E1).
+- No se recogen datos personales como objetivo: solo titular, enlace, fecha y resumen de noticias, y etiquetas y enlaces en tendencia. De los usuarios de la aplicación solo se guarda lo mínimo para autenticarse; el registro de auditoría de una búsqueda guarda el identificador de usuario y no más datos personales.
 - Imágenes en Docker Hub bajo el namespace `h4tt3rxplo1tt` (doble t): `h4tt3rxplo1tt/h4tt3r-1nf0rm4t1v0-<servicio>:vX.Y.Z` más `latest`. Existe una cuenta parecida, `h4tt3rxplo1t` (una sola t), que **no está confirmada como del proyecto**: usar siempre el nombre exacto (riesgo de typosquatting). CI publica con un token de acceso de Docker Hub de alcance mínimo, guardado como secreto de GitHub por la persona responsable; nunca desde una máquina personal.
 - Sin secretos en el repositorio: valores ficticios y `.env.example`.
 

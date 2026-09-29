@@ -181,6 +181,7 @@ Rama `docs/15-ficha-agregador`. Cierra la parte documental de E0: aplicación el
 - **Decisiones del usuario (2026-09-29):** (1) alojamiento en este repositorio, con el traslado a una rama del repositorio del curso como última tarea; (2) cuatro servicios desplegables, ADR 0003; (3) fuentes anteriores; (4) historia de usuario de la sustentación: búsqueda por tema; (5) licencia Apache 2.0, con la licencia del modelo de sentimiento declarada aparte; (6) K3s mediante k3d e IaC con Terraform; (7) Docker Hub `h4tt3rxplo1tt`.
 - **Aviso de Docker Hub.** Existe una cuenta parecida, `h4tt3rxplo1t` (una sola t), que no está confirmada como del proyecto. Usar siempre el nombre exacto `h4tt3rxplo1tt` (riesgo de typosquatting) y publicar solo desde CI con un token de alcance mínimo.
 - **Documentos añadidos:** sección de ficha en `docs/PROJECT_CONTEXT.md`, `docs/adr/0003-agrupacion-microservicios.md` y `docs/propuesta.md`.
+- **Revisión de seguridad (revisor-seguridad):** listo para PR, sin hallazgos críticos, altos ni medios. Corregidos en esta rama: B1 (el `User-Agent` es propio y no suplanta a otro; una fuente que lo bloquee en `robots.txt` se desactiva) y B3 (la afirmación «sin datos personales de terceros» era demasiado fuerte: ahora dice «no se recogen como objetivo», y de Mastodon solo se usan etiquetas y enlaces en tendencia, porque `/trends/statuses` devuelve publicaciones y autores). B2, B5 y B6 pasan a pendientes de E1, E3 y E7. B4 (namespace de Docker Hub sin verificar) ya estaba resuelto: `h4tt3rxplo1tt` se comprobó en la API pública de Docker Hub y con la captura de la cuenta de la persona.
 - **Aprendizaje:** verificar el acceso a cada plataforma antes de comprometer el alcance. Identix se apoyaba en redes sociales cuyo acceso legítimo no existe o exige aprobaciones; comprobarlo al inicio habría ahorrado el desvío.
 
 ## Pendientes
@@ -188,6 +189,9 @@ Rama `docs/15-ficha-agregador`. Cierra la parte documental de E0: aplicación el
 - [ ] Validación por escrito de `docs/propuesta.md` por el profesor (propuesta propia, sección 2 del enunciado); completar el nombre del estudiante.
 - [ ] Revisión manual de los términos de uso de RCN, Semana, Caracol, Blu Radio y Citytv antes de la entrega (no se leyeron textualmente).
 - [ ] Verificar las versiones del stack (AGENTS.md §3) antes de fijarlas.
+- [ ] **E1:** modelar el contenido de las fuentes externas como entrada no confiable (XSS, XXE en RSS y sitemaps, SSRF con lista fija de dominios) y la concentración de funciones en el gateway como amenaza de elevación de privilegios (hallazgos B2 y B6 del #15).
+- [ ] **E3:** antes de añadir `pysentimiento`, verificar nombre, mantenedor, licencia y actividad (AGENTS.md §3) y fijar el modelo de Hugging Face por hash de commit (riesgo de deserialización con `torch`) (hallazgo B5 del #15).
+- [ ] **E7:** referenciar las imágenes por digest, no solo por `vX.Y.Z` y `latest` (hallazgo B4 del #15).
 - [ ] Traslado a una rama del repositorio del curso: última tarea del proyecto (decidido el 2026-09-29).
 - [ ] CODEOWNERS para rutas sensibles (`.github/**`, `.claude/**`, `tests/**`, `docs/adr/**`), útil cuando haya un segundo revisor (mitigación de M1, ADR 0001).
 - [x] Imágenes rotas referenciadas en `docs/PROJECT_CONTEXT.md` (`Logo.png`, `Arquitectura_IDENTIX.png`), restauradas en `f834b9d`.

@@ -13,7 +13,7 @@ Solicito la validación por escrito (sección 2 del enunciado) de una **propuest
 
 Una misma noticia aparece en muchos medios con enfoques distintos, y el lector tiene que recorrerlos uno a uno para compararlos. H4tt3r_1nf0rm4t1v0 reúne en un solo lugar las noticias más relevantes de medios colombianos y de habla hispana, junto con tendencias, y permite buscar por tema. Los resultados se agrupan por noticia entre medios y llevan una etiqueta de sentimiento. Encaja con el ejemplo del enunciado «Plataforma de detección de desinformación y verificación de fuentes», porque permite contrastar cómo cubre cada medio un mismo hecho.
 
-Se eligió primero Identix y se descartó: su OSINT sobre personas reales exigía verificar la titularidad de cada identificador, recoger consentimiento y borrar datos, una carga de protección de datos que excedía el alcance, y las redes sociales principales no ofrecen acceso legítimo y gratuito. Esta aplicación no trata datos personales de terceros.
+Se eligió primero Identix y se descartó: su OSINT sobre personas reales exigía verificar la titularidad de cada identificador, recoger consentimiento y borrar datos, una carga de protección de datos que excedía el alcance, y las redes sociales principales no ofrecen acceso legítimo y gratuito. Esta aplicación no recoge datos personales como objetivo: solo titulares, enlaces, fechas y resúmenes de noticias, y etiquetas y enlaces en tendencia.
 
 ## 3. Objetivos
 
@@ -25,7 +25,7 @@ Se eligió primero Identix y se descartó: su OSINT sobre personas reales exigí
 
 - Registro e inicio de sesión con JWT y roles; temas favoritos por usuario.
 - Lectura periódica de noticias de RCN, Semana, Caracol, Blu Radio y Citytv (RSS y sitemaps).
-- Tendencias de YouTube, Google Trends (RSS) y Mastodon.
+- Tendencias de YouTube, Google Trends (RSS) y Mastodon (solo etiquetas y enlaces, sin publicaciones ni cuentas).
 - Búsqueda por tema con resultados agrupados por noticia y sentimiento en español (positivo, negativo o neutral).
 - Registro de auditoría de las búsquedas.
 
@@ -65,7 +65,7 @@ Despliegue en K3s ejecutado localmente con k3d, definido con Terraform.
 
 ## 7. Fuentes y enfoque legal y ético
 
-Solo se almacenan titular, enlace, fecha y un resumen corto, nunca el artículo completo. Se respetan `robots.txt` y los términos de uso, el bot se identifica con un `User-Agent` propio, se usa únicamente acceso gratuito y legítimo y no se tratan datos personales de terceros. Se excluyeron X, Reddit, Facebook, Instagram, TikTok y CNN en Español por no ofrecer acceso gratuito y legítimo (detalle y fuentes en `docs/PROJECT_CONTEXT.md`). Riesgo abierto: los términos de uso de los medios aún no se han leído textualmente; se revisarán antes de la entrega.
+Solo se almacenan titular, enlace, fecha y un resumen corto, nunca el artículo completo. Se respetan `robots.txt` y los términos de uso, el bot se identifica con un `User-Agent` propio que no suplanta a otro (si una fuente lo bloquea, se desactiva), se usa únicamente acceso gratuito y legítimo y no se recogen datos personales como objetivo. El contenido de las fuentes se trata como entrada no confiable. Se excluyeron X, Reddit, Facebook, Instagram, TikTok y CNN en Español por no ofrecer acceso gratuito y legítimo (detalle y fuentes en `docs/PROJECT_CONTEXT.md`). Riesgo abierto: los términos de uso de los medios aún no se han leído textualmente; se revisarán antes de la entrega.
 
 ## 8. Historia de usuario para la sustentación
 

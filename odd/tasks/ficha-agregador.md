@@ -38,7 +38,7 @@ Delegated writer (writer trigger: 4 non-trivial docs).
 - [x] **T2**: ADR 0003.
 - [x] **T3**: `docs/propuesta.md`.
 - [x] **T4**: BITACORA entry and pending list.
-- [ ] **T5**: `revisor-seguridad` review before proposing the PR.
+- [x] **T5**: `revisor-seguridad` review before proposing the PR (ready for PR; B1 and B3 fixed, B2/B5/B6/B4 moved to pending items).
 
 ## Progress
 - Issue #15 created and retitled by the user. Branch `docs/15-ficha-agregador` from `main` at `7ba9cae`.
@@ -47,4 +47,5 @@ Delegated writer (writer trigger: 4 non-trivial docs).
 - T2 done: `docs/adr/0003-agrupacion-microservicios.md` (`221da19`).
 - T3 done: `docs/propuesta.md` (`7915f2d`).
 - T4 done: BITACORA entry and pending list (commit below); this document updated in the same commit.
-- Checks: see the writer report (guardia and ruleset suites, link check, deletion check).
+- Checks (writer, re-run by parent): `tests/hooks/guardia_test.sh` 164/164, `tests/rulesets/main_ruleset_test.sh` 15/15, relative links resolve, and only the 2 alt-text lines of the course statement changed.
+- T5: revisor-seguridad verdict ready for PR, with 0 critical/high/medium and 3 low findings. B1 and B3 fixed in the follow-up commit (Mastodon limited to tags and links; own non-impersonating User-Agent; source content treated as untrusted input). B2/B5/B6/B4 tracked in BITACORA pending items.

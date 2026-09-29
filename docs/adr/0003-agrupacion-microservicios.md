@@ -37,7 +37,7 @@ Cuatro servicios desplegables:
 |---|---|
 | `gateway` (FastAPI) | Autenticación (JWT y roles), usuarios, temas favoritos, API de búsqueda, registro de auditoría y límite de tasa |
 | `worker-noticias` | Lee los RSS y sitemaps de los medios |
-| `worker-tendencias` | YouTube, Google Trends RSS y tendencias de Mastodon |
+| `worker-tendencias` | YouTube, Google Trends RSS y etiquetas y enlaces en tendencia de Mastodon |
 | `worker-analisis` | Agrupa la misma noticia entre medios y calcula el sentimiento en español |
 
 La comunicación entre servicios pasa por RabbitMQ. Los datos viven en

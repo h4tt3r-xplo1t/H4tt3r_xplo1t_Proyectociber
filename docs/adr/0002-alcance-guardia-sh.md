@@ -75,16 +75,34 @@ no dependen del texto del comando:
 - Siguen fuera de alcance:
   - la expansión del shell (`${IFS}`, llaves, `$'...'`, globs);
   - variables que contienen `git`, alias y funciones de shell, y `eval`;
-  - scripts ejecutados indirectamente (`bash script.sh`, `make`);
-  - `rebase`, y `reset`/`update-ref`/`branch -f` sobre `main` en local.
+  - alias de git ya existentes en la configuración del usuario (por ejemplo
+    `ci = commit` en `~/.gitconfig`); el hook solo impide crear alias nuevos;
+  - scripts ejecutados indirectamente (`bash script.sh`, `make`), incluida
+    la edición directa de `.git/config`, borrar `.git/hooks/*` o
+    `pre-commit uninstall`;
+  - `rebase`, `pull` (merge o rebase local) y `reset`/`update-ref`/`branch -f`
+    sobre `main`.
 
-  Todos son locales: el ruleset impide que lleguen a `main` en GitHub.
+  Todos actúan en local: el ruleset impide que un push lleve esos cambios a
+  `main` en GitHub. La otra vía hacia `main`, fusionar un PR, sí la bloquea
+  el hook (`gh pr merge`), porque la fusión la hace una persona
+  (AGENTS.md §5). Una fusión mediante `gh api` (endpoint de merge del PR)
+  no se cubre y queda como límite conocido.
 - Falsos positivos aceptados (fail-closed):
   - `-n` en cualquier parte de un comando con `git commit`;
   - `echo git commit` en `main`;
-  - cualquier comando cuyo texto mencione `core.hooksPath` o las claves de
-    config bloqueadas;
-  - líneas de un mensaje o un cuerpo de PR pasados en la línea de comandos
-    que parezcan comandos git.
+  - `git -C <ruta>`, `--git-dir` o `--work-tree` con commit o push sin
+    refspec, aunque la ruta sea el propio proyecto (la rama destino se
+    considera desconocida);
+  - `cd "$VAR"` o `cd` con sustitución de comandos antes de un commit, porque
+    el destino no se puede resolver; también un `cd` dentro de un subshell,
+    que afecta a los segmentos posteriores;
+  - una rama destino de push que termine en `/main` (`feat/main`);
+  - opciones globales de git no reconocidas (por ejemplo `-C.`);
+  - cualquier comando cuyo texto mencione `core.hooksPath`, las claves de
+    config bloqueadas, `--no-verify`, `SKIP=`, `PRE_COMMIT_ALLOW_NO_CONFIG=`
+    o las variables `GIT_CONFIG_*` bloqueadas, incluidas las líneas de un
+    mensaje de commit o un cuerpo de PR pasados en la línea de comandos.
 
-  Se evitan pasando esos textos por archivo (`-F`, `--body-file`).
+  Los textos se pasan por archivo (`-F`, `--body-file`), y los `cd` con la
+  ruta literal del proyecto.

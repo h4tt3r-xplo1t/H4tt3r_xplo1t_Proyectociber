@@ -27,7 +27,8 @@ Issue #1 (reopened), PR A: make `.claude/hooks/guardia.sh` fail closed and close
 - [x] **T2** — Hook implemented by delegated writer: GREEN 62/62. Parent review found 17 more bypasses (shell syntax hiding git, `GIT_DIR=`, `cd` outside project, cherry-pick/revert/am, push `--all`/`--prune`/abbreviations): round 2 RED 17/83, writer GREEN 83/83. Parent probe found a newline regression (`git status` + newline + `git commit` on main allowed): round 3 inline, RED 3/86, GREEN 86/86 (newline turned into `;` before normalizing).
 - [x] **T3** — BITACORA entry, revisor-seguridad review (verdict: blocking, 19 suspicions; parent reproduced all 19), commit `4040790`.
 - [x] **T4** — Round 4 per user decision "fix structural + config, document shell expansion": RED 20/112 (writer), GREEN 112/112 verified by parent; probe script re-run: only the 3 shell-expansion cases and `reset --hard` on main remain open. ADR `docs/adr/0002-alcance-guardia-sh.md` records the threat model.
-- [ ] **T5** — Final revisor-seguridad pass, commit, push + PR (needs authorization).
+- [x] **T5** — Final revisor-seguridad pass on `72f6ae5`: ready for PR with reservations. Round 5 (10 cases incl. `gh pr merge` block per AGENTS.md §5): RED 10/125, writer GREEN 125/125 verified by parent; probes: only 3 shell-expansion cases and `reset --hard` on main remain open. ADR 0002 and BITACORA precision fixes.
+- [ ] **T6** — Push + PR (needs authorization); human review and squash merge. Then PR B (settings.json, gitleaks SHA pin).
 
 ## Acceptance criteria
 - Hook exits 2 when `jq` is missing or input is not valid JSON.

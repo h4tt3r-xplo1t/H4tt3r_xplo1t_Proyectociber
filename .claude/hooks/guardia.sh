@@ -20,7 +20,9 @@ PROYECTO=$(realpath -m "$CLAUDE_PROJECT_DIR")
 
 # Fallar cerrado: con JSON inválido no hay forma de inspeccionar el comando.
 ENTRADA=$(cat)
-CMD=$(printf '%s' "$ENTRADA" | jq -r '.tool_input.command // ""') || bloquear "la entrada no es JSON válido; la guardia no puede analizar el comando."
+# Sin entrada, o sin tool_input.command como texto, no hay nada que evaluar: bloquea.
+# (El matcher es solo Bash, así que una llamada real siempre trae comando.)
+CMD=$(printf '%s' "$ENTRADA" | jq -er '.tool_input.command | strings') || bloquear "entrada vacía, JSON inválido o sin tool_input.command; la guardia no puede analizar el comando."
 CWD=$(printf '%s' "$ENTRADA" | jq -r '.cwd // ""') || bloquear "la entrada no es JSON válido; la guardia no puede analizar el comando."
 
 # Normaliza espacios repetidos y tabuladores a un solo espacio para que las
@@ -54,7 +56,7 @@ fi
 # alias o comandos externos (comparación sin distinguir mayúsculas).
 clave_peligrosa() {
   case "${1,,}" in
-    remote.*.push|remote.*.pushurl|alias.*|include.*|includeif.*|push.*|branch.*.merge|branch.*.pushremote|core.hookspath|core.sshcommand|core.fsmonitor) return 0 ;;
+    remote.*.push|remote.*.pushurl|alias.*|include.*|includeif.*|push.*|branch.*.merge|branch.*.pushremote|remote.*.mirror|core.hookspath|core.sshcommand|core.fsmonitor|core.worktree|core.bare) return 0 ;;
   esac
   return 1
 }
@@ -75,12 +77,12 @@ parsear_git() {
           i=$((i + 2)) ;;
       --config-env) clave_peligrosa "${TOK[i+1]%%=*}" && bloquear "configuración peligrosa por --config-env (${TOK[i+1]%%=*})."
           i=$((i + 2)) ;;
-      --namespace|--super-prefix) i=$((i + 2)) ;;          # opciones con valor separado
+      --namespace|--super-prefix|--attr-source) i=$((i + 2)) ;;          # opciones con valor separado
       --git-dir=*|--work-tree=*) TARGET=1; i=$((i + 1)) ;;
       --config-env=*) tok="${tok#--config-env=}"
           clave_peligrosa "${tok%%=*}" && bloquear "configuración peligrosa por --config-env (${tok%%=*})."
           i=$((i + 1)) ;;
-      --namespace=*|--super-prefix=*) i=$((i + 1)) ;;
+      --namespace=*|--super-prefix=*|--attr-source=*) i=$((i + 1)) ;;
       # Opciones globales conocidas sin valor.
       --no-pager|-p|--paginate|-P|--bare|--no-replace-objects|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|--no-optional-locks|--no-advice|--exec-path|--html-path|--man-path|--info-path|--version|--help|--list-cmds=*|--exec-path=*) i=$((i + 1)) ;;
       -*) TARGET=1; i=$((i + 1)) ;;                        # desconocida: fail-closed
@@ -118,14 +120,18 @@ actualizar_cd() {
   if dentro_del_proyecto "$BASE"; then CD_FUERA=0; else CD_FUERA=1; fi
 }
 
-# Git acepta prefijos únicos de opciones largas: se bloquea todo prefijo de
-# 4+ caracteres de una opción de push peligrosa (--forc, --mirr, --al...).
+# Git acepta prefijos únicos de opciones largas. Cada opción de push peligrosa
+# lleva su longitud mínima de prefijo (con los guiones): la más corta que aún
+# no es ambigua con otras opciones (--a choca con --atomic; --po/--pr con
+# --porcelain/--progress/--prune).
 opcion_push_prohibida() {
-  local nombre="$1" larga
-  [ "${#nombre}" -ge 4 ] || return 0
-  for larga in --force --force-with-lease --force-if-includes --mirror --all --prune; do
-    [[ "$larga" == "$nombre"* ]] && bloquear "opción de push peligrosa ($nombre): forzado, --mirror, --all o --prune no permitidos. Usa PR."
+  local nombre="$1" larga minimo par
+  for par in --mirror:3 --all:4 --prune:5 --force:5 --force-with-lease:5 --force-if-includes:5; do
+    larga="${par%%:*}"; minimo="${par##*:}"
+    [ "${#nombre}" -ge "$minimo" ] && [[ "$larga" == "$nombre"* ]] \
+      && bloquear "opción de push peligrosa ($nombre): forzado, --mirror, --all o --prune no permitidos. Usa PR."
   done
+  return 0
 }
 
 # Reglas de push, evaluadas solo sobre los tokens del segmento "git push".
@@ -172,6 +178,24 @@ revisar_config() {
   done
 }
 
+# Fusionar PR es decisión humana (AGENTS.md §5): bloquea "gh ... pr merge" en
+# el segmento actual (TOK). El subcomando de pr es el primer token sin guion.
+revisar_gh() {
+  local j k
+  for j in "${!TOK[@]}"; do
+    case "${TOK[j]}" in gh|*/gh) ;; *) continue ;; esac
+    for ((k = j + 1; k < ${#TOK[@]}; k++)); do
+      [ "${TOK[k]}" = "pr" ] || continue
+      for ((k = k + 1; k < ${#TOK[@]}; k++)); do
+        [[ "${TOK[k]}" == -* ]] && continue
+        [ "${TOK[k]}" = "merge" ] && bloquear "la fusión de PR la hace una persona (AGENTS.md §5); el agente no ejecuta gh pr merge."
+        break
+      done
+      break
+    done
+  done
+}
+
 # Aplica las reglas a una invocación de git ya interpretada (SUB, ARGS, TARGET).
 revisar_invocacion() {
   case "$SUB" in
@@ -210,6 +234,7 @@ mapfile -t SEGS_LIMPIOS < <(printf '%s\n' "$LIMPIO" | sed 's/[;&|]/\n/g')
 for idx in "${!SEGS_LIMPIOS[@]}"; do
   actualizar_cd "${SEGS_CRUDOS[idx]}"
   read -ra TOK <<< "${SEGS_LIMPIOS[idx]}"
+  revisar_gh
   # Cada token git (o */git) del segmento es una invocación candidata, no solo
   # el primero ("sudo -u git git commit"). Acepta a propósito falsos positivos
   # como "echo git commit" en main (fail-closed).
@@ -229,7 +254,10 @@ if echo "$NORM" | grep -qE '(^|[ ;])git commit' && echo "$LIMPIO" | grep -qE '(^
   bloquear "-n equivale a --no-verify; no se permite saltarse los hooks."
 fi
 # Cambiar a main (switch/checkout, o symbolic-ref de HEAD) y crear commits en el mismo comando.
-if echo "$NORM" | grep -qE 'git (switch|checkout)[^;]* main( |;|$)|git symbolic-ref[^;]* (refs/)?heads/main( |;|$)' \
+# "switch -"/"checkout -" y "@{-N}" vuelven a la rama anterior, que puede ser main.
+# "@{-" se busca en el comando crudo porque LIMPIO convierte { } en espacios.
+if { echo "$NORM" | grep -qE 'git (switch|checkout)[^;]* (main|-)( |;|$)|git symbolic-ref[^;]* (refs/)?heads/main( |;|$)' \
+     || echo "$CMD" | grep -qF '@{-'; } \
   && echo "$NORM" | grep -qE 'git (commit|merge|cherry-pick|revert|am) '; then
   bloquear "no combines el cambio/creación de main (switch, checkout, symbolic-ref) con commit, merge, cherry-pick, revert o am."
 fi

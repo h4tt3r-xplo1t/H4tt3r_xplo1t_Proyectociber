@@ -1,7 +1,7 @@
 # Propuesta de proyecto: H4tt3r_1nf0rm4t1v0
 
 **Trabajo final:** Pipeline DevSecOps de ciclo completo para una aplicación contenerizada de libre uso
-**Autor:** [Nombre del estudiante]
+**Autor:** H4TT3R_XPLO1T
 **Fecha:** 2026-09-29
 **Licencia del producto:** Apache 2.0
 

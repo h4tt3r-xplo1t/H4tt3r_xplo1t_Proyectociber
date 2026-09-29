@@ -104,6 +104,19 @@ Rama `ci/4-ruleset-como-codigo` (el nombre evita el falso positivo de `guardia.s
 
 Pendiente (operación remota, con autorización explícita por paso): push y PR, `PUT` del ruleset tras la fusión, desactivar merge commit y rebase merge, y las cuatro verificaciones de bloqueo.
 
+## 2026-09-29 · Issue #4: protección de main (Fase 2, aplicación y verificación)
+
+- **PR #6** fusionado con squash como `b8ff3af` (CI run `36501247990` en verde). Antes del `PUT` se identificaron las integraciones con bypass: `claude` (1236702) y `copilot-swe-agent` (1143301); la 946600 no se pudo identificar. Ninguna necesita escribir en `main` sin PR.
+- **`PUT` del ruleset** `protege` (id 24097824) con `.github/rulesets/main.json`. Antes: 4 actores con bypass y reglas `creation`, `update`, `required_signatures` y de escaneo sin herramienta. Después: sin bypass y solo las cinco reglas del ADR. La prueba de política contra un `GET` independiente da 15/15. La copia del ruleset anterior quedó fuera del repositorio.
+- **Configuración de fusión del repositorio** (`PATCH`): merge commit y rebase merge desactivados, squash activo.
+- **Verificación del bloqueo:**
+  - Push directo a `main` con el usuario Admin: rechazado (`GH013`, exige PR y los 3 checks).
+  - PR #7 fusionado con squash antes de los checks: rechazado.
+  - Merge commit y rebase con los checks en verde: rechazados («not allowed on this repository»).
+  - Force push: el intento se hizo con un commit encima de `main`, así que lo rechazó la regla de PR y no la de `non_fast_forward`. No se intentó un force push real porque, si la protección fallara, reescribiría `main`; la regla se confirma activa por la API. Queda como verificación indirecta.
+  - El PR #7 se cerró sin fusionar y su rama se borró.
+- **Aprendizaje:** `guardia.sh` evalúa la rama actual antes de ejecutar y bloquea cualquier comando que combine `git push` con la palabra `main` (también `gh pr create --base main` en el mismo comando). Hay que separar los comandos; no es un bypass.
+
 ## Pendientes
 - [ ] Probar el kit dentro de Claude Code (/memory, /permissions, /hooks, /agents; commit en main debe bloquearse).
 - [ ] Fase E0: completar docs/PROJECT_CONTEXT.md.
@@ -111,7 +124,8 @@ Pendiente (operación remota, con autorización explícita por paso): push y PR,
 - [ ] Confirmar política institucional sobre dónde alojar el repositorio.
 - [ ] Elegir lenguaje y stack; añadir sus comandos de prueba/lint a .claude/settings.json.
 - [ ] Issue #1: cubrir bypasses restantes de guardia.sh (push -uf, git -C, rutas absolutas, core.hooksPath, CODEOWNERS, pinning por SHA, imágenes rotas en PROJECT_CONTEXT.md). El falso positivo de nombre de rama (`feature/main-page`) quedó resuelto como efecto de la corrección del Bypass B de la segunda revisión (regla de segmento que exige un espacio antes de `main`, no `/` ni `-`). **Nota (2026-09-28):** el issue #1 aparece CLOSED en GitHub, pero los bypasses restantes siguen pendientes sin corregir; hace falta reconciliar (reabrirlo o crear un issue nuevo que los cubra). Además, la regla de push de `guardia.sh` bloquea ramas cuyo nombre contiene `-main` (p. ej. `ci/4-proteccion-main`) porque `\bmain\b` coincide tras un guion; hay que exigir `main` como destino real y añadir la prueba de regresión.
-- [ ] Issue #4 Fase 2: ~~ruleset como código con `integration_id` (B2)~~ hecho en local; falta PUT sobre protege + desactivar merge commit/rebase + 4 verificaciones.
-- [ ] Ejecutar `tests/hooks/guardia_test.sh` y `tests/rulesets/main_ruleset_test.sh` en el job `pruebas` del CI (hoy es un placeholder).
+- [x] Issue #4 Fase 2: ruleset como código con `integration_id` (B2), `PUT` sobre `protege`, merge commit/rebase desactivados y bloqueo verificado.
+- [ ] Ejecutar `tests/hooks/guardia_test.sh` y `tests/rulesets/main_ruleset_test.sh` en el job `pruebas` del CI (hoy es un placeholder). Hallazgo M2: abrir un issue.
+- [ ] Crear `.github/copilot-instructions.md` antes de delegar tareas elementales a Copilot.
 - [x] Quitar el scope `workflow` del token de `gh` tras el push de `ci/4-proteccion-main` (hallazgo B1).
 - [x] Contrastar los sha256 de gitleaks y actionlint con los `checksums.txt` oficiales antes del merge de PR #5 (hallazgo I1).

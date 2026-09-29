@@ -56,7 +56,7 @@ fi
 # alias o comandos externos (comparación sin distinguir mayúsculas).
 clave_peligrosa() {
   case "${1,,}" in
-    remote.*.push|remote.*.pushurl|alias.*|include.*|includeif.*|push.*|branch.*.merge|branch.*.pushremote|remote.*.mirror|core.hookspath|core.sshcommand|core.fsmonitor|core.worktree|core.bare) return 0 ;;
+    remote.*.push|remote.*.pushurl|alias.*|include.*|includeif.*|push.*|branch.*.merge|branch.*.pushremote|remote.*.mirror|diff.external|diff.*.command|core.pager|pager.*|core.hookspath|core.sshcommand|core.fsmonitor|core.worktree|core.bare) return 0 ;;
   esac
   return 1
 }
@@ -178,13 +178,13 @@ revisar_config() {
   done
 }
 
-# ¿La ruta apunta a un archivo secreto? Quita un "<rev>:" inicial y los "./"
-# iniciales; bloquea .env y .env.* (salvo exactamente .env.example) en
+# ¿La ruta apunta a un archivo secreto? Quita todo hasta el ÚLTIMO ":" (cubre
+# HEAD:.env, :0:.env y -L1,9:ruta) y los "./" iniciales; bloquea .env y .env.* (salvo exactamente .env.example) en
 # cualquier componente, y secrets/ al inicio o en medio de la ruta.
 es_ruta_secreta() {
   local ruta="$1" comp
   local -a comps
-  ruta="${ruta#*:}"
+  ruta="${ruta##*:}"
   while [[ "$ruta" == ./* ]]; do ruta="${ruta#./}"; done
   IFS=/ read -ra comps <<< "$ruta"
   for comp in "${comps[@]}"; do
@@ -204,17 +204,49 @@ es_ruta_secreta() {
 #  - --output escribe archivos; --ext-diff ejecuta un programa externo.
 # Los rangos de revisiones (main...HEAD, main..feat) no son rutas y se permiten.
 revisar_lectura() {
-  local tok
+  local tok valor
+  # diff con $ o ` en el segmento crudo: la expansión puede producir rutas
+  # fuera del repositorio (LIMPIO ya convirtió esos caracteres en espacios).
+  if [ "$SUB" = "diff" ] && [[ "$RAW_SEG" == *[\$\`]* ]]; then bloquear "$MSG_LECTURA"; fi
   for tok in "${ARGS[@]}"; do
     case "$tok" in
       --no-index|--ext-diff|--output|--output=*) bloquear "$MSG_LECTURA" ;;
-      -*) continue ;;
     esac
-    es_ruta_secreta "$tok" && bloquear "$MSG_LECTURA"
+    # Opciones que leen archivos del disco, ignoran .gitignore o ejecutan programas.
+    case "$SUB:$tok" in
+      blame:--contents|blame:--contents=*) bloquear "$MSG_LECTURA" ;;
+      grep:-f*|grep:--file|grep:--file=*|grep:--untracked|grep:--no-exclude-standard) bloquear "$MSG_LECTURA" ;;
+      grep:-O*|grep:--open-files-in-pager|grep:--open-files-in-pager=*) bloquear "$MSG_LECTURA" ;;
+      cat-file:--batch*) bloquear "$MSG_LECTURA" ;;
+    esac
+    # git grep y git blame aceptan prefijos únicos de opciones largas
+    # (--op, --u, --no-exc, --cont): se bloquea cualquier prefijo desde la
+    # longitud mínima indicada, con los guiones incluidos.
+    [[ "$tok" == --* ]] && opcion_lectura_prohibida "$SUB" "${tok%%=*}"
+    # Opción con valor pegado (--opt=valor, -L1,9:ruta): se revisa el valor.
+    valor="$tok"
+    if [[ "$tok" == -* ]]; then
+      [[ "$tok" == *=* ]] && valor="${tok#*=}"
+    fi
+    es_ruta_secreta "$valor" && bloquear "$MSG_LECTURA"
+    [[ "$tok" == -* ]] && continue
     if [ "$SUB" = "diff" ]; then
-      case "$tok" in /*|..|../*|*/../*|*/..) bloquear "$MSG_LECTURA" ;; esac
+      case "$tok" in /*|~*|..|../*|*/../*|*/..) bloquear "$MSG_LECTURA" ;; esac
     fi
   done
+}
+opcion_lectura_prohibida() {
+  local sub="$1" nombre="$2" par larga minimo
+  local pares=""
+  case "$sub" in
+    grep) pares="--open-files-in-pager:4 --untracked:3 --no-exclude-standard:6 --file:6" ;;
+    blame) pares="--contents:5" ;;
+  esac
+  for par in $pares; do
+    larga="${par%%:*}"; minimo="${par##*:}"
+    [ "${#nombre}" -ge "$minimo" ] && [[ "$larga" == "$nombre"* ]] && bloquear "$MSG_LECTURA"
+  done
+  return 0
 }
 MSG_LECTURA="git diff/log/show no pueden leer secretos (.env, secrets/), comparar rutas fuera del repositorio ni escribir o ejecutar con --output/--ext-diff/--no-index."
 
@@ -261,6 +293,9 @@ fi
 if echo "$LIMPIO" | grep -qE 'GIT_CONFIG_(COUNT|KEY_|VALUE_|PARAMETERS|GLOBAL=|SYSTEM=)'; then
   bloquear "no se permite alterar la configuración de git por variables de entorno (GIT_CONFIG_*)."
 fi
+if echo "$LIMPIO" | grep -qE '(^|[^A-Za-z0-9_])(GIT_EXTERNAL_DIFF|GIT_PAGER)='; then
+  bloquear "no se permite ejecutar programas externos con GIT_EXTERNAL_DIFF= o GIT_PAGER=."
+fi
 if echo "$LIMPIO" | grep -qE '(^|[^A-Za-z0-9_])(SKIP|PRE_COMMIT_ALLOW_NO_CONFIG)='; then
   bloquear "no se permite saltarse hooks de pre-commit con SKIP= o PRE_COMMIT_ALLOW_NO_CONFIG=."
 fi
@@ -273,7 +308,8 @@ echo "$LIMPIO" | grep -qE '(^|[^A-Za-z0-9_])GIT_(DIR|WORK_TREE)=' && VAR_GIT=1
 mapfile -t SEGS_CRUDOS < <(printf '%s\n' "$CMD" | sed 's/[;&|]/\n/g')
 mapfile -t SEGS_LIMPIOS < <(printf '%s\n' "$LIMPIO" | sed 's/[;&|]/\n/g')
 for idx in "${!SEGS_LIMPIOS[@]}"; do
-  actualizar_cd "${SEGS_CRUDOS[idx]}"
+  RAW_SEG="${SEGS_CRUDOS[idx]}"
+  actualizar_cd "$RAW_SEG"
   read -ra TOK <<< "${SEGS_LIMPIOS[idx]}"
   revisar_gh
   # Cada token git (o */git) del segmento es una invocación candidata, no solo

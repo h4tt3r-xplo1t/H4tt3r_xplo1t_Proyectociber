@@ -35,7 +35,8 @@ Issue #1 (reopened), PR A: make `.claude/hooks/guardia.sh` fail closed and close
 - [x] **B2** — `.claude/settings.json`: hook path quoted as in the official docs (`"$CLAUDE_PROJECT_DIR"/...`). JSON validated with `jq`.
 - [x] **B3** — `.pre-commit-config.yaml`: gitleaks pinned to `83d9cd68…` (`v8.30.1`, aligned with CI) and pre-commit-hooks to `3e8a8703…` (`v6.0.0`), SHAs resolved from the official tags with `gh api`; the `gitleaks` hook id verified at that SHA.
 - [x] **B4** — Decision (user): keep `deny Read(./.env.*)`. Official docs: an allow rule cannot carve an exception out of a deny rule. `.env.example` (fictitious values only) is read on request via a confirmed command. The issue criterion "`.env.example` se puede leer" is dropped and documented.
-- [ ] **B5** — BITACORA, revisor-seguridad, commit, push + PR (authorization).
+- [x] **B5** — revisor-seguridad on `992fbd7`: blocking. Parent triage: tracked-content pathspec reads cannot reach a gitignored `.env` (documented limit); reads outside git's tracked set and program execution closed. Round 2: RED 13/158 (writer GREEN), then parent disproved the writer's "abbreviations not covered" claim empirically (git grep/blame accept `--op`, `--u`, `--no-exc`, `--cont`): RED 2/164, GREEN 164/164 inline.
+- [ ] **B6** — Commit, push + PR (authorization), human merge, close issue #1.
 
 ## Acceptance criteria
 - Hook exits 2 when `jq` is missing or input is not valid JSON.

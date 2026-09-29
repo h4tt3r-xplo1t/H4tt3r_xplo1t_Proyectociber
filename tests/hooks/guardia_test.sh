@@ -284,6 +284,30 @@ run_case "log --output=<archivo> (escribe archivos)"      'git log --output=/tmp
 run_case "diff --output <archivo>"                        'git diff --output /tmp/x'                       feat/x   2
 run_case "diff --ext-diff (ejecuta un programa externo)"  'git diff --ext-diff'                            feat/x   2
 
+# Issue #1, PR B (segunda ronda, revisión de seguridad) — vías que leen
+# archivos fuera de lo que git registra (saltan .gitignore) o ejecutan
+# programas. Los pathspecs sobre contenido registrado (git log -p, globs)
+# no alcanzan un .env ignorado y quedan como límite documentado.
+run_case "diff ~/ruta (no-index implícito vía ~)"         'git diff ~/.ssh/a README.md'                    feat/x   2
+run_case "diff \$HOME/ruta (no-index implícito vía \$)"   'git diff $HOME/.ssh/a README.md'                feat/x   2
+run_case "show :0:.env (entrada del índice por etapa)"    'git show :0:.env'                               feat/x   2
+run_case "log -L1,9:.env (ruta pegada a la opción)"       'git log -L1,9:.env'                             feat/x   2
+run_case "blame --contents=.env (lee el archivo del disco)" 'git blame --contents=.env README.md'          feat/x   2
+run_case "grep -f.env (patrones leídos de un archivo)"    'git grep -f.env .'                              feat/x   2
+run_case "grep --untracked --no-exclude-standard"         'git grep --untracked --no-exclude-standard -e x' feat/x  2
+run_case "grep -O<programa> (ejecuta un programa)"        'git grep -Ocat -e x'                            feat/x   2
+run_case "cat-file --batch (rutas por stdin)"             'echo HEAD:x | git cat-file --batch'             feat/x   2
+run_case "GIT_EXTERNAL_DIFF=<programa> git diff"          'GIT_EXTERNAL_DIFF=/tmp/x git diff'              feat/x   2
+run_case "GIT_PAGER=<programa> git log"                   'GIT_PAGER=/tmp/x git log -1'                    feat/x   2
+run_case "git config core.pager"                          'git config core.pager /tmp/x'                   feat/x   2
+run_case "-c diff.external=<programa> diff"               'git -c diff.external=/tmp/x diff'               feat/x   2
+# git grep y git blame aceptan prefijos únicos de opciones largas (comprobado
+# con git 2.55: --op, --u, --no-exc y --cont se aceptan).
+run_case "grep --op=<programa> (abreviatura de --open-files-in-pager)" 'git grep --op=cat -e x'             feat/x   2
+run_case "grep --u (abreviatura de --untracked)"          'git grep --u -e x'                              feat/x   2
+run_case "grep --no-exc (abreviatura de --no-exclude-standard)" 'git grep --untracked --no-exc -e x'       feat/x   2
+run_case "blame --cont=.env (abreviatura de --contents)"  'git blame --cont=.env README.md'               feat/x   2
+
 echo
 echo "== Casos que deben permitirse (exit 0) =="
 
@@ -336,6 +360,12 @@ run_case "git show --stat HEAD"                                     'git show --
 run_case "git diff -- .env.example (plantilla con valores ficticios)" 'git diff -- .env.example'                   feat/x 0
 run_case "git show HEAD:docs/BITACORA.md"                           'git show HEAD:docs/BITACORA.md'               feat/x 0
 run_case "git diff --no-ext-diff (desactiva, no activa)"            'git diff --no-ext-diff'                       feat/x 0
+run_case "git log -L1,9:README.md"                                  'git log -L1,9:README.md'                      feat/x 0
+run_case "git grep -e x (solo contenido registrado)"                'git grep -e x'                                feat/x 0
+run_case "git blame README.md"                                      'git blame README.md'                          feat/x 0
+run_case "git show :README.md (índice)"                             'git show :README.md'                          feat/x 0
+run_case "git grep --only-matching -e x"                            'git grep --only-matching -e x'                feat/x 0
+run_case "git blame --color-lines README.md"                        'git blame --color-lines README.md'            feat/x 0
 
 echo
 echo "== Falso positivo documentado y aceptado (fail-closed) =="

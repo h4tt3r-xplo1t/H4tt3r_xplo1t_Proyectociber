@@ -765,7 +765,7 @@ Estado al 2026-09-29. Las URL son las verificadas en la investigación.
 | Google Trends | RSS `https://trends.google.com/trending/rss?geo=CO`: funciona, pero es **no oficial** (sin garantía de estabilidad; sus términos, **NO VERIFICADO**). La API oficial está en alfa con acceso bajo petición ([fuente](https://developers.google.com/search/apis/trends)) | Consultado el 2026-09-29 | Incluida con riesgo |
 | Mastodon | Solo `GET /api/v1/trends/tags` y `/links`: públicos, sin autenticación ([fuente](https://docs.joinmastodon.org/methods/trends/)). `/statuses` queda excluido porque devuelve publicaciones y autores | Tendencias globales por instancia, no específicas de Colombia | Incluida |
 
-Los términos de uso de los medios **no se leyeron textualmente**: riesgo abierto, con revisión manual obligatoria antes de la entrega (§10).
+Términos de uso de los medios: **revisados manualmente por la persona responsable el 2026-09-29**. Ninguno de los 5 prohíbe leer sus RSS o sitemaps para mostrar titulares con enlace a la noticia original, dado el uso informativo. La revisión la hizo una persona; no hay cita literal de cada cláusula en este documento.
 
 ## 5. Fuentes excluidas
 
@@ -811,6 +811,7 @@ Notas: `pysentimiento` requiere `torch`, así que la imagen es pesada; el modelo
 ## 8. Datos y restricciones
 
 - Solo se almacenan titular, enlace, fecha y resumen corto; nunca el artículo completo.
+- Atribución obligatoria: cada resultado muestra el nombre del medio, el autor cuando la fuente lo publica, la fecha y el enlace a la noticia original, que es donde se lee el contenido completo. Nunca se presenta el contenido de un medio como propio.
 - Se respetan `robots.txt` y los términos de uso de cada fuente. El bot usa un `User-Agent` propio e identificable y nunca suplanta a un navegador ni a otro bot; si el `robots.txt` de una fuente lo bloquea, esa fuente se desactiva.
 - El contenido que llega de las fuentes (titulares, resúmenes, XML de RSS y sitemaps, respuestas de API) es entrada no confiable: se analiza sin entidades externas (XXE), se escapa al mostrarlo (XSS) y solo se consultan dominios de una lista fija (SSRF). Se detalla en el modelo de amenazas (E1).
 - No se recogen datos personales como objetivo: solo titular, enlace, fecha y resumen de noticias, y etiquetas y enlaces en tendencia. De los usuarios de la aplicación solo se guarda lo mínimo para autenticarse; el registro de auditoría de una búsqueda guarda el identificador de usuario y no más datos personales.
@@ -849,7 +850,7 @@ Criterios de aceptación:
 
 | Riesgo | Detalle | Acción |
 |---|---|---|
-| Términos de uso de los medios | No leídos textualmente; el `robots.txt` no sustituye a los términos | Revisión manual antes de la entrega |
+| Términos de uso de los medios | Revisados manualmente por la persona el 2026-09-29: ninguno prohíbe el uso informativo con enlace; pueden cambiar | Repetir la revisión antes de la entrega final y atribuir siempre la fuente |
 | Google Trends no oficial | Sin garantía de estabilidad; términos **NO VERIFICADO** | Degradación controlada (criterio 7); vigilar cambios |
 | Licencia de `pysentimiento` | La licencia en PyPI no está declarada y algunos datasets de entrenamiento son de uso no comercial | Declararla aparte; aceptable para un proyecto académico; **NO VERIFICADO** para otros usos |
 | Typosquatting en Docker Hub | Cuenta parecida `h4tt3rxplo1t` | Usar siempre `h4tt3rxplo1tt`; verificar el namespace antes de publicar |

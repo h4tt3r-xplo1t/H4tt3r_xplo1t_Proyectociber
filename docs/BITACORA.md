@@ -119,6 +119,15 @@ Fechas en hora local (UTC−5); GitHub registra estos eventos el 2026-09-29 en U
   - El PR #7 se cerró sin fusionar y su rama se borró.
 - **Aprendizaje:** `guardia.sh` evalúa la rama actual antes de ejecutar y bloquea cualquier comando que combine `git push` con la palabra `main` (también `gh pr create --base main` en el mismo comando). Hay que separar los comandos; no es un bypass.
 
+## 2026-09-28 · Issue #9: pruebas reales en el job `pruebas` (M2)
+
+Rama `ci/9-pruebas-reales`. Hallazgo M2 de la revisión de seguridad de la Fase 2 del #4. El job `pruebas` era un check obligatorio del ruleset `protege` que solo hacía `echo`, así que su verde no demostraba nada y un PR podía debilitar `.github/rulesets/main.json` o `guardia.sh` sin que fallara ningún check.
+
+- **Cambio:** `pruebas` ejecuta ahora `tests/hooks/guardia_test.sh` (29 casos) y `tests/rulesets/main_ruleset_test.sh` (15 casos), en dos pasos separados para ver en CI cuál falla. El nombre del job no cambia, porque el ruleset lo exige por ese contexto.
+- **Verificación local:** ambas suites salen con código 0; con una mutación (`"squash"` → `"merge"` en `main.json`) la del ruleset sale con 1. El YAML parsea sin errores; `actionlint` corre en el job `workflows` del CI.
+- **Efecto sobre M1** (riesgo residual del ADR 0001: autofusión sin segundo revisor): con estas pruebas en CI, un PR que debilite el ruleset o el hook tiene que modificar también la prueba para quedar en verde; el cambio queda visible en el diff. No sustituye a un segundo revisor.
+- **Límite:** la prueba valida el archivo `.github/rulesets/main.json`, no el ruleset aplicado en GitHub. Un cambio hecho directamente desde la interfaz web (deriva) no lo detecta este job; para eso hay que ejecutar la prueba contra la salida de `gh api .../rulesets/24097824`.
+
 ## Pendientes
 - [ ] Probar el kit dentro de Claude Code (/memory, /permissions, /hooks, /agents; commit en main debe bloquearse).
 - [ ] Fase E0: completar docs/PROJECT_CONTEXT.md.
@@ -127,7 +136,7 @@ Fechas en hora local (UTC−5); GitHub registra estos eventos el 2026-09-29 en U
 - [ ] Elegir lenguaje y stack; añadir sus comandos de prueba/lint a .claude/settings.json.
 - [ ] Issue #1: cubrir bypasses restantes de guardia.sh (push -uf, git -C, rutas absolutas, core.hooksPath, CODEOWNERS, pinning por SHA, imágenes rotas en PROJECT_CONTEXT.md). El falso positivo de nombre de rama (`feature/main-page`) quedó resuelto como efecto de la corrección del Bypass B de la segunda revisión (regla de segmento que exige un espacio antes de `main`, no `/` ni `-`). **Nota (2026-09-28):** el issue #1 aparece CLOSED en GitHub, pero los bypasses restantes siguen pendientes sin corregir; hace falta reconciliar (reabrirlo o crear un issue nuevo que los cubra). Además, la regla de push de `guardia.sh` bloquea ramas cuyo nombre contiene `-main` (p. ej. `ci/4-proteccion-main`) porque `\bmain\b` coincide tras un guion; hay que exigir `main` como destino real y añadir la prueba de regresión.
 - [x] Issue #4 Fase 2: ruleset como código con `integration_id` (B2), `PUT` sobre `protege`, merge commit/rebase desactivados y bloqueo verificado.
-- [ ] Ejecutar `tests/hooks/guardia_test.sh` y `tests/rulesets/main_ruleset_test.sh` en el job `pruebas` del CI (hoy es un placeholder). Hallazgo M2: abrir un issue.
+- [ ] Issue #9 (M2): el job `pruebas` ejecuta `tests/hooks/guardia_test.sh` y `tests/rulesets/main_ruleset_test.sh`. Implementado en `ci/9-pruebas-reales`; falta la prueba de mutación en CI y la fusión.
 - [ ] Crear `.github/copilot-instructions.md` antes de delegar tareas elementales a Copilot.
 - [x] Quitar el scope `workflow` del token de `gh` tras el push de `ci/4-proteccion-main` (hallazgo B1).
 - [x] Contrastar los sha256 de gitleaks y actionlint con los `checksums.txt` oficiales antes del merge de PR #5 (hallazgo I1).

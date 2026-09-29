@@ -39,7 +39,7 @@ Delegated writer (writer trigger: 2+ non-trivial files, workflow + ADR).
   - [x] **T4c** — `gh api -X PUT .../rulesets/24097824 --input .github/rulesets/main.json` (authorized). Drift check against an independent GET: 15/15. Effective rules on `main`: deletion, non_fast_forward, required_linear_history, pull_request, required_status_checks.
   - [x] **T4d** — `PATCH` repo (authorized): `allow_merge_commit=false`, `allow_rebase_merge=false`, `allow_squash_merge=true`, confirmed by GET.
   - [x] **T4e** — verification (authorized): direct push rejected (GH013); PR #7 squash before checks rejected; merge commit and rebase rejected with checks green; PR #7 closed unmerged. Force-push rule only verified indirectly (see Progress).
-- [ ] **T5** — open an issue for M2: make the `pruebas` job run `tests/hooks/guardia_test.sh` and `tests/rulesets/main_ruleset_test.sh`.
+- [x] **T5** — issue #9 opened for M2 (make the `pruebas` job run `tests/hooks/guardia_test.sh` and `tests/rulesets/main_ruleset_test.sh`); implemented on branch `ci/9-pruebas-reales`.
 
 ## Progress
 - Issue #4 created (authorized). Branch `ci/4-proteccion-main` from `main` at `0fad25e`. Guardia suite on main: 29/29.

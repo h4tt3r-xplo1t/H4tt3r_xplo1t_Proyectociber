@@ -58,6 +58,10 @@ siguientes reglas:
   deshabilitados también en la configuración general del repositorio).
 - Checks requeridos: `secretos`, `workflows` y `pruebas` (los tres jobs del
   workflow `Seguridad`), con la rama actualizada (`strict`) antes de fusionar.
+  Cada check se fija a la app GitHub Actions (`integration_id` 15368, observado
+  en los check runs de `a85401a`): sin ese campo, cualquier app o token con
+  permiso para escribir checks podría publicar un check con el mismo nombre y
+  satisfacer la regla.
 - Historial lineal.
 - Sin lista de bypass.
 
@@ -74,6 +78,18 @@ repositorio quedan para la Fase 2, en una rama distinta y solo con
 autorización explícita del usuario para la operación remota, según lo exigido
 por `AGENTS.md` (sección 2, MODOS DE TRABAJO).
 
+### Aplicación (Fase 2)
+
+- La definición vive en `.github/rulesets/main.json` y
+  `tests/rulesets/main_ruleset_test.sh` comprueba que respeta cada punto de
+  esta decisión.
+- Se aplica, una vez fusionada en `main`, con
+  `gh api -X PUT repos/h4tt3r-xplo1t/H4tt3r_xplo1t_Proyectociber/rulesets/24097824 --input .github/rulesets/main.json`.
+- La misma prueba sirve para detectar deriva: se ejecuta contra la salida de
+  `gh api .../rulesets/24097824` y debe pasar igual que contra el archivo.
+- GitHub no aplica el archivo por sí solo; cualquier cambio en la interfaz
+  web se considera deriva y se corrige volviendo a aplicar el archivo.
+
 ## Consecuencias
 
 **Positivas**
@@ -88,6 +104,18 @@ por `AGENTS.md` (sección 2, MODOS DE TRABAJO).
 
 - Sin lista de bypass, ni siquiera el rol Admin puede hacer push directo a
   `main`: todo cambio, incluidos los de emergencia, pasa por pull request.
+- **Riesgo residual aceptado: autofusión sin revisión técnica.** Con 0
+  aprobaciones y sin `CODEOWNERS`, un PR puede modificar
+  `.github/workflows/seguridad.yml` (o `.github/rulesets/main.json`) para
+  que los checks requeridos pasen siempre y fusionarse a sí mismo: el
+  workflow de `pull_request` se ejecuta con la versión del propio PR. La
+  revisión humana de rutas sensibles exigida por `AGENTS.md` §5 depende hoy
+  de la disciplina del desarrollador, no de un control técnico. Por el mismo
+  motivo, `dismiss_stale_reviews_on_push` no tiene efecto práctico.
+  Mitigación futura: añadir `CODEOWNERS` para `.github/**`, `tests/**` y
+  `docs/adr/**` y activar `require_code_owner_review` en cuanto exista un
+  segundo revisor (persona o bot). Hallazgo M1 de la revisión de seguridad
+  de la Fase 2.
 - Se elimina la regla `required_signatures` presente en `protege`. Se anota
   como una concesión consciente a revisar más adelante (retomar firma de
   commits cuando el flujo de trabajo lo permita).

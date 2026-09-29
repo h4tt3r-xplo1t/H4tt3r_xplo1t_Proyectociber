@@ -1,7 +1,7 @@
 # Propuesta de proyecto: H4tt3r_1nf0rm4t1v0
 
 **Trabajo final:** Pipeline DevSecOps de ciclo completo para una aplicación contenerizada de libre uso
-**Autor:** [Nombre del estudiante]
+**Autor:** H4TT3R_XPLO1T
 **Fecha:** 2026-09-29
 **Licencia del producto:** Apache 2.0
 
@@ -65,7 +65,7 @@ Despliegue en K3s ejecutado localmente con k3d, definido con Terraform.
 
 ## 7. Fuentes y enfoque legal y ético
 
-Solo se almacenan titular, enlace, fecha y un resumen corto, nunca el artículo completo. Se respetan `robots.txt` y los términos de uso, el bot se identifica con un `User-Agent` propio que no suplanta a otro (si una fuente lo bloquea, se desactiva), se usa únicamente acceso gratuito y legítimo y no se recogen datos personales como objetivo. El contenido de las fuentes se trata como entrada no confiable. Se excluyeron X, Reddit, Facebook, Instagram, TikTok y CNN en Español por no ofrecer acceso gratuito y legítimo (detalle y fuentes en `docs/PROJECT_CONTEXT.md`). Riesgo abierto: los términos de uso de los medios aún no se han leído textualmente; se revisarán antes de la entrega.
+Solo se almacenan titular, enlace, fecha y un resumen corto, nunca el artículo completo. Se respetan `robots.txt` y los términos de uso, el bot se identifica con un `User-Agent` propio que no suplanta a otro (si una fuente lo bloquea, se desactiva), se usa únicamente acceso gratuito y legítimo y no se recogen datos personales como objetivo. El contenido de las fuentes se trata como entrada no confiable. Se excluyeron X, Reddit, Facebook, Instagram, TikTok y CNN en Español por no ofrecer acceso gratuito y legítimo (detalle y fuentes en `docs/PROJECT_CONTEXT.md`). Los términos de uso de los 5 medios se revisaron manualmente el 2026-09-29 y ninguno prohíbe este uso informativo. Cada resultado atribuye la fuente: nombre del medio, autor cuando se publica, fecha y enlace a la noticia original.
 
 ## 8. Historia de usuario para la sustentación
 

@@ -154,14 +154,28 @@ Rama `fix/1-permisos-settings`. Cierra los criterios pendientes del issue #1 des
 - **Ruta del hook entre comillas** en `settings.json`, con la forma de la documentación oficial (`"$CLAUDE_PROJECT_DIR"/.claude/hooks/guardia.sh`), para que una ruta con espacios no rompa el hook.
 - **Hooks de pre-commit fijados por SHA** en vez de por etiqueta (una etiqueta se puede mover): gitleaks `83d9cd68…` (`v8.30.1`, la misma versión que la CI; antes `v8.30.0`) y pre-commit-hooks `3e8a8703…` (`v6.0.0`). Los SHA se resolvieron desde las etiquetas oficiales con `gh api`, y se comprobó que el hook `gitleaks` existe en ese commit.
 
+## 2026-09-28 · Cierre del issue #1, configuración del repositorio y prueba del kit
+
+- **Issue #1 cerrado.** PR #11 (PR A, `ce62919`) y PR #12 (PR B, `6919443`) fusionados con squash; el `Closes #1` del PR #12 cerró el issue como completado. Todos sus criterios quedaron cumplidos salvo uno, descartado con justificación: `.env.example` sigue sin poder leerse con la herramienta Read porque una regla `allow` no puede exceptuar una `deny` (ver entrada del PR B).
+- **Borrado automático de ramas al fusionar.** `PATCH` sobre el repositorio con autorización explícita: `delete_branch_on_merge` pasó de `false` a `true`, confirmado con un `GET` independiente. GitHub borra la rama remota al fusionar un PR; la rama local se borra al actualizar `main`, tras comprobar que su árbol es idéntico.
+- **Decisión: no se delega trabajo en GitHub Copilot.** Se evaluó asignar tareas elementales al agente de Copilot mediante issues para reservar las complejas a Claude Code, y se descartó. Todo el trabajo se hace en la sesión de Claude Code (directamente o con subagentes). El bypass de Copilot sobre `main` ya se había eliminado con el `PUT` del ruleset.
+- **Prueba del kit dentro de Claude Code.** `/hooks`, `/agents`, `/memory` y `/permissions` son comandos interactivos que escribe la persona en el prompt; el agente no puede ejecutarlos. Se verificó con evidencia lo que esos comandos inspeccionan:
+  - Hook: un `git commit` en `main` quedó bloqueado con `Bloqueado: estás en main`, y el mensaje mostró la ruta nueva entre comillas (`"$CLAUDE_PROJECT_DIR"/.claude/hooks/guardia.sh`), así que Claude Code cargó la configuración del PR B. Durante la sesión el hook bloqueó además comandos reales del agente (textos con `core.hooksPath`, `-n` junto a un commit, un push con `main` antes de la corrección de la regla).
+  - Subagente: `.claude/agents/revisor-seguridad.md` existe y se invocó en cada PR (#5, #6, #8, #10, #11, #12). Limitación observada: sus herramientas (`Read`, `Grep`, `Glob`, `Bash(git diff *)`) no le permiten ejecutar el hook, así que sus hallazgos sobre el hook llegan como sospechas y el orquestador los reproduce.
+  - Permisos: `defaultMode` es `plan`, y durante la sesión se denegaron comandos con `curl` y `rm -rf` según las reglas `deny`.
+  - Memoria: `CLAUDE.md` y sus imports (`AGENTS.md`, `docs/PROJECT_CONTEXT.md`, `docs/BITACORA.md`) se cargaron en el contexto desde el inicio de la sesión; el agente aplicó sus reglas (modo plan al empezar, ramas `tipo/ID-descripcion`, revisor antes de cada PR, bitácora al cerrar cada tarea).
+  - Pendiente para la persona: abrir `/hooks`, `/agents` y `/memory` en el prompt y confirmar visualmente que aparecen `guardia.sh` (PreToolUse, Bash), `revisor-seguridad` y `CLAUDE.md` con sus imports.
+
 ## Pendientes
-- [ ] Probar el kit dentro de Claude Code (/memory, /permissions, /hooks, /agents; commit en main debe bloquearse).
-- [ ] Fase E0: completar docs/PROJECT_CONTEXT.md.
+- [ ] Confirmar visualmente `/hooks`, `/agents` y `/memory` en el prompt de Claude Code (lo demás de la prueba del kit quedó verificado; ver entrada de cierre del issue #1).
+- [ ] **E0 (prioritario):** elegir la aplicación (Identix, con +1 punto, o una propuesta propia) y el stack, y completar `docs/PROJECT_CONTEXT.md`. Después, añadir los comandos de prueba y lint del stack a `.claude/settings.json`.
+- [ ] Confirmar la política de alojamiento: el enunciado pide que el trabajo sea una rama dentro del repositorio del curso.
+- [ ] CODEOWNERS para rutas sensibles (`.github/**`, `.claude/**`, `tests/**`, `docs/adr/**`), útil cuando haya un segundo revisor (mitigación de M1, ADR 0001).
+- [ ] Imágenes rotas referenciadas en `docs/PROJECT_CONTEXT.md` (`Logo.png`, `Arquitectura_IDENTIX.png`).
 - [x] Contacto en SECURITY.md.
-- [ ] Confirmar política institucional sobre dónde alojar el repositorio.
-- [ ] Elegir lenguaje y stack; añadir sus comandos de prueba/lint a .claude/settings.json.
-- [ ] Issue #1 (reabierto). PR A fusionado (#11, `ce62919`). PR B en `fix/1-permisos-settings`: lectura de archivos fuera de git y ejecución de programas con git diff/log/show/grep/blame/cat-file (164 casos), comillas en la ruta del hook, pre-commit fijado por SHA; límite aceptado: pathspecs sobre contenido registrado; `.env.example` sigue denegado por decisión. Tras fusionar el PR B, cerrar el #1. Siguen pendientes (fuera del #1): CODEOWNERS y las imágenes rotas de `PROJECT_CONTEXT.md`.
-- [x] Issue #4 Fase 2: ruleset como código con `integration_id` (B2), `PUT` sobre `protege`, merge commit/rebase desactivados y bloqueo verificado.
-- [x] Issue #9 (M2): el job `pruebas` ejecuta `tests/hooks/guardia_test.sh` y `tests/rulesets/main_ruleset_test.sh`. Fusionado en PR #10 (`b80e450`); la mutación en CI puso `pruebas` en rojo y bloqueó el PR.
-- [x] Quitar el scope `workflow` del token de `gh` tras el push de `ci/4-proteccion-main` (hallazgo B1).
-- [x] Contrastar los sha256 de gitleaks y actionlint con los `checksums.txt` oficiales antes del merge de PR #5 (hallazgo I1).
+- [x] Issue #1: `guardia.sh` falla cerrado, lectura de secretos con git, permisos y pre-commit por SHA (PR #11 y #12).
+- [x] Issue #4: ruleset como código, `PUT` sobre `protege`, merge commit y rebase desactivados, bloqueo verificado (PR #5, #6 y #8).
+- [x] Issue #9 (M2): el job `pruebas` ejecuta las pruebas reales (PR #10).
+- [x] `delete_branch_on_merge` activado.
+- [x] Quitar el scope `workflow` del token de `gh` (hallazgo B1 del PR #5).
+- [x] Contrastar los sha256 de gitleaks y actionlint con los `checksums.txt` oficiales (hallazgo I1 del PR #5).

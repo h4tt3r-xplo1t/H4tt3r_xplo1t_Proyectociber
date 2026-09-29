@@ -259,7 +259,7 @@ La plataforma opera bajo el principio de *privacy by design*: el usuario es el �
 
 
 <p align="center">
-  <img src="Logo.png" width="350" alt="Descripción">
+  <img src="Logo.png" width="350" alt="Logo de Identix">
 </p>
 
 ---
@@ -283,7 +283,7 @@ Presento 2 proyecciones arquitecturales como guía exvlusivamente y claramente -
 La primera corresponde a una vista lógica/funcional de la arquitectura de microservicios, mientras que la segunda corresponde a una vista de implementación orientada a componentes y comunicación asíncrona. Ambas son complementarias y pueden integrarse en una arquitectura de referencia única.
 
 - Vista 1
-![](Arquitectura_IDENTIX.png)
+![Vista lógica de la arquitectura de microservicios de Identix](Arquitectura_IDENTIX.png)
 
 - Vista 2. 
 

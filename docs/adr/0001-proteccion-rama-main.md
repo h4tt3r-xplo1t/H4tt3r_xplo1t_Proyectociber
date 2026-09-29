@@ -2,7 +2,7 @@
 
 ## Estado
 
-Aceptado, 2026-09-28.
+Aceptado, 2026-09-28. Aplicado en GitHub el 2026-09-28, hora local (Fase 2): ruleset `protege` reemplazado con `.github/rulesets/main.json` y bloqueo verificado.
 
 ## Contexto
 

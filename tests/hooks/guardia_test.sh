@@ -70,6 +70,23 @@ run_case() {
   check_result "$desc" "$expected" "$actual" "cmd: $cmd"
 }
 
+# run_cwd_case <descripción> <comando> <cwd relativo al proyecto|ruta absoluta> <exit esperado>
+# Añade el campo "cwd" que Claude Code envía en la entrada del hook. Un cwd
+# que empieza por "/" se usa tal cual; si no, se toma relativo al proyecto.
+run_cwd_case() {
+  local desc="$1" cmd="$2" cwd="$3" expected="$4"
+  local dir actual
+  dir=$(setup_repo feat/x)
+  case "$cwd" in /*) ;; *) cwd="$dir/$cwd" ;; esac
+
+  jq -n --arg c "$cmd" --arg w "$cwd" '{cwd:$w, tool_input:{command:$c}}' \
+    | CLAUDE_PROJECT_DIR="$dir" bash "$HOOK" >/tmp/guardia_test_out.$$ 2>&1
+  actual=$?
+
+  rm -rf "$dir"
+  check_result "$desc" "$expected" "$actual" "cmd: $cmd (cwd: $cwd)"
+}
+
 # run_raw_case <descripción> <entrada cruda> <PATH> <exit code esperado>
 # Envía la entrada tal cual (sin construirla con jq) y permite sustituir PATH,
 # para simular JSON inválido o la ausencia de jq.
@@ -94,7 +111,14 @@ for f in /usr/local/bin/* /usr/bin/* /bin/*; do
   [ "$name" = "jq" ] && continue
   [ -e "$NO_JQ_BIN/$name" ] || ln -s "$f" "$NO_JQ_BIN/$name" 2>/dev/null
 done
-trap 'rm -rf "$NO_JQ_BIN"' EXIT
+# Igual, pero sin realpath (el hook lo necesita para resolver cd y cwd).
+NO_REALPATH_BIN=$(mktemp -d)
+for f in /usr/local/bin/* /usr/bin/* /bin/*; do
+  name=$(basename "$f")
+  [ "$name" = "realpath" ] && continue
+  [ -e "$NO_REALPATH_BIN/$name" ] || ln -s "$f" "$NO_REALPATH_BIN/$name" 2>/dev/null
+done
+trap 'rm -rf "$NO_JQ_BIN" "$NO_REALPATH_BIN"' EXIT
 
 echo "== Casos que deben bloquear (exit 2) =="
 
@@ -203,6 +227,36 @@ run_case "status⏎commit estando en main (salto de línea)"   "$NL_STATUS_COMMI
 run_case "log⏎push origin main (salto de línea)"            "$NL_LOG_PUSH_MAIN"                           feat/x   2
 run_case "status⏎push --force (salto de línea)"             "$NL_STATUS_PUSH_FORCE"                       feat/x   2
 
+# Issue #1, PR A (cuarta ronda, revisión de seguridad) — familia estructural:
+# el parser debe entender git bien escrito.
+run_case "--namespace <x> commit (opción global con valor separado)" 'git --namespace x commit -m y'      main     2
+run_case "--config-env <a=B> commit (opción global con valor)"       'git --config-env a=B commit -m y'   main     2
+run_case "sudo -u git git commit (el primer 'git' no es el comando)" 'sudo -u git git commit -m x'        main     2
+run_case "switch main && cherry-pick"                     'git switch main && git cherry-pick abc'         feat/x   2
+run_case "switch main && revert"                          'git switch main && git revert HEAD'             feat/x   2
+run_case "symbolic-ref HEAD refs/heads/main && commit"    'git symbolic-ref HEAD refs/heads/main && git commit -m x' feat/x 2
+run_case "push HEAD:heads/main (git completa refs/)"      'git push origin HEAD:heads/main'                feat/x   2
+run_case "push con refspec comodín"                       'git push origin refs/heads/*:refs/heads/*'      feat/x   2
+run_case "push origin : (todas las ramas coincidentes)"   'git push origin :'                              feat/x   2
+run_case "push -o <valor> origin estando en main"         'git push -o x origin'                           main     2
+run_case "-C <ruta> push origin sin refspec"              'git -C /tmp/otro push origin'                   feat/x   2
+run_case "SKIP=<hook> git commit (salta hooks de pre-commit)" 'SKIP=gitleaks git commit -m x'              feat/x   2
+
+# Issue #1, PR A (cuarta ronda) — familia de configuración persistente.
+run_case "git config remote.origin.push"                  'git config remote.origin.push HEAD:main'        feat/x   2
+run_case "git config alias con !"                         'git config alias.x "!git commit"'               feat/x   2
+run_case "git config include.path"                        'git config include.path /tmp/otro.cfg'          feat/x   2
+run_case "-c remote.origin.push=... push"                 'git -c remote.origin.push=HEAD:main push origin' feat/x  2
+run_case "GIT_CONFIG_COUNT/KEY/VALUE en el entorno"       'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.$P GIT_CONFIG_VALUE_0=/x git commit -m y' feat/x 2
+run_case "GIT_CONFIG_GLOBAL apuntando a otro archivo"     'GIT_CONFIG_GLOBAL=/tmp/otro.cfg git commit -m y' feat/x  2
+
+# Issue #1, PR A (cuarta ronda) — fallar cerrado ante un entorno degradado y
+# ante un directorio de trabajo persistente fuera del proyecto (campo cwd).
+run_raw_case "realpath no instalado"                      '{"tool_input":{"command":"cd /tmp && git commit -m x"}}' "$NO_REALPATH_BIN" 2
+run_cwd_case "cwd fuera del proyecto + commit"            'git commit -m x'                                '/tmp'   2
+run_cwd_case "cwd fuera del proyecto + push sin refspec"  'git push'                                       '/tmp'   2
+run_cwd_case "cwd dentro del proyecto + commit"           'git commit -m x'                                '.'      0
+
 echo
 echo "== Casos que deben permitirse (exit 0) =="
 
@@ -235,6 +289,12 @@ run_case "cd . && git commit (cd dentro del proyecto)"              'cd . && git
 run_case "push --follow-tags (no es --force)"                       'git push --follow-tags origin feat/x'         feat/x 0
 run_case "pull --ff-only estando en main"                           'git pull --ff-only'                           main   0
 run_case "revert en rama de trabajo"                                'git revert HEAD'                              feat/x 0
+
+# Issue #1, PR A (cuarta ronda) — no romper el uso normal.
+run_case "push -o ci.skip origin feat/x"                            'git push -o ci.skip origin feat/x'            feat/x 0
+run_case "git config user.email (clave inocua)"                     'git config user.email x@example.invalid'      feat/x 0
+run_case "git config --get remote.origin.url (solo lectura)"        'git config --get remote.origin.url'           feat/x 0
+run_case "switch -c feat/y (sin main)"                              'git switch -c feat/y && git commit -m x'      feat/x 0
 
 echo
 echo "== Falso positivo documentado y aceptado (fail-closed) =="

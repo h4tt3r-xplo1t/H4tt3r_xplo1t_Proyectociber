@@ -81,7 +81,10 @@ no dependen del texto del comando:
     la edición directa de `.git/config`, borrar `.git/hooks/*` o
     `pre-commit uninstall`;
   - `rebase`, `pull` (merge o rebase local) y `reset`/`update-ref`/`branch -f`
-    sobre `main`.
+    sobre `main`;
+  - lecturas de contenido **registrado** por git con pathspecs (`git log -p`,
+    `git diff --cached`, globs como `'*.env'`): no alcanzan un `.env`
+    ignorado; si un secreto llegara a registrarse, el control es gitleaks.
 
   Todos actúan en local: el ruleset impide que un push lleve esos cambios a
   `main` en GitHub. La otra vía hacia `main`, fusionar un PR, sí la bloquea

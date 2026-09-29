@@ -104,9 +104,11 @@ Rama `ci/4-ruleset-como-codigo` (el nombre evita el falso positivo de `guardia.s
 
 Pendiente (operación remota, con autorización explícita por paso): push y PR, `PUT` del ruleset tras la fusión, desactivar merge commit y rebase merge, y las cuatro verificaciones de bloqueo.
 
-## 2026-09-29 · Issue #4: protección de main (Fase 2, aplicación y verificación)
+## 2026-09-28 · Issue #4: protección de main (Fase 2, aplicación y verificación)
 
-- **PR #6** fusionado con squash como `b8ff3af` (CI run `36501247990` en verde). Antes del `PUT` se identificaron las integraciones con bypass: `claude` (1236702) y `copilot-swe-agent` (1143301); la 946600 no se pudo identificar. Ninguna necesita escribir en `main` sin PR.
+Fechas en hora local (UTC−5); GitHub registra estos eventos el 2026-09-29 en UTC.
+
+- **PR #6** fusionado con squash como `b8ff3af` (CI run `36501247990` en verde). Antes del `PUT` se identificaron las integraciones con bypass: `claude` (1236702) y `copilot-swe-agent` (1143301); la 946600 no se pudo identificar. Claude y Copilot trabajan mediante PR y no necesitan escribir en `main`; para la 946600 se retiró el bypass sin poder comprobar su uso, así que hay que vigilar si algún flujo automatizado empieza a fallar.
 - **`PUT` del ruleset** `protege` (id 24097824) con `.github/rulesets/main.json`. Antes: 4 actores con bypass y reglas `creation`, `update`, `required_signatures` y de escaneo sin herramienta. Después: sin bypass y solo las cinco reglas del ADR. La prueba de política contra un `GET` independiente da 15/15. La copia del ruleset anterior quedó fuera del repositorio.
 - **Configuración de fusión del repositorio** (`PATCH`): merge commit y rebase merge desactivados, squash activo.
 - **Verificación del bloqueo:**

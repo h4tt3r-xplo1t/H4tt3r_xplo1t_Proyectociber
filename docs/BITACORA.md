@@ -164,15 +164,19 @@ Rama `fix/1-permisos-settings`. Cierra los criterios pendientes del issue #1 des
   - Subagente: `.claude/agents/revisor-seguridad.md` existe y se invocó en cada PR (#5, #6, #8, #10, #11, #12). Limitación observada: sus herramientas (`Read`, `Grep`, `Glob`, `Bash(git diff *)`) no le permiten ejecutar el hook, así que sus hallazgos sobre el hook llegan como sospechas y el orquestador los reproduce.
   - Permisos: `defaultMode` es `plan`, y durante la sesión se denegaron comandos con `curl` y `rm -rf` según las reglas `deny`.
   - Memoria: `CLAUDE.md` y sus imports (`AGENTS.md`, `docs/PROJECT_CONTEXT.md`, `docs/BITACORA.md`) se cargaron en el contexto desde el inicio de la sesión; el agente aplicó sus reglas (modo plan al empezar, ramas `tipo/ID-descripcion`, revisor antes de cada PR, bitácora al cerrar cada tarea).
-  - Pendiente para la persona: abrir `/hooks`, `/agents` y `/memory` en el prompt y confirmar visualmente que aparecen `guardia.sh` (PreToolUse, Bash), `revisor-seguridad` y `CLAUDE.md` con sus imports.
+  - Confirmación visual por la persona (2026-09-28):
+    - `/hooks`: `guardia.sh`, definido en `.claude/settings.json`.
+    - `/agents`: `revisor-seguridad`.
+    - `/context`: en *Custom agents*, `revisor-seguridad` aparece como agente del proyecto. En *Memory files* aparecen 6 archivos: `~/.claude/CLAUDE.md` (usuario), `CLAUDE.md`, `AGENTS.md`, `docs/PROJECT_CONTEXT.md` y `docs/BITACORA.md` (proyecto; los tres últimos son imports de `CLAUDE.md`) y el `MEMORY.md` de la memoria automática.
+    - Nota: el comando para verificar qué archivos de instrucciones se cargaron es `/context` (sección *Memory files*); `/memory` sirve para abrirlos y editarlos.
 
 ## Pendientes
-- [ ] Confirmar visualmente `/hooks`, `/agents` y `/memory` en el prompt de Claude Code (lo demás de la prueba del kit quedó verificado; ver entrada de cierre del issue #1).
 - [ ] **E0 (prioritario):** elegir la aplicación (Identix, con +1 punto, o una propuesta propia) y el stack, y completar `docs/PROJECT_CONTEXT.md`. Después, añadir los comandos de prueba y lint del stack a `.claude/settings.json`.
 - [ ] Confirmar la política de alojamiento: el enunciado pide que el trabajo sea una rama dentro del repositorio del curso.
 - [ ] CODEOWNERS para rutas sensibles (`.github/**`, `.claude/**`, `tests/**`, `docs/adr/**`), útil cuando haya un segundo revisor (mitigación de M1, ADR 0001).
 - [ ] Imágenes rotas referenciadas en `docs/PROJECT_CONTEXT.md` (`Logo.png`, `Arquitectura_IDENTIX.png`).
 - [x] Contacto en SECURITY.md.
+- [x] Prueba del kit dentro de Claude Code: hook, subagente, permisos y archivos de memoria verificados (`/hooks`, `/agents`, `/context`).
 - [x] Issue #1: `guardia.sh` falla cerrado, lectura de secretos con git, permisos y pre-commit por SHA (PR #11 y #12).
 - [x] Issue #4: ruleset como código, `PUT` sobre `protege`, merge commit y rebase desactivados, bloqueo verificado (PR #5, #6 y #8).
 - [x] Issue #9 (M2): el job `pruebas` ejecuta las pruebas reales (PR #10).

@@ -170,11 +170,27 @@ Rama `fix/1-permisos-settings`. Cierra los criterios pendientes del issue #1 des
     - `/context`: en *Custom agents*, `revisor-seguridad` aparece como agente del proyecto. En *Memory files* aparecen 6 archivos: `~/.claude/CLAUDE.md` (usuario), `CLAUDE.md`, `AGENTS.md`, `docs/PROJECT_CONTEXT.md` y `docs/BITACORA.md` (proyecto; los tres últimos son imports de `CLAUDE.md`) y el `MEMORY.md` de la memoria automática.
     - Nota: el comando para verificar qué archivos de instrucciones se cargaron es `/context` (sección *Memory files*); `/memory` sirve para abrirlos y editarlos.
 
+## 2026-09-29 · Issue #15: E0, elección de la aplicación
+
+Rama `docs/15-ficha-agregador`. Cierra la parte documental de E0: aplicación elegida, ficha, ADR y propuesta escrita.
+
+- **Identix elegida y descartada el mismo día.** Su OSINT sobre personas reales exigía verificar la titularidad de cada identificador (OAuth, un código en la biografía), recoger consentimiento y borrar datos: una carga de protección de datos que superaba el alcance. Además, las plataformas sociales principales no ofrecen acceso legítimo y gratuito. Se renuncia a la bonificación de +1 punto, y la aplicación pasa a ser una propuesta propia que el profesor debe validar por escrito (sección 2 del enunciado).
+- **Aplicación elegida: H4tt3r_1nf0rm4t1v0**, agregador de noticias y tendencias de medios colombianos y de habla hispana, con búsqueda por tema, agrupación por noticia y sentimiento. Solo se guardan titular, enlace, fecha y resumen corto.
+- **Imágenes del enunciado restauradas** en `f834b9d` (`Logo.png`, `Arquitectura_IDENTIX.png`).
+- **Verificación de fuentes (2026-09-29, investigación de solo lectura; los resúmenes de las herramientas son de segunda mano).** Incluidas: RCN y Semana (RSS), Caracol, Blu Radio y Citytv (sitemaps), YouTube Data API, Google Trends RSS (no oficial) y tendencias de Mastodon. Excluidas: X (sin nivel gratuito), Reddit (aprobación previa), CNN en Español (HTTP 451 y bloqueo a bots de IA), Facebook, Instagram y TikTok (sin acceso legítimo para este caso). Detalle, URL y elementos NO VERIFICADO en `docs/PROJECT_CONTEXT.md`.
+- **Decisiones del usuario (2026-09-29):** (1) alojamiento en este repositorio, con el traslado a una rama del repositorio del curso como última tarea; (2) cuatro servicios desplegables, ADR 0003; (3) fuentes anteriores; (4) historia de usuario de la sustentación: búsqueda por tema; (5) licencia Apache 2.0, con la licencia del modelo de sentimiento declarada aparte; (6) K3s mediante k3d e IaC con Terraform; (7) Docker Hub `h4tt3rxplo1tt`.
+- **Aviso de Docker Hub.** Existe una cuenta parecida, `h4tt3rxplo1t` (una sola t), que no está confirmada como del proyecto. Usar siempre el nombre exacto `h4tt3rxplo1tt` (riesgo de typosquatting) y publicar solo desde CI con un token de alcance mínimo.
+- **Documentos añadidos:** sección de ficha en `docs/PROJECT_CONTEXT.md`, `docs/adr/0003-agrupacion-microservicios.md` y `docs/propuesta.md`.
+- **Aprendizaje:** verificar el acceso a cada plataforma antes de comprometer el alcance. Identix se apoyaba en redes sociales cuyo acceso legítimo no existe o exige aprobaciones; comprobarlo al inicio habría ahorrado el desvío.
+
 ## Pendientes
-- [ ] **E0 (prioritario):** elegir la aplicación (Identix, con +1 punto, o una propuesta propia) y el stack, y completar `docs/PROJECT_CONTEXT.md`. Después, añadir los comandos de prueba y lint del stack a `.claude/settings.json`.
-- [ ] Confirmar la política de alojamiento: el enunciado pide que el trabajo sea una rama dentro del repositorio del curso.
+- [ ] **E0 (en curso, issue #15):** ficha, ADR 0003 y propuesta escritos; falta la validación del profesor. Después, añadir los comandos de prueba y lint del stack a `.claude/settings.json`.
+- [ ] Validación por escrito de `docs/propuesta.md` por el profesor (propuesta propia, sección 2 del enunciado); completar el nombre del estudiante.
+- [ ] Revisión manual de los términos de uso de RCN, Semana, Caracol, Blu Radio y Citytv antes de la entrega (no se leyeron textualmente).
+- [ ] Verificar las versiones del stack (AGENTS.md §3) antes de fijarlas.
+- [ ] Traslado a una rama del repositorio del curso: última tarea del proyecto (decidido el 2026-09-29).
 - [ ] CODEOWNERS para rutas sensibles (`.github/**`, `.claude/**`, `tests/**`, `docs/adr/**`), útil cuando haya un segundo revisor (mitigación de M1, ADR 0001).
-- [ ] Imágenes rotas referenciadas en `docs/PROJECT_CONTEXT.md` (`Logo.png`, `Arquitectura_IDENTIX.png`).
+- [x] Imágenes rotas referenciadas en `docs/PROJECT_CONTEXT.md` (`Logo.png`, `Arquitectura_IDENTIX.png`), restauradas en `f834b9d`.
 - [x] Contacto en SECURITY.md.
 - [x] Prueba del kit dentro de Claude Code: hook, subagente, permisos y archivos de memoria verificados (`/hooks`, `/agents`, `/context`).
 - [x] Issue #1: `guardia.sh` falla cerrado, lectura de secretos con git, permisos y pre-commit por SHA (PR #11 y #12).

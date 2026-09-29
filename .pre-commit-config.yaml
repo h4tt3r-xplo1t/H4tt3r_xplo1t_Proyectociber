@@ -1,11 +1,14 @@
-# Ejecuta `pre-commit autoupdate` para fijar la versión vigente real.
+# Hooks fijados por SHA de commit, no por etiqueta: una etiqueta se puede
+# mover y apuntar a otro código; un SHA no. El comentario indica la versión.
+# Para actualizar: `pre-commit autoupdate --freeze` y verificar el SHA en la
+# release oficial antes de confirmar.
 repos:
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.30.0
+    rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e  # frozen: v8.30.1
     hooks:
       - id: gitleaks
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
     hooks:
       - id: no-commit-to-branch
         args: [--branch, main]

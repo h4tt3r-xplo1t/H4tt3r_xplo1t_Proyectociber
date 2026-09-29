@@ -270,6 +270,20 @@ run_case "git config core.worktree"                       'git config core.workt
 run_case "gh pr merge"                                    'gh pr merge 12 --squash'                        feat/x   2
 run_case "gh pr merge encadenado tras push"               'git push -u origin feat/x && gh pr merge --auto --squash' feat/x 2
 
+# Issue #1, PR B — git diff/log/show están permitidos sin confirmación en
+# .claude/settings.json, así que no pueden servir para leer secretos ni
+# escribir archivos. git diff compara rutas fuera del índice (modo
+# --no-index) también de forma implícita si una ruta queda fuera del árbol.
+run_case "diff --no-index /dev/null .env"                 'git diff --no-index /dev/null .env'             feat/x   2
+run_case "diff /dev/null .env (no-index implícito)"       'git diff /dev/null .env'                        feat/x   2
+run_case "diff ../otro archivo (ruta fuera del árbol)"    'git diff ../otro/archivo archivo'               feat/x   2
+run_case "diff con ruta absoluta"                         'git diff /etc/hostname README.md'               feat/x   2
+run_case "log -p -- .env.local"                           'git log -p -- .env.local'                       feat/x   2
+run_case "show HEAD:secrets/clave.pem"                    'git show HEAD:secrets/clave.pem'                feat/x   2
+run_case "log --output=<archivo> (escribe archivos)"      'git log --output=/tmp/x -1'                     feat/x   2
+run_case "diff --output <archivo>"                        'git diff --output /tmp/x'                       feat/x   2
+run_case "diff --ext-diff (ejecuta un programa externo)"  'git diff --ext-diff'                            feat/x   2
+
 echo
 echo "== Casos que deben permitirse (exit 0) =="
 
@@ -313,6 +327,15 @@ run_case "switch -c feat/y (sin main)"                              'git switch 
 run_case "gh pr view / checks (solo lectura)"                       'gh pr view 12 && gh pr checks 12'             feat/x 0
 run_case "gh pr create --body-file"                                 'gh pr create --base main --body-file b.md'    feat/x 0
 run_case "push --mo? no: push --porcelain (no es --mirror)"         'git push --porcelain origin feat/x'           feat/x 0
+
+# Issue #1, PR B — uso normal de git diff/log/show.
+run_case "git diff"                                                 'git diff'                                     feat/x 0
+run_case "git diff --stat main...HEAD"                              'git diff --stat main...HEAD'                  feat/x 0
+run_case "git log --oneline -5"                                     'git log --oneline -5'                         feat/x 0
+run_case "git show --stat HEAD"                                     'git show --stat HEAD'                         feat/x 0
+run_case "git diff -- .env.example (plantilla con valores ficticios)" 'git diff -- .env.example'                   feat/x 0
+run_case "git show HEAD:docs/BITACORA.md"                           'git show HEAD:docs/BITACORA.md'               feat/x 0
+run_case "git diff --no-ext-diff (desactiva, no activa)"            'git diff --no-ext-diff'                       feat/x 0
 
 echo
 echo "== Falso positivo documentado y aceptado (fail-closed) =="

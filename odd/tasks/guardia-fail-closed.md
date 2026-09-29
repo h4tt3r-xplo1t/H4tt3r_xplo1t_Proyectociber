@@ -28,7 +28,14 @@ Issue #1 (reopened), PR A: make `.claude/hooks/guardia.sh` fail closed and close
 - [x] **T3** — BITACORA entry, revisor-seguridad review (verdict: blocking, 19 suspicions; parent reproduced all 19), commit `4040790`.
 - [x] **T4** — Round 4 per user decision "fix structural + config, document shell expansion": RED 20/112 (writer), GREEN 112/112 verified by parent; probe script re-run: only the 3 shell-expansion cases and `reset --hard` on main remain open. ADR `docs/adr/0002-alcance-guardia-sh.md` records the threat model.
 - [x] **T5** — Final revisor-seguridad pass on `72f6ae5`: ready for PR with reservations. Round 5 (10 cases incl. `gh pr merge` block per AGENTS.md §5): RED 10/125, writer GREEN 125/125 verified by parent; probes: only 3 shell-expansion cases and `reset --hard` on main remain open. ADR 0002 and BITACORA precision fixes.
-- [ ] **T6** — Push + PR (needs authorization); human review and squash merge. Then PR B (settings.json, gitleaks SHA pin).
+- [x] **T6** — Push + PR #11 (authorized); CI run `36511317067` green (125 + 15); human squash merge as `ce62919`.
+
+### PR B (branch `fix/1-permisos-settings`)
+- [x] **B1** — Hook rule: `git diff/log/show/...` cannot read secrets (`.env`, `.env.*` except `.env.example`, `secrets/`), compare paths outside the tree (implicit `--no-index`, confirmed in the git 2.55 man page), or use `--output`/`--ext-diff`/`--no-index`. Route: delegated writer (same hook). TDD: RED 9/141, GREEN 141/141 verified by parent. Writer-reported limit (abbreviations `--ext`, `--outp`, `--no-ind`) disproved: git 2.55 rejects them as unknown options.
+- [x] **B2** — `.claude/settings.json`: hook path quoted as in the official docs (`"$CLAUDE_PROJECT_DIR"/...`). JSON validated with `jq`.
+- [x] **B3** — `.pre-commit-config.yaml`: gitleaks pinned to `83d9cd68…` (`v8.30.1`, aligned with CI) and pre-commit-hooks to `3e8a8703…` (`v6.0.0`), SHAs resolved from the official tags with `gh api`; the `gitleaks` hook id verified at that SHA.
+- [x] **B4** — Decision (user): keep `deny Read(./.env.*)`. Official docs: an allow rule cannot carve an exception out of a deny rule. `.env.example` (fictitious values only) is read on request via a confirmed command. The issue criterion "`.env.example` se puede leer" is dropped and documented.
+- [ ] **B5** — BITACORA, revisor-seguridad, commit, push + PR (authorization).
 
 ## Acceptance criteria
 - Hook exits 2 when `jq` is missing or input is not valid JSON.

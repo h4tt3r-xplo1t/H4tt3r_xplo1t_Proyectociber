@@ -178,6 +178,46 @@ revisar_config() {
   done
 }
 
+# ¿La ruta apunta a un archivo secreto? Quita un "<rev>:" inicial y los "./"
+# iniciales; bloquea .env y .env.* (salvo exactamente .env.example) en
+# cualquier componente, y secrets/ al inicio o en medio de la ruta.
+es_ruta_secreta() {
+  local ruta="$1" comp
+  local -a comps
+  ruta="${ruta#*:}"
+  while [[ "$ruta" == ./* ]]; do ruta="${ruta#./}"; done
+  IFS=/ read -ra comps <<< "$ruta"
+  for comp in "${comps[@]}"; do
+    case "$comp" in
+      .env.example) ;;
+      .env|.env.*) return 0 ;;
+    esac
+  done
+  case "$ruta" in secrets|secrets/*|*/secrets/*) return 0 ;; esac
+  return 1
+}
+
+# Subcomandos de solo lectura que la configuración permite sin confirmar:
+# no deben leer secretos, salir del repositorio ni escribir o ejecutar nada.
+#  - --no-index / rutas absolutas o con ".." en diff: git compara el sistema de
+#    archivos (modo no-index implícito) y puede imprimir cualquier archivo.
+#  - --output escribe archivos; --ext-diff ejecuta un programa externo.
+# Los rangos de revisiones (main...HEAD, main..feat) no son rutas y se permiten.
+revisar_lectura() {
+  local tok
+  for tok in "${ARGS[@]}"; do
+    case "$tok" in
+      --no-index|--ext-diff|--output|--output=*) bloquear "$MSG_LECTURA" ;;
+      -*) continue ;;
+    esac
+    es_ruta_secreta "$tok" && bloquear "$MSG_LECTURA"
+    if [ "$SUB" = "diff" ]; then
+      case "$tok" in /*|..|../*|*/../*|*/..) bloquear "$MSG_LECTURA" ;; esac
+    fi
+  done
+}
+MSG_LECTURA="git diff/log/show no pueden leer secretos (.env, secrets/), comparar rutas fuera del repositorio ni escribir o ejecutar con --output/--ext-diff/--no-index."
+
 # Fusionar PR es decisión humana (AGENTS.md §5): bloquea "gh ... pr merge" en
 # el segmento actual (TOK). El subcomando de pr es el primer token sin guion.
 revisar_gh() {
@@ -209,6 +249,7 @@ revisar_invocacion() {
       fi ;;
     push) revisar_push ;;
     config) revisar_config ;;
+    diff|log|show|whatchanged|grep|blame|cat-file) revisar_lectura ;;
   esac
 }
 

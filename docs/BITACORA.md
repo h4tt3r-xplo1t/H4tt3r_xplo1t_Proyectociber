@@ -196,12 +196,13 @@ Rama `docs/18-modelo-amenazas`. Documento: [`docs/threat-model.md`](threat-model
 - **Lección del PR #16.** Antes de empujar más commits a la rama de un PR, comprobar que el PR sigue abierto (`gh pr view`). El PR #16 se fusionó antes de que llegaran dos commits; el push recreó la rama borrada; se recuperaron en el PR #17 con cherry-pick sobre una rama nueva, y la rama obsoleta se borró tras comprobar que su árbol era idéntico.
 
 - **Revisión de seguridad (revisor-seguridad) del #18:** listo para PR, sin críticos ni altos. Se corrigieron sus 4 hallazgos medios antes del PR: el control de SSRF no era realizable (las NetworkPolicy nativas filtran por IP, no por dominio: pasa a proxy de salida o política por dominio, validación del host y sin descargar artículos); faltaban 12 amenazas (enlaces maliciosos en tendencias, deserialización en RabbitMQ, inyección en la consulta a YouTube, revocación de tokens, CSRF y CORS, IDOR, falseo de X-Forwarded-For, datos sensibles en logs, privilegios de contenedores, envenenamiento de datos y Vault en modo dev); la garantía de la auditoría estaba sobrevendida (protege frente al gateway, no frente al administrador de BD); y los flujos de Vault decían HTTPS sin cifrado (ahora HTTP hasta decidir TLS interno). Los hallazgos bajos quedaron como decisiones pendientes en `docs/threat-model.md` (algoritmo de los JWT, texto de búsqueda en la auditoría) o corregidos (referencias a B2 con contexto). Aprendizaje: pedir al revisor que evalúe la calidad del modelo, no solo secretos e inyección, encontró brechas reales de diseño.
+- **Cierre:** PR #19 fusionado con squash como `2897863`; issue #18 cerrado.
 
 ## 2026-09-29 · Issue #20: ADR 0004, autenticación y autorización
 
 Rama `docs/20-adr-autenticacion`. Documento: [`docs/adr/0004-autenticacion.md`](adr/0004-autenticacion.md).
 
-- **Las 9 decisiones en una línea:** (1) token en cookie `__Host-` con anti-CSRF; (2) JWT HS256 con clave en Vault y `kid`; (3) acceso de 15 min, refresco opaco rotado, revocación de la familia y lista de denegación por `jti`; (4) Argon2id, contraseña de al menos 15 caracteres sin reglas de composición, bloqueo progresivo y errores genéricos; (5) cuatro roles con denegación por defecto y separación de funciones; (6) auditoría de búsquedas sin el texto buscado, 180 días; (7) ASVS 5.0.0 con L1 general y L2 en V6, V7 y V8 (más V9); (8) MFA con TOTP obligatorio para roles con privilegios; (9) tiempos de sesión por rol.
+- **Las decisiones 1 a 9 en una línea (la 10 y la 11 se añadieron tras la primera revisión):** (1) token en cookie `__Host-` con anti-CSRF; (2) JWT HS256 con clave en Vault y `kid`; (3) acceso de 15 min, refresco opaco rotado, revocación de la familia y lista de denegación por `jti`; (4) Argon2id, contraseña de al menos 15 caracteres sin reglas de composición, bloqueo progresivo y errores genéricos; (5) cuatro roles con denegación por defecto y separación de funciones; (6) auditoría de búsquedas sin el texto buscado, 180 días; (7) ASVS 5.0.0 con L1 general y L2 en V6, V7 y V8 (más V9); (8) MFA con TOTP obligatorio para roles con privilegios; (9) tiempos de sesión por rol.
 - **La investigación verificó las fuentes primarias y cambió tres elecciones iniciales de la persona:** reglas de composición → longitud de 15; bloqueo fijo 3/30 → progresivo; mínimo de 12 → 15 más MFA. La persona decidió cada cambio tras ver la evidencia (ASVS 5.0.0, NIST SP 800-63B-4, guía de autenticación de OWASP).
 - **Aprendizaje:** contrastar cada decisión con los estándares primarios antes de escribirla. Dos de las tres elecciones iniciales iban contra la recomendación vigente.
 - **Bibliotecas verificadas en PyPI (2026-09-29):** PyJWT 2.15.1, argon2-cffi 25.1.0 y pyotp 2.10.0. Descartada: `python-jose` (CVE-2024-33663 y CVE-2024-33664). Los resúmenes de las herramientas son de segunda mano.
@@ -210,27 +211,44 @@ Rama `docs/20-adr-autenticacion`. Documento: [`docs/adr/0004-autenticacion.md`](
 - **Aprendizaje:** un ADR debe definir los flujos (recuperación, alta del MFA, arranque), no solo los parámetros.
 - **Segunda revisión de seguridad (revisor-seguridad) del #20:** NO listo (1 alto y 3 medios introducidos por la reescritura), corregidos. Cambios: procedimiento de emergencia (break-glass) para el bloqueo con un solo administrador; periodo de gracia de 10 s eliminado en favor de un refresco de un solo vuelo en el frontend (la reutilización de un refresco rotado revoca siempre la familia); alta del MFA con solo contraseña (N3) y código de restablecimiento conocido por el administrador (N4) documentados como riesgos residuales aceptados, con sus mitigaciones; detalles de cookie `__Secure-refresh` y de CSRF (clave HMAC en Vault, token previo a la sesión en el login); destrucción de todas las versiones del secreto de arranque en Vault KV v2; trazabilidad de la decisión 9 corregida (7.3.1 y 7.3.2).
 - **Aprendizaje:** cada mecanismo añadido debe contrastarse con los demás; la reescritura introdujo contradicciones.
+- **Tercera revisión de seguridad (revisor-seguridad) del #20:** listo para PR; sus 3 observaciones menores se corrigieron (el arranque nunca se ejecuta con un administrador activo, el alcance `enroll-mfa` cubre solo el cambio de contraseña, el cierre de sesión acepta un acceso caducado con firma válida).
+- **Cierre:** PR #21 fusionado con squash como `def4428`; issue #20 cerrado. El estado del ADR 0004 se cambió a «Aceptado» en el mantenimiento posterior de la bitácora.
 
 ## Pendientes
-- [ ] **E8:** respaldo y restauración probados de PostgreSQL y Vault (declarado en `docs/threat-model.md`).
-- [x] **E0 (issue #15, PR #16 y #17):** ficha, ADR 0003 y propuesta.
+
+### E3: primer flujo (búsqueda por tema) y autenticación
 - [ ] **E3:** añadir los comandos de prueba y lint del stack a `.claude/settings.json` cuando exista el código.
-- [x] Revisión manual de los términos de uso de RCN, Semana, Caracol, Blu Radio y Citytv (persona, 2026-09-29): ninguno prohíbe el uso informativo con enlace. Repetir antes de la entrega final.
 - [ ] Verificar las versiones del stack (AGENTS.md §3) antes de fijarlas.
-- [x] **E1:** contenido de las fuentes externas como entrada no confiable (XSS, XXE, SSRF) y concentración de funciones en el gateway, modelados en el issue #18 (amenazas 2, 5, 20 y 21). Los controles siguen sin verificar hasta que haya código y pruebas (E3).
-- [ ] **E1 (issue #18):** exportar los PNG de los DFD (persona), revisión de `revisor-seguridad` y PR.
-- [ ] ADR de cifrado dentro del clúster (TLS/mTLS para Vault, PostgreSQL y RabbitMQ), antes de E5.
-- [x] Nivel objetivo de OWASP ASVS: 5.0.0, L1 general y L2 en V3.3/V3.5, V6, V7, V8, V9 y V16 (16.2.1, 16.2.2, 16.2.5, 16.3.1, 16.3.2) (ADR 0004, issue #20).
 - [ ] **E3:** elegir y verificar una lista de contraseñas filtradas y su licencia (ASVS 6.2.12, L2, pendiente hasta entonces).
-- [ ] Decidir el mecanismo de cifrado del secreto TOTP (transit de Vault o cifrado de aplicación), junto con el ADR de red y criptografía (antes de E5).
-- [ ] Recuperación de cuenta por correo: opción futura con ADR propio (requeriría egress).
 - [ ] **E3:** implementar el MFA con TOTP, la recuperación asistida y el arranque del primer administrador (ADR 0004, decisiones 8, 10 y 11), con sus pruebas. Las amenazas 43 a 47 ya están en el modelo.
 - [ ] **E3:** implementar la renovación de sesión de un solo vuelo en el frontend.
-- [ ] Modelar la cadena de suministro de CI/CD (E4/E7).
 - [ ] **E3:** antes de añadir `pysentimiento`, verificar nombre, mantenedor, licencia y actividad (AGENTS.md §3) y fijar el modelo de Hugging Face por hash de commit (riesgo de deserialización con `torch`) (hallazgo B5 del #15).
+
+### E5: plataforma, red y cifrado
+- [ ] ADR de cifrado dentro del clúster (TLS/mTLS para Vault, PostgreSQL y RabbitMQ), antes de E5.
+- [ ] Decidir el mecanismo de cifrado del secreto TOTP (transit de Vault o cifrado de aplicación), junto con el ADR de red y criptografía (antes de E5).
+
+### E4/E7: CI/CD y cadena de suministro
+- [ ] Modelar la cadena de suministro de CI/CD (E4/E7).
 - [ ] **E7:** referenciar las imágenes por digest, no solo por `vX.Y.Z` y `latest` (hallazgo B4 del #15).
-- [ ] Traslado a una rama del repositorio del curso: última tarea del proyecto (decidido el 2026-09-29).
+
+### E8: operación
+- [ ] **E8:** respaldo y restauración probados de PostgreSQL y Vault (declarado en `docs/threat-model.md`).
+
+### Gobierno del repositorio
 - [ ] CODEOWNERS para rutas sensibles (`.github/**`, `.claude/**`, `tests/**`, `docs/adr/**`), útil cuando haya un segundo revisor (mitigación de M1, ADR 0001).
+
+### Opciones futuras
+- [ ] Recuperación de cuenta por correo: opción futura con ADR propio (requeriría egress).
+
+### Cierre del proyecto
+- [ ] Traslado a una rama del repositorio del curso: última tarea del proyecto (decidido el 2026-09-29).
+
+### Hechos
+- [x] **E0 (issue #15, PR #16 y #17):** ficha, ADR 0003 y propuesta.
+- [x] Revisión manual de los términos de uso de RCN, Semana, Caracol, Blu Radio y Citytv (persona, 2026-09-29): ninguno prohíbe el uso informativo con enlace. Repetir antes de la entrega final.
+- [x] **E1:** contenido de las fuentes externas como entrada no confiable (XSS, XXE, SSRF) y concentración de funciones en el gateway, modelados en el issue #18 (amenazas 2, 5, 20 y 21). Los controles siguen sin verificar hasta que haya código y pruebas (E3).
+- [x] Nivel objetivo de OWASP ASVS: 5.0.0, L1 general y L2 en V3.3/V3.5, V6, V7, V8, V9 y V16 (16.2.1, 16.2.2, 16.2.5, 16.3.1, 16.3.2) (ADR 0004, issue #20).
 - [x] Imágenes rotas referenciadas en `docs/PROJECT_CONTEXT.md` (`Logo.png`, `Arquitectura_IDENTIX.png`), restauradas en `f834b9d`.
 - [x] Contacto en SECURITY.md.
 - [x] Prueba del kit dentro de Claude Code: hook, subagente, permisos y archivos de memoria verificados (`/hooks`, `/agents`, `/context`).
@@ -240,3 +258,5 @@ Rama `docs/20-adr-autenticacion`. Documento: [`docs/adr/0004-autenticacion.md`](
 - [x] `delete_branch_on_merge` activado.
 - [x] Quitar el scope `workflow` del token de `gh` (hallazgo B1 del PR #5).
 - [x] Contrastar los sha256 de gitleaks y actionlint con los `checksums.txt` oficiales (hallazgo I1 del PR #5).
+- [x] **E1 (issue #18, PR #19):** DFD de nivel 0 y 1 en Threat Dragon, 42 amenazas iniciales, PNG exportados y revisión de seguridad.
+- [x] **ADR 0004 (issue #20, PR #21):** autenticación y autorización; modelo ampliado a 47 amenazas.

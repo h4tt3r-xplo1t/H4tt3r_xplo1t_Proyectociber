@@ -2,7 +2,7 @@
 
 ## Estado
 
-Propuesto, 2026-09-29. Pasa a Aceptado cuando la persona responsable fusione el PR.
+Aceptado, 2026-09-29. La persona responsable fusionó el PR #21 (`def4428`).
 
 ## Contexto
 

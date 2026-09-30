@@ -1,0 +1,780 @@
+{
+  "version": "2.6.2",
+  "summary": {
+    "title": "H4tt3r_1nf0rm4t1v0",
+    "owner": "H4TT3R_XPLO1T",
+    "description": "Modelo de amenazas del agregador de noticias y tendencias. Issue #18",
+    "id": 0
+  },
+  "detail": {
+    "contributors": [],
+    "diagrams": [
+      {
+        "id": 0,
+        "title": "DFD nivel 0 - Contexto",
+        "diagramType": "STRIDE",
+        "placeholder": "Descripción de nuevo diagrama STRIDE",
+        "thumbnail": "./public/content/images/thumbnail.stride.jpg",
+        "version": "2.6.2",
+        "cells": [
+          {
+            "position": {
+              "x": 400,
+              "y": 180
+            },
+            "size": {
+              "width": 160,
+              "height": 160
+            },
+            "attrs": {
+              "text": {
+                "text": "H4tt3r_1nf0rm4t1v0"
+              },
+              "body": {
+                "stroke": "#333333",
+                "strokeWidth": 1.5,
+                "strokeDasharray": null
+              }
+            },
+            "visible": true,
+            "shape": "process",
+            "ports": {
+              "groups": {
+                "top": {
+                  "position": "top",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "position": "right",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "bottom": {
+                  "position": "bottom",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "left": {
+                  "position": "left",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                }
+              },
+              "items": [
+                {
+                  "group": "top",
+                  "id": "3d41edf9-0cd9-451e-9b60-47eb977ea3d1"
+                },
+                {
+                  "group": "right",
+                  "id": "5d8ddc1a-d7e2-46b3-90c6-07eeaca7cfe1"
+                },
+                {
+                  "group": "bottom",
+                  "id": "c5ebf25a-cd71-443d-b080-205d2b3f6f35"
+                },
+                {
+                  "group": "left",
+                  "id": "2a7b2f61-a9b2-4ea8-a418-9402840194c8"
+                }
+              ]
+            },
+            "id": "daf7b2bb-1ecd-4764-8a7b-f8bd29bb24d2",
+            "zIndex": 1,
+            "data": {
+              "type": "tm.Process",
+              "name": "H4tt3r_1nf0rm4t1v0",
+              "description": "Sistema completo: frontend, gateway, workers, RabbitMQ, PostgreSQL y Vault en un clúster K3s local (k3d).",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "handlesCardPayment": false,
+              "handlesGoodsOrServices": false,
+              "isWebApplication": false,
+              "privilegeLevel": "",
+              "threats": []
+            }
+          },
+          {
+            "position": {
+              "x": 30,
+              "y": 225
+            },
+            "size": {
+              "width": 150,
+              "height": 70
+            },
+            "attrs": {
+              "text": {
+                "text": "Lector"
+              },
+              "body": {
+                "stroke": "#333333",
+                "strokeWidth": 1.5,
+                "strokeDasharray": null
+              }
+            },
+            "visible": true,
+            "shape": "actor",
+            "zIndex": 2,
+            "ports": {
+              "groups": {
+                "top": {
+                  "position": "top",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "position": "right",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "bottom": {
+                  "position": "bottom",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "left": {
+                  "position": "left",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                }
+              },
+              "items": [
+                {
+                  "group": "top",
+                  "id": "92d61c01-c9f1-4365-91f5-d52597049602"
+                },
+                {
+                  "group": "right",
+                  "id": "f53e58de-c356-48ff-883e-cf516c2510a8"
+                },
+                {
+                  "group": "bottom",
+                  "id": "79a7f1bf-8514-496d-a8c6-97ed1c53ce1b"
+                },
+                {
+                  "group": "left",
+                  "id": "0b3b29fa-8934-45fd-8f1e-74d61b17e35b"
+                }
+              ]
+            },
+            "id": "b972b495-e748-41dc-bdf6-aadc519cd4c9",
+            "data": {
+              "type": "tm.Actor",
+              "name": "Lector",
+              "description": "Persona que usa la aplicación desde el navegador.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "providesAuthentication": false,
+              "threats": []
+            }
+          },
+          {
+            "position": {
+              "x": 840,
+              "y": 370
+            },
+            "size": {
+              "width": 200,
+              "height": 80
+            },
+            "attrs": {
+              "text": {
+                "text": "Medios de noticias"
+              },
+              "body": {
+                "stroke": "#333333",
+                "strokeWidth": 1.5,
+                "strokeDasharray": null
+              }
+            },
+            "visible": true,
+            "shape": "actor",
+            "ports": {
+              "groups": {
+                "top": {
+                  "position": "top",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "position": "right",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "bottom": {
+                  "position": "bottom",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "left": {
+                  "position": "left",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                }
+              },
+              "items": [
+                {
+                  "group": "top",
+                  "id": "92d61c01-c9f1-4365-91f5-d52597049602"
+                },
+                {
+                  "group": "right",
+                  "id": "f53e58de-c356-48ff-883e-cf516c2510a8"
+                },
+                {
+                  "group": "bottom",
+                  "id": "79a7f1bf-8514-496d-a8c6-97ed1c53ce1b"
+                },
+                {
+                  "group": "left",
+                  "id": "0b3b29fa-8934-45fd-8f1e-74d61b17e35b"
+                }
+              ]
+            },
+            "id": "5a979d7f-98b3-44ac-a20d-0fccba3a56ab",
+            "zIndex": 3,
+            "data": {
+              "type": "tm.Actor",
+              "name": "Medios de noticias",
+              "description": "RCN y Semana (RSS); Caracol, Blu Radio y Citytv (sitemaps).",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "providesAuthentication": false,
+              "threats": []
+            }
+          },
+          {
+            "position": {
+              "x": 840,
+              "y": 70
+            },
+            "size": {
+              "width": 200,
+              "height": 80
+            },
+            "attrs": {
+              "text": {
+                "text": "Fuentes de tendencias"
+              },
+              "body": {
+                "stroke": "#333333",
+                "strokeWidth": 1.5,
+                "strokeDasharray": null
+              }
+            },
+            "visible": true,
+            "shape": "actor",
+            "ports": {
+              "groups": {
+                "top": {
+                  "position": "top",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "position": "right",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "bottom": {
+                  "position": "bottom",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "left": {
+                  "position": "left",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                }
+              },
+              "items": [
+                {
+                  "group": "top",
+                  "id": "92d61c01-c9f1-4365-91f5-d52597049602"
+                },
+                {
+                  "group": "right",
+                  "id": "f53e58de-c356-48ff-883e-cf516c2510a8"
+                },
+                {
+                  "group": "bottom",
+                  "id": "79a7f1bf-8514-496d-a8c6-97ed1c53ce1b"
+                },
+                {
+                  "group": "left",
+                  "id": "0b3b29fa-8934-45fd-8f1e-74d61b17e35b"
+                }
+              ]
+            },
+            "id": "0b966162-b340-4a8d-8768-6d3644ebb713",
+            "zIndex": 4,
+            "data": {
+              "type": "tm.Actor",
+              "name": "Fuentes de tendencias",
+              "description": "YouTube Data API, Google Trends (RSS) y Mastodon (solo etiquetas y enlaces).",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "providesAuthentication": false,
+              "threats": []
+            }
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Credenciales y texto de búsqueda",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": true,
+              "isPublicNetwork": true,
+              "protocol": "HTTPS",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Credenciales y texto de búsqueda"
+            ],
+            "id": "bdb40a0d-e0ce-4f23-a480-b3966ddef291",
+            "source": {
+              "cell": "b972b495-e748-41dc-bdf6-aadc519cd4c9",
+              "port": "92d61c01-c9f1-4365-91f5-d52597049602"
+            },
+            "target": {
+              "cell": "daf7b2bb-1ecd-4764-8a7b-f8bd29bb24d2",
+              "port": "3d41edf9-0cd9-451e-9b60-47eb977ea3d1"
+            },
+            "vertices": [
+              {
+                "x": 105,
+                "y": 150
+              },
+              {
+                "x": 480,
+                "y": 150
+              }
+            ]
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Tendencias y vídeos",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": true,
+              "isPublicNetwork": true,
+              "protocol": "HTTPS",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Tendencias y vídeos"
+            ],
+            "id": "192db2b6-21d4-4788-bc9f-adb26f1c2c0f",
+            "source": {
+              "cell": "0b966162-b340-4a8d-8768-6d3644ebb713",
+              "port": "0b3b29fa-8934-45fd-8f1e-74d61b17e35b"
+            },
+            "target": {
+              "cell": "daf7b2bb-1ecd-4764-8a7b-f8bd29bb24d2",
+              "port": "5d8ddc1a-d7e2-46b3-90c6-07eeaca7cfe1"
+            },
+            "vertices": [
+              {
+                "x": 700,
+                "y": 110
+              },
+              {
+                "x": 620,
+                "y": 240
+              }
+            ]
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "RSS y sitemaps (titulares)",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": true,
+              "isPublicNetwork": true,
+              "protocol": "HTTPS",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "RSS y sitemaps (titulares)"
+            ],
+            "id": "b56ca078-e677-4d01-aa53-66baa3685d86",
+            "source": {
+              "cell": "5a979d7f-98b3-44ac-a20d-0fccba3a56ab",
+              "port": "0b3b29fa-8934-45fd-8f1e-74d61b17e35b"
+            },
+            "target": {
+              "cell": "daf7b2bb-1ecd-4764-8a7b-f8bd29bb24d2",
+              "port": "5d8ddc1a-d7e2-46b3-90c6-07eeaca7cfe1"
+            },
+            "vertices": [
+              {
+                "x": 700,
+                "y": 410
+              },
+              {
+                "x": 620,
+                "y": 280
+              }
+            ]
+          },
+          {
+            "shape": "trust-boundary-curve",
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Boundary",
+              "name": "Internet ↔ Clúster",
+              "description": "",
+              "isTrustBoundary": true,
+              "hasOpenThreats": false,
+              "crossingFlows": [],
+              "containedElements": []
+            },
+            "labels": [
+              "Internet ↔ Clúster"
+            ],
+            "id": "96775feb-e754-44e8-b18b-386b81b1d5d1",
+            "source": {
+              "x": 290,
+              "y": 110
+            },
+            "target": {
+              "x": 290,
+              "y": 420
+            },
+            "vertices": []
+          },
+          {
+            "shape": "trust-boundary-curve",
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Boundary",
+              "name": "Clúster ↔ Fuentes externas",
+              "description": "",
+              "isTrustBoundary": true,
+              "hasOpenThreats": false,
+              "crossingFlows": [],
+              "containedElements": []
+            },
+            "labels": [
+              "Clúster ↔ Fuentes externas"
+            ],
+            "id": "ec890ec6-61f4-4037-8276-5f090a3a1c3e",
+            "source": {
+              "x": 730,
+              "y": 40
+            },
+            "target": {
+              "x": 730,
+              "y": 470
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Resultados agrupados con sentimiento",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": true,
+              "isPublicNetwork": true,
+              "protocol": "HTTPS",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Resultados agrupados con sentimiento"
+            ],
+            "id": "15795cfc-8ccc-4095-8ab7-cb4a929d9896",
+            "source": {
+              "cell": "daf7b2bb-1ecd-4764-8a7b-f8bd29bb24d2",
+              "port": "c5ebf25a-cd71-443d-b080-205d2b3f6f35"
+            },
+            "target": {
+              "cell": "b972b495-e748-41dc-bdf6-aadc519cd4c9",
+              "port": "79a7f1bf-8514-496d-a8c6-97ed1c53ce1b"
+            },
+            "vertices": [
+              {
+                "x": 480,
+                "y": 375
+              },
+              {
+                "x": 105,
+                "y": 375
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "diagramTop": 1,
+    "reviewer": "revisor-seguridad",
+    "threatTop": 0
+  }
+}

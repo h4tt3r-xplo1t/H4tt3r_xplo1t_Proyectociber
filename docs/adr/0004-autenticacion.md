@@ -150,7 +150,13 @@ sin salida a internet (ADR 0003).
   el identificador de sesión (`sid`, el de la familia de refresco). Se envía
   en una cookie legible `__Host-csrf` y debe repetirse en la cabecera
   `X-CSRF-Token` en todo `POST`, `PUT`, `PATCH` y `DELETE`; el gateway
-  verifica el HMAC y la coincidencia (3.5.1).
+  verifica el HMAC y la coincidencia (3.5.1). La clave HMAC del token
+  anti-CSRF vive en Vault, separada de la clave del JWT, y rota con la misma
+  política de la decisión 2.
+- **CSRF antes de la sesión:** el login tiene su propio token anti-CSRF previo
+  a la sesión: una cookie `__Host-csrf` de vida corta, emitida al cargar la
+  página de login y validada contra la cabecera `X-CSRF-Token`, además de la
+  comprobación de `Sec-Fetch-Site`/`Origin` descrita abajo.
 - Ningún cambio de estado usa `GET` (3.5.3).
 - Se exige `Sec-Fetch-Site: same-origin` o, si falta, que `Origin` coincida
   con el origen de la aplicación. Si faltan ambas cabeceras en una petición
@@ -182,13 +188,13 @@ sin salida a internet (ADR 0003).
 | Elemento | Decisión |
 |---|---|
 | Token de acceso (JWT) | Dura 15 minutos; va en `__Host-access` (`Path=/`) y lleva `sid` |
-| Token de refresco | Opaco y aleatorio (CSPRNG, al menos 128 bits, ASVS 7.2.3); solo se guarda su hash. Va en la cookie `__Secure-refresh` con `Path=/api/auth/refresh` (un `__Host-` exige `Path=/`, así que el refresco usa `__Secure-`, permitido por 3.3.1) |
+| Token de refresco | Opaco y aleatorio (CSPRNG, al menos 128 bits, ASVS 7.2.3); solo se guarda su hash. Va en la cookie `__Secure-refresh` con `HttpOnly`, `Secure`, `SameSite=Strict` y `Path=/api/auth/refresh` (un `__Host-` exige `Path=/`, así que el refresco usa `__Secure-`, permitido por 3.3.1). `POST /api/auth/refresh` exige además el token anti-CSRF (3.5.1) |
 | Familia de refresco | Guarda `created_at` (límite absoluto por rol) y `last_used_at` (límite de inactividad por rol). El refresco se rechaza si se supera cualquiera de los dos, así el límite de inactividad se aplica aunque el acceso dure 15 minutos |
 | Rotación | Se rota en cada uso |
-| Reutilización de un refresco viejo | Revoca toda la familia, salvo la gracia de 10 s |
-| Gracia de 10 s | Si el refresco inmediatamente anterior se reutiliza en menos de 10 s (dos pestañas o un reintento de red), se devuelve el sucesor ya emitido en vez de revocar. Fuera de esa ventana, la reutilización revoca la familia |
+| Reutilización de un refresco viejo | Revoca toda la familia, sin excepciones ni periodo de gracia |
+| Refresco de un solo vuelo | El frontend hace el refresco en un solo vuelo: una única petición de refresco en curso a la vez, compartida entre pestañas (por ejemplo con la Web Locks API o `BroadcastChannel`); detalle de implementación para E3 |
 | Nueva sesión al autenticar | Cada login emite tokens y `sid` nuevos (7.2.4) |
-| Cierre de sesión | Borra el refresco y añade el `jti` del acceso a una lista de denegación hasta su expiración |
+| Cierre de sesión | El cierre de sesión (otra ruta) localiza la familia de refresco por el `sid` del token de acceso y la revoca; además añade el `jti` del acceso a una lista de denegación hasta su expiración |
 | Lista de denegación | Clave por `jti`, no por hash del token crudo (maleabilidad; guía de JWT de OWASP) |
 | Vinculación a dispositivo | **No implementada**; la protección es la cookie `HttpOnly` |
 
@@ -197,7 +203,9 @@ La rotación con revocación de la familia sigue por analogía a RFC 9700
 <https://www.rfc-editor.org/rfc/rfc9700>); no hay servidor OAuth externo, por
 eso se aplica como criterio de diseño y no como cumplimiento del RFC.
 La lista de denegación planea cumplir ASVS 7.4.1 para tokens autocontenidos.
-El gateway verifica cada token en el backend (7.2.1).
+El gateway verifica cada token en el backend (7.2.1). Consecuencia aceptada:
+una carrera en un cliente que no respeta el vuelo único cierra la sesión del
+usuario.
 
 ### 4. Contraseñas, bloqueo y errores
 
@@ -305,7 +313,8 @@ trabajo, no una declaración de conformidad.
 
 - TOTP obligatorio para editor, auditor y administrador; opcional para el
   lector. Un rol con privilegios no puede operar sin MFA activo (el alta y el
-  arranque están en la decisión 11).
+  arranque, el procedimiento de emergencia y el alta limitada están en la
+  decisión 11).
 - El secreto TOTP y los códigos de recuperación salen de un CSPRNG (6.5.3).
   Los códigos de recuperación se guardan con hash (6.5.2) y son de un solo
   uso (6.5.1).
@@ -342,36 +351,75 @@ rango típico: es una decisión de riesgo documentada (ver Consecuencias).
 - Tras el restablecimiento se actualiza `tokens_valid_since` (se revocan todas
   las sesiones), se reinician los contadores de bloqueo y se registra el
   evento.
+- **El administrador conoce el código (riesgo residual aceptado):** para una
+  cuenta sin MFA (un lector), el administrador que genera el código podría
+  usarlo y suplantar al usuario. Mitigaciones: el evento de seguridad queda
+  registrado y visible para el auditor, y en el siguiente login del usuario
+  la aplicación muestra un aviso («tu contraseña se restableció el <fecha> por
+  un administrador; si no lo pediste, avisa»). El envío por correo eliminaría
+  este riesgo, pero se rechazó para mantener el gateway sin salida a
+  internet.
+- **Formulario de ayuda anónimo:** tiene límite de peticiones por IP y
+  responde igual exista o no la cuenta.
 - **MFA perdido en una cuenta con privilegios (6.4.4):** el restablecimiento
   del MFA exige la aprobación de **dos administradores distintos**, ninguno de
   ellos el usuario afectado, con la identidad verificada fuera de banda. Se
-  registra y el auditor puede verlo. Si solo existe un administrador, se usa
-  el procedimiento de arranque de la decisión 11.
+  registra y el auditor puede verlo. Cuando hay menos de 2 administradores
+  distintos del afectado, se usa el procedimiento de emergencia
+  (break-glass) de la decisión 11.
 - Sin preguntas secretas ni pistas de contraseña (6.4.2).
 - La recuperación por correo de autoservicio queda como ADR futuro: requeriría
   un componente con salida a internet.
 
-### 11. Alta del MFA y arranque del primer administrador
+### 11. Alta del MFA, arranque del primer administrador y emergencia
 
-- **Alta del MFA:** cuando un usuario que debe tener MFA inicia sesión sin él,
-  el gateway emite una sesión limitada con alcance `enroll-mfa`, válida
-  10 minutos y utilizable solo en los endpoints de alta. El secreto sale de un
+- **Alta del MFA (sesión limitada):** cuando un usuario que debe tener MFA
+  inicia sesión sin él, un login con la contraseña correcta devuelve el
+  estado «alta requerida» y emite solo un token con alcance `enroll-mfa`. Ese
+  alcance viaja como claim en un JWT de 10 minutos en la cookie
+  `__Host-access`, con su propio `sid`, y respeta `tokens_valid_since`. Todo
+  endpoint fuera de los de alta rechaza los tokens con ese alcance (la
+  denegación por defecto se extiende a los alcances). El secreto sale de un
   CSPRNG (6.5.3), se muestra **una sola vez** (QR y texto) y se guarda cifrado
   (mecanismo pendiente). Solo queda activo cuando el usuario demuestra un
   código válido. Entonces se muestran una sola vez 10 códigos de
   recuperación de 12 caracteres en base32, agrupados como XXXX-XXXX-XXXX, de un
   solo uso y guardados con hash Argon2id (6.5.1, 6.5.2).
+- **Ventana y límites del alta:** el alta solo es posible dentro de las 24 h
+  posteriores a la asignación del rol con privilegios (o al arranque o a la
+  emergencia); pasado ese plazo, un administrador debe reemitirla. Los
+  intentos de alta tienen límite de frecuencia y cada alta es un evento de
+  seguridad que revisa el auditor.
+- **Riesgo residual aceptado (alta solo con contraseña):** quien conozca la
+  contraseña durante esa ventana podría dar de alta su propio dispositivo.
 - **Asignar un rol con privilegios a un usuario sin MFA** deja la asignación
   pendiente. Se hace efectiva solo tras el alta del MFA; hasta entonces el
-  usuario tiene permisos de lector.
-- **Arranque del primer administrador:** un Job de Kubernetes de una sola
-  ejecución lee de Vault una contraseña de arranque de un solo uso (aleatoria,
-  al menos 20 caracteres, cumple la política, válida 24 horas) y crea el
+  usuario tiene permisos de lector y, en su siguiente login, se le envía al
+  alta.
+- **Arranque del primer administrador:** la persona responsable genera la
+  contraseña de arranque con un CSPRNG (por ejemplo `openssl rand`, al menos
+  20 caracteres, cumple la política, válida 24 horas) y la escribe en Vault
+  KV v2. Un Job de Kubernetes de una sola ejecución la lee y crea el
   administrador marcado `must_change_password` y `must_enroll_mfa`. En el
   primer login, el cambio de contraseña y el alta del MFA son obligatorios
-  antes de cualquier otra acción. Después el Job borra el secreto de arranque
-  de Vault y se niega a ejecutarse si ya existe un administrador. No hay
+  antes de cualquier otra acción. Después el Job **destruye todas las
+  versiones** del secreto en Vault (`destroy` o `metadata delete` de KV v2, no
+  un borrado lógico). El Job se niega a ejecutarse si existe al menos un
+  administrador ACTIVO, salvo que se pase el indicador de emergencia. No hay
   ninguna credencial de administrador estática permanente (6.4.1).
+- **Procedimiento de emergencia (break-glass):** un Job de Kubernetes que
+  ejecuta solo la persona responsable (H4TT3R_XPLO1T), con acceso directo al
+  clúster, y con el indicador explícito `--break-glass`. Restablece la
+  contraseña y el MFA de una cuenta de administrador indicada por nombre con
+  el mismo mecanismo de un solo uso del arranque: una contraseña aleatoria
+  nueva sembrada en Vault (generada y destruida como en el arranque), válida
+  24 h, con `must_change_password` y `must_enroll_mfa`, y con
+  `tokens_valid_since` actualizado. La acción se registra como evento de
+  seguridad visible para el auditor.
+- **Higiene de los Jobs de arranque y emergencia:** `backoffLimit: 0`, se
+  ejecutan a mano, el despliegue nunca los recrea, y un bloqueo en la base de
+  datos o una restricción de unicidad impide que dos ejecuciones simultáneas
+  creen dos administradores.
 
 ### Bibliotecas verificadas (PyPI, 2026-09-29)
 
@@ -391,15 +439,15 @@ versiones se fijan en el lockfile y las vigilan Dependabot y el análisis SCA.
 |---|---|---|
 | 1. Cookie `__Host-` y anti-CSRF | 3.3.1, 3.3.2, 3.3.3, 3.3.4, 3.5.1, 3.5.3 | 36, 1 |
 | 2. JWT HS256 | 9.1.1, 9.1.2, 9.1.3, 9.2.1, 9.2.3 | 1 |
-| 3. Vida, refresco y revocación | 7.2.1, 7.2.3 (el refresco es un token de referencia), 7.2.4, 7.4.1, 7.4.3 | 35, 1, 45 |
+| 3. Vida, refresco y revocación | 7.2.1, 7.2.3 (el refresco es un token de referencia), 7.2.4, 7.4.1, 7.4.3, 3.3.1, 3.3.4, 3.5.1 (cookie `__Secure-refresh` y CSRF del refresco) | 35, 1, 45 |
 | 4. Contraseñas y bloqueo | 6.1.1, 6.2.1, 6.2.4, 6.2.5, 6.2.9, 6.2.12, 6.3.1, 6.3.8, 6.5.1, 6.5.5, 6.5.8 | 8, 38, 44 |
 | 5. Roles y autorización | 8.1.1, 8.2.1, 8.2.2, 8.3.1, 7.4.2, 7.4.5 | 2, 37, 21 |
 | 6. Registro de eventos de seguridad | 16.2.1, 16.2.2, 16.2.5, 16.3.1, 16.3.2 | 4, 39 |
 | 7. Nivel objetivo | (marco general) | (todas las anteriores) |
 | 8. MFA con TOTP | 6.5.1, 6.5.2, 6.5.3, 6.5.5, 6.5.8 | 8, 1, 43, 44 |
-| 9. Tiempos de sesión | 7.3.1, 7.3.2, 7.4.5 | 35, 1 |
+| 9. Tiempos de sesión | 7.3.1, 7.3.2 | 35, 1 |
 | 10. Recuperación asistida | 6.4.1, 6.4.2, 6.4.3, 6.4.4, 6.4.6, 7.4.3 | 46, 8 |
-| 11. Alta del MFA y primer administrador | 6.4.1, 6.5.3, 6.5.1, 6.5.2 | 47, 43, 46 |
+| 11. Alta del MFA, primer administrador y emergencia | 6.4.1, 6.5.3, 6.5.1, 6.5.2 | 47, 43, 46 |
 
 Estado de los requisitos: ninguno está implementado todavía (no hay código).
 6.2.12 queda **pendiente** hasta elegir la lista de contraseñas filtradas.
@@ -429,8 +477,11 @@ requisitos y su cumplimiento se comprobará con pruebas en E3.
   y del rol añaden consultas por petición.
 - La recuperación asistida es más lenta y depende de que haya un
   administrador disponible.
-- El restablecimiento del MFA con cuatro ojos exige al menos dos
-  administradores en operación.
+- El restablecimiento del MFA con cuatro ojos exige dos administradores
+  DISTINTOS de la cuenta afectada, así que cubrir la pérdida del MFA de un
+  administrador exige al menos 3 administradores. Mientras el despliegue no
+  los tenga, el camino documentado es el procedimiento de emergencia
+  (break-glass) de la decisión 11; se acepta para el MVP.
 - La sesión de 7 días del lector supera el rango típico de OWASP. Se acepta
   porque el lector solo consulta noticias públicas; si el modelo cambia
   (datos personales, acciones sensibles), se revisa.
@@ -442,6 +493,19 @@ requisitos y su cumplimiento se comprobará con pruebas en E3.
   falsificar tokens (amenaza 1). La rotación por `kid` limita el daño.
 - Sin vinculación a dispositivo: un refresco robado desde el equipo del
   usuario sigue siendo utilizable hasta que se detecte su reutilización.
+
+**Riesgos residuales aceptados**
+
+- **Alta del MFA solo con contraseña (N3):** durante la ventana de 24 h, quien
+  conozca la contraseña podría dar de alta su propio dispositivo (decisión 11).
+- **El administrador conoce el código de restablecimiento (N4):** en cuentas
+  sin MFA puede suplantar al usuario; se mitiga con el evento de seguridad y
+  el aviso en el siguiente login (decisión 10).
+- **Dependencia de la emergencia con un solo administrador:** hasta que haya
+  3 administradores, la recuperación de un administrador depende de la
+  persona responsable y de su acceso directo al clúster.
+- **Carrera de refresco en el cliente:** un cliente que no respeta el vuelo
+  único y reutiliza un refresco ya rotado pierde la sesión (decisión 3).
 
 **Pendientes**
 

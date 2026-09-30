@@ -801,6 +801,7 @@
             },
             "visible": true,
             "shape": "actor",
+            "zIndex": 1,
             "ports": {
               "groups": {
                 "top": {
@@ -884,7 +885,6 @@
               ]
             },
             "id": "826e29ff-d451-4bc7-bfab-d7ed41561510",
-            "zIndex": 1,
             "data": {
               "type": "tm.Actor",
               "name": "Lector",
@@ -918,6 +918,7 @@
             },
             "visible": true,
             "shape": "process",
+            "zIndex": 2,
             "ports": {
               "groups": {
                 "top": {
@@ -1001,7 +1002,6 @@
               ]
             },
             "id": "2cf199e1-d714-4051-8760-444e3d00ca08",
-            "zIndex": 2,
             "data": {
               "type": "tm.Process",
               "name": "gateway (FastAPI)",
@@ -1038,6 +1038,7 @@
             },
             "visible": true,
             "shape": "process",
+            "zIndex": 3,
             "ports": {
               "groups": {
                 "top": {
@@ -1121,7 +1122,6 @@
               ]
             },
             "id": "a702ef56-d549-477a-a694-6923ace3dc74",
-            "zIndex": 3,
             "data": {
               "type": "tm.Process",
               "name": "RabbitMQ",
@@ -1139,8 +1139,8 @@
           },
           {
             "position": {
-              "x": 820,
-              "y": 90
+              "x": 810,
+              "y": 74.99999999999997
             },
             "size": {
               "width": 130,
@@ -1158,6 +1158,7 @@
             },
             "visible": true,
             "shape": "process",
+            "zIndex": 4,
             "ports": {
               "groups": {
                 "top": {
@@ -1241,7 +1242,6 @@
               ]
             },
             "id": "58775818-3907-4162-ae3d-87efe048d61d",
-            "zIndex": 4,
             "data": {
               "type": "tm.Process",
               "name": "worker-noticias",
@@ -1278,6 +1278,7 @@
             },
             "visible": true,
             "shape": "process",
+            "zIndex": 5,
             "ports": {
               "groups": {
                 "top": {
@@ -1361,7 +1362,6 @@
               ]
             },
             "id": "211e6d6e-a5db-4014-899c-891e8301540f",
-            "zIndex": 5,
             "data": {
               "type": "tm.Process",
               "name": "worker-tendencias",
@@ -1379,12 +1379,12 @@
           },
           {
             "position": {
-              "x": 270,
-              "y": 60
+              "x": 275,
+              "y": 54.99999999999997
             },
             "size": {
-              "width": 140,
-              "height": 140
+              "width": 180,
+              "height": 170
             },
             "attrs": {
               "text": {
@@ -1398,6 +1398,7 @@
             },
             "visible": true,
             "shape": "process",
+            "zIndex": 6,
             "ports": {
               "groups": {
                 "top": {
@@ -1481,7 +1482,6 @@
               ]
             },
             "id": "462dd755-c7aa-440a-81a1-81652a75673e",
-            "zIndex": 6,
             "data": {
               "type": "tm.Process",
               "name": "frontend (React + Nginx)",
@@ -1518,6 +1518,7 @@
             },
             "visible": true,
             "shape": "process",
+            "zIndex": 7,
             "ports": {
               "groups": {
                 "top": {
@@ -1601,7 +1602,6 @@
               ]
             },
             "id": "2b1fb265-1d1c-4927-b313-85f0f54533f5",
-            "zIndex": 7,
             "data": {
               "type": "tm.Process",
               "name": "worker-analisis",
@@ -1641,6 +1641,7 @@
             },
             "visible": true,
             "shape": "store",
+            "zIndex": 8,
             "ports": {
               "groups": {
                 "top": {
@@ -1724,7 +1725,6 @@
               ]
             },
             "id": "10122e1e-7ea2-414e-a5b1-b239fb170634",
-            "zIndex": 8,
             "data": {
               "type": "tm.Store",
               "name": "PostgreSQL",
@@ -1765,6 +1765,7 @@
             },
             "visible": true,
             "shape": "store",
+            "zIndex": 9,
             "ports": {
               "groups": {
                 "top": {
@@ -1848,7 +1849,6 @@
               ]
             },
             "id": "feac366c-3408-4f1e-bd58-a36ee1111146",
-            "zIndex": 9,
             "data": {
               "type": "tm.Store",
               "name": "Vault",
@@ -1886,6 +1886,7 @@
             },
             "visible": true,
             "shape": "actor",
+            "zIndex": 10,
             "ports": {
               "groups": {
                 "top": {
@@ -1969,7 +1970,6 @@
               ]
             },
             "id": "98419682-991e-425c-9141-5ed0ff8ad90b",
-            "zIndex": 10,
             "data": {
               "type": "tm.Actor",
               "name": "Medios de noticias",
@@ -1981,6 +1981,768 @@
               "providesAuthentication": false,
               "threats": []
             }
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Archivos de la web (HTML y JS)",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": true,
+              "isPublicNetwork": true,
+              "protocol": "HTTPS",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Archivos de la web (HTML y JS)"
+            ],
+            "id": "10846ff2-035f-47e7-88d6-529042b0efe2",
+            "source": {
+              "cell": "462dd755-c7aa-440a-81a1-81652a75673e",
+              "port": "7c2ce913-9e73-44c7-8828-6417a5d6e38c"
+            },
+            "target": {
+              "cell": "826e29ff-d451-4bc7-bfab-d7ed41561510",
+              "port": "5f68721e-56bf-46a0-af68-3a9da588b1c8"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Credenciales y texto de búsqueda",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": true,
+              "isPublicNetwork": true,
+              "protocol": "HTTPS",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Credenciales y texto de búsqueda"
+            ],
+            "id": "83cf8a1b-ff88-4e91-958b-c2f4129ce456",
+            "source": {
+              "cell": "826e29ff-d451-4bc7-bfab-d7ed41561510",
+              "port": "2d82de1f-4bbd-4c9c-882d-b761f182e669"
+            },
+            "target": {
+              "cell": "2cf199e1-d714-4051-8760-444e3d00ca08",
+              "port": "7c2ce913-9e73-44c7-8828-6417a5d6e38c"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Resultados agrupados con sentimiento",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": true,
+              "isPublicNetwork": true,
+              "protocol": "HTTPS",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Resultados agrupados con sentimiento"
+            ],
+            "id": "6f478741-758f-4f17-afd2-617c58df5216",
+            "source": {
+              "cell": "2cf199e1-d714-4051-8760-444e3d00ca08",
+              "port": "7f810da5-733c-4726-ab8b-245d5b26d6b3"
+            },
+            "target": {
+              "cell": "826e29ff-d451-4bc7-bfab-d7ed41561510",
+              "port": "2d82de1f-4bbd-4c9c-882d-b761f182e669"
+            },
+            "vertices": [
+              {
+                "x": 250,
+                "y": 340
+              }
+            ]
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Usuarios y registro de auditoría",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "PostgreSQL",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Usuarios y registro de auditoría"
+            ],
+            "id": "a02ab263-f2ed-46d3-9b72-96500f274353",
+            "source": {
+              "cell": "2cf199e1-d714-4051-8760-444e3d00ca08",
+              "port": "cc7061e2-9ff6-4b88-b148-6a8ed15e5d10"
+            },
+            "target": {
+              "cell": "10122e1e-7ea2-414e-a5b1-b239fb170634",
+              "port": "d6841177-cb47-45a7-8627-7f142b107597"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Noticias agrupadas y datos de usuario",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "PostgreSQL",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Noticias agrupadas y datos de usuario"
+            ],
+            "id": "5334c2be-78a2-4553-9c6e-7e8e52b646dd",
+            "source": {
+              "cell": "10122e1e-7ea2-414e-a5b1-b239fb170634",
+              "port": "d6841177-cb47-45a7-8627-7f142b107597"
+            },
+            "target": {
+              "cell": "2cf199e1-d714-4051-8760-444e3d00ca08",
+              "port": "2dc5c4d2-50a2-4c28-86a0-449f1ddb05cc"
+            },
+            "vertices": [
+              {
+                "x": 390,
+                "y": 490
+              }
+            ]
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Clave de firma JWT y credenciales de BD",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "HTTPS (API de Vault)",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Clave de firma JWT y credenciales de BD"
+            ],
+            "id": "28471806-d59c-4fd9-81db-ec58875111dc",
+            "source": {
+              "cell": "feac366c-3408-4f1e-bd58-a36ee1111146",
+              "port": "d6841177-cb47-45a7-8627-7f142b107597"
+            },
+            "target": {
+              "cell": "2cf199e1-d714-4051-8760-444e3d00ca08",
+              "port": "2dc5c4d2-50a2-4c28-86a0-449f1ddb05cc"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Trabajo: buscar vídeos del tema",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "AMQP",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Trabajo: buscar vídeos del tema"
+            ],
+            "id": "598fff99-2f83-4054-8e35-5a6a233763a5",
+            "source": {
+              "cell": "2cf199e1-d714-4051-8760-444e3d00ca08",
+              "port": "7f810da5-733c-4726-ab8b-245d5b26d6b3"
+            },
+            "target": {
+              "cell": "a702ef56-d549-477a-a694-6923ace3dc74",
+              "port": "7c2ce913-9e73-44c7-8828-6417a5d6e38c"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "RSS y sitemaps (titulares)",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": true,
+              "isPublicNetwork": true,
+              "protocol": "HTTPS",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "RSS y sitemaps (titulares)"
+            ],
+            "id": "5e9d2766-e98f-46b5-b230-549c28b14e96",
+            "source": {
+              "cell": "98419682-991e-425c-9141-5ed0ff8ad90b",
+              "port": "9672ab01-36a7-4381-a9e0-20ce118dac96"
+            },
+            "target": {
+              "cell": "58775818-3907-4162-ae3d-87efe048d61d",
+              "port": "2dc5c4d2-50a2-4c28-86a0-449f1ddb05cc"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Noticias nuevas",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "PostgreSQL",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Noticias nuevas"
+            ],
+            "id": "e4d9ed4b-9181-4caf-9918-94bb6875435e",
+            "source": {
+              "cell": "58775818-3907-4162-ae3d-87efe048d61d",
+              "port": "7c2ce913-9e73-44c7-8828-6417a5d6e38c"
+            },
+            "target": {
+              "cell": "10122e1e-7ea2-414e-a5b1-b239fb170634",
+              "port": "a6a24e16-a939-48e4-9fed-6b09f1dcf1a1"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Aviso: noticias por analizar",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "AMQP",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Aviso: noticias por analizar"
+            ],
+            "id": "08282f93-09db-43ca-996f-ef299c167041",
+            "source": {
+              "cell": "58775818-3907-4162-ae3d-87efe048d61d",
+              "port": "cc7061e2-9ff6-4b88-b148-6a8ed15e5d10"
+            },
+            "target": {
+              "cell": "a702ef56-d549-477a-a694-6923ace3dc74",
+              "port": "2dc5c4d2-50a2-4c28-86a0-449f1ddb05cc"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Noticias por analizar",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "AMQP",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Noticias por analizar"
+            ],
+            "id": "e97770de-1303-4b12-886b-039433466c6f",
+            "source": {
+              "cell": "a702ef56-d549-477a-a694-6923ace3dc74",
+              "port": "cc7061e2-9ff6-4b88-b148-6a8ed15e5d10"
+            },
+            "target": {
+              "cell": "2b1fb265-1d1c-4927-b313-85f0f54533f5",
+              "port": "7f810da5-733c-4726-ab8b-245d5b26d6b3"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Grupos y sentimiento",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "PostgreSQL",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Grupos y sentimiento"
+            ],
+            "id": "f0ec8b85-dbdc-486f-acae-b88e71a7ddc3",
+            "source": {
+              "cell": "2b1fb265-1d1c-4927-b313-85f0f54533f5",
+              "port": "cc7061e2-9ff6-4b88-b148-6a8ed15e5d10"
+            },
+            "target": {
+              "cell": "10122e1e-7ea2-414e-a5b1-b239fb170634",
+              "port": "6b1c5579-f8dd-4721-b702-1074ecf96ea8"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Trabajo de búsqueda de vídeos",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "AMQP",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Trabajo de búsqueda de vídeos"
+            ],
+            "id": "4a0f515c-860b-4c93-88de-b1d20b5e0bd1",
+            "source": {
+              "cell": "a702ef56-d549-477a-a694-6923ace3dc74",
+              "port": "2dc5c4d2-50a2-4c28-86a0-449f1ddb05cc"
+            },
+            "target": {
+              "cell": "211e6d6e-a5db-4014-899c-891e8301540f",
+              "port": "7c2ce913-9e73-44c7-8828-6417a5d6e38c"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Tendencias y vídeos",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": true,
+              "isPublicNetwork": true,
+              "protocol": "HTTPS",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Tendencias y vídeos"
+            ],
+            "id": "70dc9a05-0dbb-435b-ae6b-f0a75b0dec2f",
+            "source": {
+              "cell": "b63616c3-a166-4bda-aa04-8d622c941bdf",
+              "port": "9672ab01-36a7-4381-a9e0-20ce118dac96"
+            },
+            "target": {
+              "cell": "211e6d6e-a5db-4014-899c-891e8301540f",
+              "port": "2dc5c4d2-50a2-4c28-86a0-449f1ddb05cc"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Tendencias y vídeos guardados",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "PostgreSQL",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Tendencias y vídeos guardados"
+            ],
+            "id": "bdee917c-d379-4978-8751-ef400d60d57d",
+            "source": {
+              "cell": "211e6d6e-a5db-4014-899c-891e8301540f",
+              "port": "cc7061e2-9ff6-4b88-b148-6a8ed15e5d10"
+            },
+            "target": {
+              "cell": "10122e1e-7ea2-414e-a5b1-b239fb170634",
+              "port": "a6a24e16-a939-48e4-9fed-6b09f1dcf1a1"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Clave de la API de YouTube",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "HTTPS (API de Vault)",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Clave de la API de YouTube"
+            ],
+            "id": "04748c45-e282-46c6-be74-c3b62aac2ca3",
+            "source": {
+              "cell": "feac366c-3408-4f1e-bd58-a36ee1111146",
+              "port": "a6a24e16-a939-48e4-9fed-6b09f1dcf1a1"
+            },
+            "target": {
+              "cell": "211e6d6e-a5db-4014-899c-891e8301540f",
+              "port": "cc7061e2-9ff6-4b88-b148-6a8ed15e5d10"
+            },
+            "vertices": []
           },
           {
             "position": {
@@ -2003,6 +2765,7 @@
             },
             "visible": true,
             "shape": "actor",
+            "zIndex": 11,
             "ports": {
               "groups": {
                 "top": {
@@ -2086,7 +2849,6 @@
               ]
             },
             "id": "b63616c3-a166-4bda-aa04-8d622c941bdf",
-            "zIndex": 11,
             "data": {
               "type": "tm.Actor",
               "name": "Fuentes de tendencias",
@@ -2098,6 +2860,64 @@
               "providesAuthentication": false,
               "threats": []
             }
+          },
+          {
+            "shape": "trust-boundary-curve",
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Boundary",
+              "name": "Internet ↔ Clúster",
+              "description": "",
+              "isTrustBoundary": true,
+              "hasOpenThreats": false,
+              "crossingFlows": [],
+              "containedElements": []
+            },
+            "labels": [
+              "Internet ↔ Clúster"
+            ],
+            "id": "1eafab0d-5ecd-4902-a5a8-0f6efa6ea1d0",
+            "source": {
+              "x": 215,
+              "y": 30
+            },
+            "target": {
+              "x": 215,
+              "y": 700
+            },
+            "vertices": []
+          },
+          {
+            "shape": "trust-boundary-curve",
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Boundary",
+              "name": "Clúster ↔ Fuentes externas",
+              "description": "",
+              "isTrustBoundary": true,
+              "hasOpenThreats": false,
+              "crossingFlows": [],
+              "containedElements": []
+            },
+            "labels": [
+              "Clúster ↔ Fuentes externas"
+            ],
+            "id": "585b9e99-63ac-403f-b2bd-9744811156a6",
+            "source": {
+              "x": 1015,
+              "y": 50
+            },
+            "target": {
+              "x": 1015,
+              "y": 470
+            },
+            "vertices": []
           }
         ]
       }

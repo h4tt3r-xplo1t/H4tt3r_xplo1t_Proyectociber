@@ -1,0 +1,37 @@
+[project]
+name = "gateway"
+version = "0.1.0"
+description = "API gateway of H4tt3r_1nf0rm4t1v0: authentication, search API and audit log."
+license = "Apache-2.0"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.142.2",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "ruff>=0.16.9",
+]
+
+# Not built as a package: no build backend is needed, which keeps one less
+# dependency in the supply chain. Tests import the code through `pythonpath`.
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py314"
+
+[tool.ruff.lint]
+# S: flake8-bandit security rules.
+select = ["E", "F", "W", "I", "B", "UP", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest checks results with plain `assert`; S101 targets production code,
+# where asserts are stripped under `python -O`.
+"tests/**" = ["S101"]

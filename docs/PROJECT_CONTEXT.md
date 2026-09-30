@@ -151,7 +151,7 @@ Estado de cada fase según AGENTS.md §6.
 |---|---|---|
 | E0 Descubrimiento | Aplica, en curso (issue #15) | Ficha, ADR 0003 y propuesta escrita para el profesor |
 | E1 Requisitos y diseño seguro | Aplica, pendiente | Modelo de amenazas (Threat Dragon, STRIDE, DFD 0 y 1) y ADR iniciales |
-| E2 Base de ingeniería | Aplica, parcial | Ya hay protección de rama, hooks y CI de secretos; faltan estructura de servicios, lockfiles y CODEOWNERS |
+| E2 Base de ingeniería | Aplica, parcial | Protección de rama, hooks, CI de secretos y esqueleto del `gateway` con `uv.lock`, lint y pruebas en CI (issue #25); faltan los demás servicios y CODEOWNERS |
 | E3 Incrementos funcionales | Aplica, pendiente | Flujo de búsqueda por tema y sus pruebas |
 | E4 Verificación continua | Aplica, pendiente | SAST, SCA, imágenes y pruebas en CI |
 | E5 Plataforma e infraestructura | Aplica, pendiente | k3d, Terraform y Checkov o tfsec |

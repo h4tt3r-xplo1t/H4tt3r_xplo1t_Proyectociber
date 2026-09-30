@@ -13,3 +13,4 @@
 - Si una tarea sale del alcance del issue, detente y pregunta.
 - Antes de proponer un PR, invoca al subagente revisor-seguridad.
 - Al cerrar cada tarea, actualiza docs/BITACORA.md con decisiones y pendientes.
+- Límite de instrucciones (150k caracteres entre todos los archivos cargados): si docs/BITACORA.md supera ~20k caracteres, mueve sin cambios las entradas de issues cerrados a `docs/bitacora/` y enlázalas en su sección Historial. La sección Pendientes nunca se mueve. El enunciado del curso está en docs/enunciado.md y no se importa.

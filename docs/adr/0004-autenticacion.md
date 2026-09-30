@@ -190,21 +190,20 @@ solo en el frontend (ASVS 8.3.1).
 |---|---|---|---|---|
 | Buscar y leer resultados | Sí | Sí | Sí | Sí |
 | Gestionar sus propios temas favoritos | Sí | Sí | Sí | Sí |
-| Editar contenido de la aplicación (alcance exacto por definir en E3) | No | Sí | No | Sí |
-| Añadir dominios a la lista de salida | No | No | No | Sí |
-| Leer el registro de auditoría | No | No | Sí | No |
+| Activar o desactivar fuentes ya existentes y ajustar su frecuencia de consulta | No | Sí | No | No |
+| Añadir dominios nuevos a la lista de salida | No | No | No | No (solo mediante un PR revisado en el repositorio) |
+| Leer y exportar el registro de auditoría | No | No | Sí | No |
 | Borrar o purgar el registro de auditoría | No | No | No | No (solo el rol dedicado de purga) |
 | Gestionar usuarios y roles | No | No | No | Sí |
-| Terminar sesiones de otros usuarios | No | No | No | Sí |
-
-El alcance exacto de «editar contenido» se define en E3; lo fijo aquí son
-las restricciones de las demás filas.
+| Desbloquear cuentas y terminar sesiones de otros usuarios | No | No | No | Sí |
 
 Reglas de separación de funciones (decisión propia: no se encontró un
 requisito explícito de separación de funciones en el capítulo V8 de ASVS):
 
-- El editor no puede añadir dominios: la lista de salida es el control contra
-  SSRF (amenaza 21).
+- Nadie añade dominios desde la aplicación, tampoco el administrador: la lista
+  de salida es el control contra SSRF (amenaza 21) y solo cambia con un PR
+  revisado. El editor solo gestiona las fuentes que ya están en la lista.
+- El administrador no edita fuentes: gestiona personas, no contenido.
 - Un administrador no puede ser también auditor ni asignarse ese rol, y no
   puede leer ni borrar el registro de auditoría.
 - El primer administrador se crea al arrancar con credenciales que salen de

@@ -40,8 +40,9 @@ There is no test runner for prose. Checks: guardia and ruleset suites, the gitle
 ## Tasks
 - [x] **T0**: decisions 1–9 with the person, plus source verification by a research subagent.
 - [x] **T1**: `docs/adr/0004-autenticacion.md` and the BITACORA entry (ADR commit e9e8520; BITACORA commit see progress note).
-- [ ] **T2**: update the threat-model mitigations and add the MFA threats.
+- [x] **T2**: threat-model mitigations 1, 2, 4, 8, 35, 36, 37 and 39 updated; threats 43, 44 and 45 added, for 45 in total (`9247cbb`).
 - [ ] **T3**: `revisor-seguridad`, then PR.
 
 ## Progress
 - T1 done 2026-09-29: ADR 0004 committed as e9e8520; BITACORA entry and pendientes in the follow-up commit `docs: log ADR 0004 in bitacora (#20)`. Guardia 164/164 and ruleset 15/15 pass.
+- Parent review of T1: the roles table gave the administrador "add domains" and "edit content", which contradicts decision 5. Fixed: nobody adds domains from the app (PR only), only the editor toggles existing sources, and the administrador manages people, not content.

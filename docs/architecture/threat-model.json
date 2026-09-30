@@ -1075,7 +1075,7 @@
                   "severity": "High",
                   "type": "Spoofing / Spoofing",
                   "description": "Un atacante prueba contraseñas filtradas o masivas contra el endpoint de login.",
-                  "mitigation": "Contraseñas con hash Argon2id (m=19456, t=2, p=1); longitud mínima 15 y máxima de al menos 64, sin reglas de composición y contra una lista local de contraseñas comunes y filtradas; bloqueo progresivo por cuenta (tras 3 fallos, esperas de 1, 5, 15 y 30 minutos) con la recuperación siempre disponible, más límite por IP tomado del Ingress; mensajes genéricos y tiempo constante; MFA TOTP obligatorio en roles con privilegios (ADR 0004). Verificación: prueba de intentos fallidos con esperas crecientes y respuesta 429, y prueba de mensaje idéntico exista o no el usuario.",
+                  "mitigation": "Contraseñas con hash Argon2id (m=19456, t=2, p=1); longitud mínima 15 y máxima de al menos 64, sin reglas de composición y contra una lista local de contraseñas comunes y filtradas; bloqueo progresivo por cuenta (tras 3 fallos, esperas de 1, 5, 15 y 30 minutos) con la recuperación siempre disponible, más límite por IP tomado del Ingress; mensajes genéricos y tiempo constante; MFA TOTP obligatorio en roles con privilegios (ADR 0004). Misma respuesta (401, mismo cuerpo y tiempo similar) para cuenta bloqueada, inexistente o credenciales erróneas; 429 solo para el límite por IP. Verificación: prueba de intentos fallidos con esperas crecientes y prueba de respuesta idéntica exista o no el usuario o esté bloqueado.",
                   "modelType": "STRIDE",
                   "new": false,
                   "number": 8,
@@ -1140,7 +1140,7 @@
                   "severity": "High",
                   "type": "Spoofing / Spoofing",
                   "description": "Un token robado sigue siendo válido tras cerrar sesión, y una clave de firma comprometida no se puede sustituir sin invalidar todo.",
-                  "mitigation": "Token de acceso de 15 minutos y token de refresco opaco (solo se guarda su hash) rotado en cada uso; reutilizar uno ya usado revoca toda la familia; cerrar sesión borra el refresco y añade el jti del acceso a una lista de tokens anulados (ASVS 7.4.1); clave de firma con kid para rotarla; tiempos por rol: lector 24 h de inactividad y 7 días de vida máxima, roles con privilegios 30 min y 8 h (ADR 0004). Verificación: pruebas de que tras cerrar sesión el acceso y el refresco se rechazan, de detección de reutilización y de rotación de clave.",
+                  "mitigation": "Token de acceso de 15 minutos y token de refresco opaco (solo se guarda su hash) rotado en cada uso; reutilizar uno ya usado revoca toda la familia; cerrar sesión borra el refresco y añade el jti del acceso a una lista de tokens anulados (ASVS 7.4.1); clave de firma con kid para rotarla; tiempos por rol: lector 24 h de inactividad y 7 días de vida máxima, roles con privilegios 30 min y 8 h (ADR 0004). Cada familia de refresco guarda su creación y su último uso para aplicar la vida máxima y la inactividad; periodo de gracia de 10 s ante reutilización inmediata (dos pestañas); revocación por usuario con tokens_valid_since al cambiar rol, contraseña o MFA. Verificación: pruebas de que tras cerrar sesión el acceso y el refresco se rechazan, de detección de reutilización y de rotación de clave.",
                   "modelType": "STRIDE",
                   "new": false,
                   "number": 35,
@@ -1153,7 +1153,7 @@
                   "severity": "High",
                   "type": "Tampering / Manipulación",
                   "description": "Si el token viaja en una cookie, otra web puede provocar peticiones en nombre del lector; un CORS abierto permite leer respuestas desde otros orígenes.",
-                  "mitigation": "Cookie __Host- con Secure, HttpOnly y SameSite=Strict; token anti-CSRF en toda petición que cambia estado y comprobación de Origin o Sec-Fetch-Site; frontend y gateway en el mismo origen, sin CORS habilitado (ADR 0004). Verificación: escaneo con ZAP, prueba sin token CSRF que devuelve 403 y prueba de petición desde otro origen rechazada.",
+                  "mitigation": "Cookie __Host- con Secure, HttpOnly y SameSite=Strict; token anti-CSRF de doble envío firmado y ligado a la sesión (cookie __Host-csrf y cabecera X-CSRF-Token) en toda petición que cambia estado, que nunca usa GET y comprobación de Sec-Fetch-Site u Origin, rechazando la petición si faltan ambas; frontend y gateway en el mismo origen, sin CORS habilitado (ADR 0004). Verificación: escaneo con ZAP, prueba sin token CSRF que devuelve 403 y prueba de petición desde otro origen rechazada.",
                   "modelType": "STRIDE",
                   "new": false,
                   "number": 36,
@@ -1248,6 +1248,32 @@
                   "modelType": "STRIDE",
                   "new": false,
                   "number": 45,
+                  "score": ""
+                },
+                {
+                  "id": "50339e08-ea13-43d9-8e33-543b4d53febc",
+                  "title": "Abuso de la recuperación asistida o del restablecimiento de MFA",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Elevation of privilege / Elevación de privilegios",
+                  "description": "Un administrador deshonesto, o alguien que lo engañe, usa la recuperación para tomar la cuenta de otro usuario, por ejemplo la de un auditor.",
+                  "mitigation": "Código de recuperación de un solo uso (aleatorio, guardado como hash, 15 minutos) que el administrador genera sin ver ni elegir la contraseña; el restablecimiento no se salta el MFA; restablecer el MFA de una cuenta con privilegios exige dos administradores distintos y verificación de identidad fuera de banda; todo queda en el registro de eventos que revisa el auditor (ADR 0004). Verificación: pruebas de que un solo administrador no puede restablecer el MFA de otra cuenta con privilegios y de que el código caduca y no se reutiliza.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 46,
+                  "score": ""
+                },
+                {
+                  "id": "d63a0b57-e719-47f0-82e9-4b915d81b858",
+                  "title": "Credencial de arranque del primer administrador como puerta trasera",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Elevation of privilege / Elevación de privilegios",
+                  "description": "Una contraseña fija de administrador guardada en Vault o un mecanismo de arranque reutilizable daría acceso total a quien los obtenga.",
+                  "mitigation": "Contraseña de arranque de un solo uso, aleatoria y válida 24 horas; cambio de contraseña y alta del MFA obligatorios en el primer inicio de sesión; el Job de arranque borra el secreto de Vault y se niega a ejecutarse si ya existe un administrador (ADR 0004). Verificación: prueba de que el arranque falla con un administrador existente y de que el secreto ya no está en Vault.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 47,
                   "score": ""
                 }
               ],
@@ -3753,6 +3779,6 @@
     ],
     "diagramTop": 2,
     "reviewer": "revisor-seguridad",
-    "threatTop": 45
+    "threatTop": 47
   }
 }

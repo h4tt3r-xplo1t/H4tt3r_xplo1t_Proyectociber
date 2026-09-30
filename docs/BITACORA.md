@@ -64,11 +64,26 @@ Rama `docs/23-contexto-instrucciones`.
 - **Revisión de seguridad (revisor-seguridad):** listo para PR, sin críticos, altos ni medios. Se corrigieron sus 3 observaciones bajas: las cifras eran bytes de `wc -c` y no caracteres, el tamaño del enunciado estaba mal redondeado, y la decisión de `.env.example` solo quedaba en el historial (ahora el índice de Historial la señala).
 - **Verificación.** Tras el cambio, los archivos cargados suman 115 109 bytes (`wc -c`), algo menos en caracteres. Al reconstruir cada archivo original con el texto movido, `diff` contra `main` no muestra diferencias. Las referencias a los dos archivos siguen siendo válidas: no cambian de nombre y ningún enlace con ancla apuntaba a las secciones movidas.
 
+## 2026-09-30 · Issue #25: E2, esqueleto del gateway
+
+Rama `feat/25-esqueleto-gateway`. Primer código de la aplicación: `services/gateway/` con `GET /healthz`.
+
+- **Gestor de dependencias: `uv`** con `uv.lock`, que guarda el hash de cada paquete; `uv sync --locked` falla si el lockfile no coincide con `pyproject.toml`. El proyecto no se construye como paquete (`package = false`): no necesita un backend de construcción, una dependencia menos.
+- **Versiones verificadas (2026-09-30)** con `gh api` sobre las publicaciones de GitHub; los datos de PyPI vienen de un resumen automático (segunda mano): CPython 3.14.7, uv 0.12.21, fastapi 0.142.2, pytest 9.1.1, ruff 0.16.9 (MIT) y httpx 0.28.1 (BSD-3, sin publicaciones desde 2024-12: solo se usa en pruebas).
+- **CI sin acción de terceros para `uv`:** se descarga el binario oficial y se verifica su sha256 (el digest de GitHub coincide con el `.sha256` publicado), igual que gitleaks y actionlint. Se descartó `astral-sh/setup-uv`.
+- **Ruff con las reglas `S` (flake8-bandit).** La única excepción es S101 en `tests/**`: pytest comprueba con `assert`, y la regla va dirigida al código de producción, donde `python -O` elimina los `assert`.
+- **TDD:** RED observado (`ModuleNotFoundError: gateway.main`) y luego GREEN (1 prueba pasa).
+- **Vulnerabilidades:** `uv audit --locked` no encontró vulnerabilidades conocidas en 22 paquetes. El comando es experimental: evidencia PARCIAL hasta que E4 añada SCA en CI.
+- **NO VERIFICADO:** el soporte de Dependabot para `uv` solo consta en la referencia de opciones de GitHub, no en la página de ecosistemas; se confirmará cuando Dependabot se ejecute en el repositorio.
+- **`httpx2`:** Starlette 1.7 recomienda `httpx2` para `TestClient`. Es de la organización `pydantic` (BSD-3, v2.13.1). El cambio quedó sin hacer porque el permiso automático bloqueó añadir el paquete: lo decide la persona.
+
 ## Pendientes
 
 ### E3: primer flujo (búsqueda por tema) y autenticación
-- [ ] **E3:** añadir los comandos de prueba y lint del stack a `.claude/settings.json` cuando exista el código.
-- [ ] Verificar las versiones del stack (AGENTS.md §3) antes de fijarlas.
+- [ ] **E3:** añadir a `.claude/settings.json` los comandos de prueba y lint de cada servicio nuevo (los del `gateway` ya están, issue #25).
+- [ ] Verificar las versiones del resto del stack (React, workers, PostgreSQL, RabbitMQ, Vault) antes de fijarlas; las del `gateway` se verificaron en el issue #25.
+- [ ] Decidir si se cambia `httpx` por `httpx2` en las pruebas del `gateway` (Starlette 1.7 marca `httpx` como obsoleto en `TestClient`; issue #25).
+- [ ] Marcar el job `gateway` como check obligatorio en el ruleset de `main` (operación remota; issue #25).
 - [ ] **E3:** elegir y verificar una lista de contraseñas filtradas y su licencia (ASVS 6.2.12, L2, pendiente hasta entonces).
 - [ ] **E3:** implementar el MFA con TOTP, la recuperación asistida y el arranque del primer administrador (ADR 0004, decisiones 8, 10 y 11), con sus pruebas. Las amenazas 43 a 47 ya están en el modelo.
 - [ ] **E3:** implementar la renovación de sesión de un solo vuelo en el frontend.

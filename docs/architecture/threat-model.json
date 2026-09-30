@@ -794,8 +794,8 @@
                 "text": "Lector"
               },
               "body": {
-                "stroke": "#333333",
-                "strokeWidth": 1.5,
+                "stroke": "red",
+                "strokeWidth": 2.5,
                 "strokeDasharray": null
               }
             },
@@ -892,9 +892,36 @@
               "isTrustBoundary": false,
               "outOfScope": false,
               "reasonOutOfScope": "",
-              "hasOpenThreats": false,
+              "hasOpenThreats": true,
               "providesAuthentication": false,
-              "threats": []
+              "threats": [
+                {
+                  "id": "6dd1ba4a-ce59-4ea4-b81c-7d97a53d6532",
+                  "title": "Registro masivo de cuentas falsas",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Spoofing / Spoofing",
+                  "description": "Un atacante automatiza el registro de muchas cuentas para abusar de la búsqueda o esquivar los límites por usuario.",
+                  "mitigation": "Límite de registros por IP y por intervalo; política de contraseñas según OWASP ASVS; el límite de búsquedas se aplica también por IP. Verificación: prueba de registros repetidos que devuelven 429.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 3,
+                  "score": ""
+                },
+                {
+                  "id": "adca4a47-b8cc-4bfe-b170-9aea32b7f492",
+                  "title": "El lector niega haber realizado una búsqueda o acción",
+                  "status": "Open",
+                  "severity": "Low",
+                  "type": "Repudiation / Repudiación",
+                  "description": "Sin trazabilidad no se puede demostrar quién realizó una acción sobre la plataforma.",
+                  "mitigation": "Registro de auditoría con identificador de usuario, fecha, hora y acción, sin más datos personales. Verificación: prueba unitaria que comprueba el registro tras cada búsqueda.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 4,
+                  "score": ""
+                }
+              ]
             }
           },
           {
@@ -1021,7 +1048,7 @@
                   "status": "Open",
                   "severity": "High",
                   "type": "Spoofing / Spoofing",
-                  "description": "Un atacante que roba un token (por XSS en la web o en tránsito) o que conoce la clave de firma puede hacerse pasar por otro usuario ante el gateway.na descripción para esta amenaza",
+                  "description": "Un atacante que roba un token (por XSS en la web o en tránsito) o que conoce la clave de firma puede hacerse pasar por otro usuario ante el gateway.",
                   "mitigation": "JWT de vida corta firmado con clave guardada en Vault; algoritmo fijo (se rechaza \"none\"); validación de firma, expiración y audiencia en cada petición; HTTPS obligatorio. Verificación: pruebas con token caducado, alterado y con alg=none; escaneo con ZAP.",
                   "modelType": "STRIDE",
                   "new": false,
@@ -1033,12 +1060,77 @@
                   "title": "Elevación de privilegios por concentración de funciones en el gateway",
                   "status": "Open",
                   "severity": "Medium",
-                  "type": "Tampering / Manipulación",
-                  "description": " El gateway concentra autenticación, búsqueda y auditoría. Un fallo de autorización en un endpoint permitiría a un lector acceder a funciones de administración o al registro de auditoría.",
+                  "type": "Elevation of privilege / Elevación de privilegios",
+                  "description": "El gateway concentra autenticación, búsqueda y auditoría. Un fallo de autorización en un endpoint permitiría a un lector acceder a funciones de administración o al registro de auditoría.",
                   "mitigation": "Control de roles en cada endpoint con denegación por defecto; pruebas de autorización por rol; contenedor sin root; sin salida a internet (NetworkPolicy). Si la auditoría crece, separarla en su propio servicio (ADR 0003).",
                   "modelType": "STRIDE",
                   "new": false,
                   "number": 2,
+                  "score": ""
+                },
+                {
+                  "id": "dacd2628-3b75-421d-92a9-07b4b260648b",
+                  "title": "Fuerza bruta o relleno de credenciales en el login",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Spoofing / Spoofing",
+                  "description": "Un atacante prueba contraseñas filtradas o masivas contra el endpoint de login.",
+                  "mitigation": "Límite de intentos por usuario e IP con bloqueo temporal; contraseñas con hash lento (Argon2 o bcrypt); mensajes de error que no revelan si el usuario existe. Verificación: prueba de intentos fallidos que devuelve 429.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 8,
+                  "score": ""
+                },
+                {
+                  "id": "606813d0-496f-4c7f-999d-e4d9dd6b778d",
+                  "title": "Inyección SQL mediante el texto de búsqueda",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Tampering / Manipulación",
+                  "description": "El texto libre de la búsqueda se usa para construir una consulta y altera su lógica.",
+                  "mitigation": "Consultas parametrizadas mediante el ORM; validación de longitud y caracteres con Pydantic. Verificación: Bandit y Semgrep en CI, pruebas con cargas de inyección y escaneo con ZAP.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 9,
+                  "score": ""
+                },
+                {
+                  "id": "d618030d-2f84-4adf-a7b0-74eb70a8a002",
+                  "title": "Abuso de la búsqueda para agotar recursos o la cuota de YouTube",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Denial of service / Denegación de servicio",
+                  "description": "Un usuario o bot lanza muchas búsquedas y agota la CPU, la cola de trabajos o la cuota diaria de la API de YouTube.",
+                  "mitigation": "Límite de peticiones por usuario e IP; caché de búsquedas repetidas; tope de trabajos en cola por usuario. Verificación: prueba de carga básica y prueba de límite que devuelve 429.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 10,
+                  "score": ""
+                },
+                {
+                  "id": "852ff33c-020d-498c-b81c-3ecd516c9f4f",
+                  "title": "Acciones administrativas sin trazabilidad",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Repudiation / Repudiación",
+                  "description": "Un administrador o un atacante con su cuenta cambia la configuración sin dejar rastro.",
+                  "mitigation": "Registro de auditoría de solo inserción para acciones de administración. Verificación: prueba que confirma que cada acción de administración deja registro.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 11,
+                  "score": ""
+                },
+                {
+                  "id": "f6f43078-74bf-4b72-869f-686278ad08f0",
+                  "title": "Mensajes de error con detalles internos",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Information disclosure / Brecha de información",
+                  "description": "Las trazas de error o las cabeceras revelan versiones, rutas o consultas internas.",
+                  "mitigation": "Errores genéricos hacia el cliente y detalle solo en logs internos; sin modo debug en producción; cabeceras de servidor mínimas. Verificación: escaneo con ZAP.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 12,
                   "score": ""
                 }
               ],
@@ -1073,8 +1165,8 @@
                 "text": "RabbitMQ"
               },
               "body": {
-                "stroke": "#333333",
-                "strokeWidth": 1.5,
+                "stroke": "red",
+                "strokeWidth": 2.5,
                 "strokeDasharray": null
               }
             },
@@ -1171,12 +1263,39 @@
               "outOfScope": false,
               "isTrustBoundary": false,
               "reasonOutOfScope": "",
-              "hasOpenThreats": false,
+              "hasOpenThreats": true,
               "handlesCardPayment": false,
               "handlesGoodsOrServices": false,
               "isWebApplication": false,
               "privilegeLevel": "",
-              "threats": []
+              "threats": [
+                {
+                  "id": "a1c7c882-99a1-4a3c-9f52-e08078704d5a",
+                  "title": "Publicación de mensajes falsos en la cola",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Spoofing / Spoofing",
+                  "description": "Un componente no autorizado publica trabajos o noticias falsas que los workers procesan como legítimos.",
+                  "mitigation": "Un usuario de RabbitMQ por servicio con permisos por cola; usuario guest desactivado; credenciales en Vault; puerto solo accesible dentro del clúster. Verificación: prueba de publicación con credenciales ajenas.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 18,
+                  "score": ""
+                },
+                {
+                  "id": "51b9d20e-b43e-491d-b9b8-52b7ae05ee37",
+                  "title": "Saturación de la cola",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Denial of service / Denegación de servicio",
+                  "description": "Una avalancha de trabajos llena la memoria del broker y detiene el procesamiento.",
+                  "mitigation": "Longitud máxima de cola, TTL de mensajes y cola de mensajes fallidos (dead-letter). Verificación: prueba con la cola llena.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 19,
+                  "score": ""
+                }
+              ]
             }
           },
           {
@@ -1193,8 +1312,8 @@
                 "text": "worker-noticias"
               },
               "body": {
-                "stroke": "#333333",
-                "strokeWidth": 1.5,
+                "stroke": "red",
+                "strokeWidth": 2.5,
                 "strokeDasharray": null
               }
             },
@@ -1291,12 +1410,52 @@
               "outOfScope": false,
               "isTrustBoundary": false,
               "reasonOutOfScope": "",
-              "hasOpenThreats": false,
+              "hasOpenThreats": true,
               "handlesCardPayment": false,
               "handlesGoodsOrServices": false,
               "isWebApplication": false,
               "privilegeLevel": "",
-              "threats": []
+              "threats": [
+                {
+                  "id": "cf43a5e1-986a-4da1-8259-e80d8bd3f51c",
+                  "title": "XML malicioso en RSS o sitemaps (XXE)",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Tampering / Manipulación",
+                  "description": "Un feed manipulado usa entidades externas para leer archivos internos o provocar consumo excesivo (hallazgo B2).",
+                  "mitigation": "Parser XML sin entidades externas (por ejemplo, defusedxml) y tamaño máximo de respuesta. Verificación: prueba unitaria con una carga XXE conocida y regla de Bandit.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 20,
+                  "score": ""
+                },
+                {
+                  "id": "d7c05af2-6635-4437-b64e-5e38396343ec",
+                  "title": "SSRF: URLs del contenido usadas para alcanzar servicios internos",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Elevation of privilege / Elevación de privilegios",
+                  "description": "Si el worker siguiera enlaces del contenido, un atacante podría dirigirlo contra servicios internos del clúster (hallazgo B2).",
+                  "mitigation": "Solo se consultan dominios de una lista fija y no se siguen URLs del contenido; NetworkPolicy de salida limitada a esos dominios. Verificación: prueba con una URL interna que debe rechazarse.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 21,
+                  "score": ""
+                },
+                {
+                  "id": "d3933e67-ee1a-4393-bf6d-1c2914de1515",
+                  "title": "Respuesta enorme o lenta de un medio bloquea el worker",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Denial of service / Denegación de servicio",
+                  "description": "Un medio caído o malicioso devuelve respuestas gigantes o nunca responde.",
+                  "mitigation": "Tiempos de espera, tamaño máximo de respuesta y reintentos con espera creciente. Verificación: prueba con un servidor simulado lento.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 22,
+                  "score": ""
+                }
+              ]
             }
           },
           {
@@ -1313,8 +1472,8 @@
                 "text": "worker-tendencias"
               },
               "body": {
-                "stroke": "#333333",
-                "strokeWidth": 1.5,
+                "stroke": "red",
+                "strokeWidth": 2.5,
                 "strokeDasharray": null
               }
             },
@@ -1411,12 +1570,39 @@
               "outOfScope": false,
               "isTrustBoundary": false,
               "reasonOutOfScope": "",
-              "hasOpenThreats": false,
+              "hasOpenThreats": true,
               "handlesCardPayment": false,
               "handlesGoodsOrServices": false,
               "isWebApplication": false,
               "privilegeLevel": "",
-              "threats": []
+              "threats": [
+                {
+                  "id": "e88b3f55-57ac-42a7-9eec-150bb65cdadf",
+                  "title": "Fuga de la clave de la API de YouTube",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Information disclosure / Brecha de información",
+                  "description": "La clave aparece en logs, en el repositorio o en variables visibles y un tercero consume nuestra cuota.",
+                  "mitigation": "Clave en Vault, restringida a la API de YouTube y nunca registrada en logs. Verificación: gitleaks en CI y revisión de logs.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 23,
+                  "score": ""
+                },
+                {
+                  "id": "4b7b6c1f-c2bf-43e2-bbe3-cbdcbf83f5c4",
+                  "title": "Agotamiento de la cuota diaria de YouTube",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Denial of service / Denegación de servicio",
+                  "description": "Muchas búsquedas consumen la cuota y la función de vídeos deja de responder.",
+                  "mitigation": "Caché de resultados, límite por usuario y degradación controlada (se muestran las noticias aunque falten vídeos). Verificación: prueba de degradación con la API simulada devolviendo 403.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 24,
+                  "score": ""
+                }
+              ]
             }
           },
           {
@@ -1433,8 +1619,8 @@
                 "text": "frontend (React + Nginx)"
               },
               "body": {
-                "stroke": "#333333",
-                "strokeWidth": 1.5,
+                "stroke": "red",
+                "strokeWidth": 2.5,
                 "strokeDasharray": null
               }
             },
@@ -1531,12 +1717,52 @@
               "outOfScope": false,
               "isTrustBoundary": false,
               "reasonOutOfScope": "",
-              "hasOpenThreats": false,
+              "hasOpenThreats": true,
               "handlesCardPayment": false,
               "handlesGoodsOrServices": false,
               "isWebApplication": false,
               "privilegeLevel": "",
-              "threats": []
+              "threats": [
+                {
+                  "id": "9c22ee5a-cdca-46d1-b9bf-160060394035",
+                  "title": "XSS con contenido de los medios o del usuario",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Tampering / Manipulación",
+                  "description": "Un titular, resumen o texto de búsqueda con código JavaScript se ejecuta en el navegador del lector y puede robar su token (hallazgo B2).",
+                  "mitigation": "React escapa el contenido por defecto; se prohíbe dangerouslySetInnerHTML; cabecera Content-Security-Policy estricta en Nginx; el token no se guarda en localStorage. Verificación: regla de Semgrep y escaneo con ZAP.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 5,
+                  "score": ""
+                },
+                {
+                  "id": "7cded293-db78-462e-b887-9b8303d561e8",
+                  "title": "Imagen o dependencias npm manipuladas",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Tampering / Manipulación",
+                  "description": "Una dependencia npm comprometida o una imagen alterada introduce código malicioso en la web.",
+                  "mitigation": "package-lock.json versionado; escaneo con Trivy de dependencias e imagen; imágenes referenciadas por digest (E7). Verificación: job de Trivy en CI que falla con CVE críticos.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 6,
+                  "score": ""
+                },
+                {
+                  "id": "1a5bda01-aa94-4324-99e7-6445476bacf5",
+                  "title": "Secretos o direcciones internas en el código de la web",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Information disclosure / Brecha de información",
+                  "description": "Todo lo que se incluye en el JavaScript es visible para cualquiera; una clave o URL interna quedaría expuesta.",
+                  "mitigation": "El frontend no contiene secretos: solo conoce la URL pública del gateway. Verificación: gitleaks en pre-commit y en CI sobre el repositorio y el build.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 7,
+                  "score": ""
+                }
+              ]
             }
           },
           {
@@ -1553,8 +1779,8 @@
                 "text": "worker-analisis"
               },
               "body": {
-                "stroke": "#333333",
-                "strokeWidth": 1.5,
+                "stroke": "red",
+                "strokeWidth": 2.5,
                 "strokeDasharray": null
               }
             },
@@ -1651,12 +1877,39 @@
               "outOfScope": false,
               "isTrustBoundary": false,
               "reasonOutOfScope": "",
-              "hasOpenThreats": false,
+              "hasOpenThreats": true,
               "handlesCardPayment": false,
               "handlesGoodsOrServices": false,
               "isWebApplication": false,
               "privilegeLevel": "",
-              "threats": []
+              "threats": [
+                {
+                  "id": "f477b4c8-1dab-4587-b596-ba7f2e993ae5",
+                  "title": "Modelo de sentimiento manipulado (cadena de suministro)",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Tampering / Manipulación",
+                  "description": "Un modelo descargado o sustituido ejecuta código al cargarse (deserialización con pickle) o da resultados sesgados (hallazgo B5).",
+                  "mitigation": "Modelo fijado por hash de commit e incluido en la imagen; formato safetensors si está disponible; sin descargas en ejecución. Verificación: comprobación del hash en el build y Trivy.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 25,
+                  "score": ""
+                },
+                {
+                  "id": "9ce63395-5670-402c-84ca-8ab665d96b5f",
+                  "title": "Textos enormes agotan CPU o memoria del análisis",
+                  "status": "Open",
+                  "severity": "Low",
+                  "type": "Denial of service / Denegación de servicio",
+                  "description": "Un texto muy largo ralentiza el modelo y bloquea el procesamiento.",
+                  "mitigation": "Truncado del texto de entrada y límites de CPU y memoria en Kubernetes. Verificación: prueba con un texto de gran tamaño.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 26,
+                  "score": ""
+                }
+              ]
             }
           },
           {
@@ -1679,6 +1932,10 @@
               "bottomLine": {
                 "strokeWidth": 1.5,
                 "strokeDasharray": null
+              },
+              "body": {
+                "stroke": "red",
+                "strokeWidth": 2.5
               }
             },
             "visible": true,
@@ -1774,13 +2031,53 @@
               "outOfScope": false,
               "isTrustBoundary": false,
               "reasonOutOfScope": "",
-              "hasOpenThreats": false,
+              "hasOpenThreats": true,
               "isALog": false,
               "isEncrypted": false,
               "isSigned": false,
               "storesCredentials": false,
               "storesInventory": false,
-              "threats": []
+              "threats": [
+                {
+                  "id": "81ea3785-f9f5-419a-809e-44ad9f3aa3e9",
+                  "title": "Acceso a la base de datos con credenciales compartidas o por defecto",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Information disclosure / Brecha de información",
+                  "description": "Un único usuario con todos los permisos, o una contraseña por defecto, permite leer o borrar todos los datos si se filtra.",
+                  "mitigation": "Un usuario de base de datos por servicio con permisos mínimos; credenciales en Vault; puerto no expuesto fuera del clúster (NetworkPolicy). Verificación: Checkov sobre los manifiestos y prueba de permisos por usuario.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 15,
+                  "score": ""
+                },
+                {
+                  "id": "0f5b9476-e6eb-4332-846d-3b257938107b",
+                  "title": "Modificación o borrado del registro de auditoría",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Tampering / Manipulación",
+                  "description": "Quien controle el gateway podría borrar su rastro en la tabla de auditoría.",
+                  "mitigation": "El usuario del gateway solo tiene permiso INSERT sobre la tabla de auditoría, sin UPDATE ni DELETE. Verificación: prueba que confirma que un UPDATE sobre la auditoría falla.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 16,
+                  "score": ""
+                },
+                {
+                  "id": "1a0090b3-9481-439d-b284-52b6cb9168ee",
+                  "title": "Crecimiento sin límite de noticias y tendencias",
+                  "status": "Open",
+                  "severity": "Low",
+                  "type": "Denial of service / Denegación de servicio",
+                  "description": "La acumulación de datos llena el disco y degrada las consultas.",
+                  "mitigation": "Política de retención (borrado periódico de datos antiguos) e índices adecuados. Verificación: prueba de la tarea de retención.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 17,
+                  "score": ""
+                }
+              ]
             }
           },
           {
@@ -1803,6 +2100,10 @@
               "bottomLine": {
                 "strokeWidth": 1.5,
                 "strokeDasharray": null
+              },
+              "body": {
+                "stroke": "red",
+                "strokeWidth": 2.5
               }
             },
             "visible": true,
@@ -1898,13 +2199,40 @@
               "outOfScope": false,
               "isTrustBoundary": false,
               "reasonOutOfScope": "",
-              "hasOpenThreats": false,
+              "hasOpenThreats": true,
               "isALog": false,
               "isEncrypted": false,
               "isSigned": false,
               "storesCredentials": false,
               "storesInventory": false,
-              "threats": []
+              "threats": [
+                {
+                  "id": "b44769fc-1fab-4d63-b709-aff612e9a52e",
+                  "title": "Exposición de secretos por políticas de Vault demasiado amplias",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Information disclosure / Brecha de información",
+                  "description": "Un servicio comprometido lee secretos que no necesita (por ejemplo, el gateway leyendo la clave de YouTube).",
+                  "mitigation": "Una política por servicio con mínimo privilegio; autenticación de Kubernetes por cuenta de servicio; tokens de corta duración. Verificación: prueba que confirma que cada servicio recibe 403 en los secretos ajenos.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 13,
+                  "score": ""
+                },
+                {
+                  "id": "6aa275d8-0b07-4359-9e9f-913b1cd6d673",
+                  "title": "Vault sellado o no disponible impide arrancar los servicios",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Denial of service / Denegación de servicio",
+                  "description": "Si Vault no está disponible, ningún servicio obtiene sus secretos.",
+                  "mitigation": "Procedimiento documentado de desellado; los servicios reintentan con espera y fallan de forma controlada. Verificación: prueba de arranque con Vault detenido.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 14,
+                  "score": ""
+                }
+              ]
             }
           },
           {
@@ -2086,14 +2414,15 @@
             "shape": "flow",
             "attrs": {
               "line": {
-                "stroke": "#333333",
+                "stroke": "red",
                 "targetMarker": {
                   "name": "block"
                 },
                 "sourceMarker": {
                   "name": ""
                 },
-                "strokeDasharray": null
+                "strokeDasharray": null,
+                "strokeWidth": 2.5
               }
             },
             "width": 200,
@@ -2112,12 +2441,26 @@
               "outOfScope": false,
               "isTrustBoundary": false,
               "reasonOutOfScope": "",
-              "hasOpenThreats": false,
+              "hasOpenThreats": true,
               "isBidirectional": false,
               "isEncrypted": true,
               "isPublicNetwork": true,
               "protocol": "HTTPS",
-              "threats": [],
+              "threats": [
+                {
+                  "id": "e4f34350-76b3-4e39-b41e-76b23fabee51",
+                  "title": "Robo de credenciales en tránsito",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Information disclosure / Brecha de información",
+                  "description": "Las credenciales o el token viajan por internet y podrían interceptarse.",
+                  "mitigation": "HTTPS obligatorio en el Ingress, redirección de HTTP y cabecera HSTS. Verificación: escaneo con ZAP.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 27,
+                  "score": ""
+                }
+              ],
               "trustBoundaryIds": []
             },
             "labels": [
@@ -2211,14 +2554,15 @@
             "shape": "flow",
             "attrs": {
               "line": {
-                "stroke": "#333333",
+                "stroke": "red",
                 "targetMarker": {
                   "name": "block"
                 },
                 "sourceMarker": {
                   "name": ""
                 },
-                "strokeDasharray": null
+                "strokeDasharray": null,
+                "strokeWidth": 2.5
               }
             },
             "width": 200,
@@ -2237,12 +2581,26 @@
               "outOfScope": false,
               "isTrustBoundary": false,
               "reasonOutOfScope": "",
-              "hasOpenThreats": false,
+              "hasOpenThreats": true,
               "isBidirectional": false,
               "isEncrypted": false,
               "isPublicNetwork": false,
               "protocol": "PostgreSQL",
-              "threats": [],
+              "threats": [
+                {
+                  "id": "04eb4a1e-7dae-4796-9bf4-d50fad972da1",
+                  "title": "Tráfico sin cifrar hacia la base de datos",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Information disclosure / Brecha de información",
+                  "description": "Las consultas y los datos de usuario viajan en claro dentro del clúster.",
+                  "mitigation": "Decisión pendiente: TLS en PostgreSQL (sslmode=verify-full) y NetworkPolicy. Se resolverá junto con el ADR de cifrado interno.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 29,
+                  "score": ""
+                }
+              ],
               "trustBoundaryIds": []
             },
             "labels": [
@@ -2327,14 +2685,15 @@
             "shape": "flow",
             "attrs": {
               "line": {
-                "stroke": "#333333",
+                "stroke": "red",
                 "targetMarker": {
                   "name": "block"
                 },
                 "sourceMarker": {
                   "name": ""
                 },
-                "strokeDasharray": null
+                "strokeDasharray": null,
+                "strokeWidth": 2.5
               }
             },
             "width": 200,
@@ -2353,12 +2712,26 @@
               "outOfScope": false,
               "isTrustBoundary": false,
               "reasonOutOfScope": "",
-              "hasOpenThreats": false,
+              "hasOpenThreats": true,
               "isBidirectional": false,
               "isEncrypted": false,
               "isPublicNetwork": false,
               "protocol": "HTTPS (API de Vault)",
-              "threats": [],
+              "threats": [
+                {
+                  "id": "46cd4510-c6db-461a-be3d-eafc76dd15a3",
+                  "title": "Secretos sin cifrar dentro del clúster",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Information disclosure / Brecha de información",
+                  "description": "El tráfico interno no está cifrado todavía: quien acceda a la red del clúster podría leer los secretos que entrega Vault.",
+                  "mitigation": "Decisión pendiente: TLS en Vault y entre servicios, más NetworkPolicy que solo permite hablar con Vault a los servicios autorizados. Se resolverá en un ADR antes de E5.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 28,
+                  "score": ""
+                }
+              ],
               "trustBoundaryIds": []
             },
             "labels": [
@@ -2443,14 +2816,15 @@
             "shape": "flow",
             "attrs": {
               "line": {
-                "stroke": "#333333",
+                "stroke": "red",
                 "targetMarker": {
                   "name": "block"
                 },
                 "sourceMarker": {
                   "name": ""
                 },
-                "strokeDasharray": null
+                "strokeDasharray": null,
+                "strokeWidth": 2.5
               }
             },
             "width": 200,
@@ -2469,12 +2843,26 @@
               "outOfScope": false,
               "isTrustBoundary": false,
               "reasonOutOfScope": "",
-              "hasOpenThreats": false,
+              "hasOpenThreats": true,
               "isBidirectional": false,
               "isEncrypted": true,
               "isPublicNetwork": true,
               "protocol": "HTTPS",
-              "threats": [],
+              "threats": [
+                {
+                  "id": "055f3d3c-4d57-4876-884f-02b8314a4ccf",
+                  "title": "Suplantación de un medio (DNS o intermediario)",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Spoofing / Spoofing",
+                  "description": "Un atacante se hace pasar por un medio y entrega noticias falsas.",
+                  "mitigation": "Solo HTTPS con verificación de certificado hacia dominios fijos. Verificación: prueba que rechaza un certificado no válido.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 30,
+                  "score": ""
+                }
+              ],
               "trustBoundaryIds": []
             },
             "labels": [
@@ -3168,6 +3556,6 @@
     ],
     "diagramTop": 2,
     "reviewer": "revisor-seguridad",
-    "threatTop": 2
+    "threatTop": 30
   }
 }

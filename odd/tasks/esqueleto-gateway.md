@@ -44,3 +44,4 @@ Mode: strict, enabled (source: global user configuration "Strict TDD Mode: enabl
 - 2026-09-30: T0 done.
 - 2026-09-30: T1-T3 done. `httpx2` swap blocked by the auto-mode permission classifier; kept `httpx` (deprecation warning only) and left the decision to the person. T4 running.
 - 2026-09-30: T4 done. Deferred to pendings: FastAPI docs off outside dev (E3/E6), periodic refresh of sha256-pinned tools, `gateway` as required check, `httpx2` decision.
+- 2026-09-30: second Gentle AI review (lineage review-0a0bf9676a2fa531, fix commits from 5ce60d3 to 648d781): approved, acknowledged. Its readability warning (ambiguous historial note) fixed in `aa55bd2` (passive). Not applied: `mkdir -p` for uv-bin (GitHub-hosted runners start with an empty RUNNER_TEMP) and a retry for the managed CPython download at `uv sync` (follow-up).

@@ -185,11 +185,25 @@ Rama `docs/15-ficha-agregador`. Cierra la parte documental de E0: aplicación el
 - **Decisiones posteriores al PR #16 (2026-09-29, persona):** la propuesta no se enviará al profesor por ahora (decisión propia, con el riesgo de que la aplicación no se acepte al final; sección 2 del enunciado). Los términos de uso de los 5 medios los revisó la persona y ninguno prohíbe el uso informativo con enlace. Se fija como regla la atribución: nombre del medio, autor cuando exista, fecha y enlace al original. En `docs/propuesta.md` el autor figura con el seudónimo público `H4TT3R_XPLO1T` (el mismo de la cuenta de GitHub), no con el nombre real, porque el repositorio es público.
 - **Aprendizaje:** verificar el acceso a cada plataforma antes de comprometer el alcance. Identix se apoyaba en redes sociales cuyo acceso legítimo no existe o exige aprobaciones; comprobarlo al inicio habría ahorrado el desvío.
 
+## 2026-09-29 · Issue #18: E1, modelo de amenazas
+
+Rama `docs/18-modelo-amenazas`. Documento: [`docs/threat-model.md`](threat-model.md); guía de la herramienta: [`docs/architecture/guia-threat-dragon.md`](architecture/guia-threat-dragon.md); modelo: `docs/architecture/threat-model.json`.
+
+- **Modelo.** La persona dibujó los dos DFD en OWASP Threat Dragon 2.6.2 (AppImage con SHA-512 verificado); el agente los ordenó y completó editando el JSON. Resultado: 30 amenazas STRIDE (S 5, T 6, R 2, I 8, D 7, E 2; severidad 11 altas, 16 medias, 3 bajas), todas «Abierta», cada una con un control y una verificación ligada a una herramienta o prueba (Semgrep, Bandit, ZAP, Trivy, gitleaks, Checkov, pruebas unitarias).
+- **Mínimo privilegio.** Se usa la versión de escritorio sin acceso a GitHub: el modelo es un archivo local.
+- **Cifrado dentro del clúster: decisión abierta.** Los flujos internos están marcados como no cifrados a propósito, para que la brecha siga visible; amenazas 28 y 29. Se resolverá en un ADR antes de E5.
+- **Límite declarado.** El modelo cubre la aplicación; la cadena de suministro de CI/CD queda para E4/E7. Los PNG de los DFD los exporta la persona; hasta entonces las imágenes del documento están pendientes.
+- **Lección del PR #16.** Antes de empujar más commits a la rama de un PR, comprobar que el PR sigue abierto (`gh pr view`). El PR #16 se fusionó antes de que llegaran dos commits; el push recreó la rama borrada; se recuperaron en el PR #17 con cherry-pick sobre una rama nueva, y la rama obsoleta se borró tras comprobar que su árbol era idéntico.
+
 ## Pendientes
 - [ ] **E0 (en curso, issue #15, PR #16):** ficha, ADR 0003 y propuesta escritos. Después, añadir los comandos de prueba y lint del stack a `.claude/settings.json`.
 - [x] Revisión manual de los términos de uso de RCN, Semana, Caracol, Blu Radio y Citytv (persona, 2026-09-29): ninguno prohíbe el uso informativo con enlace. Repetir antes de la entrega final.
 - [ ] Verificar las versiones del stack (AGENTS.md §3) antes de fijarlas.
-- [ ] **E1:** modelar el contenido de las fuentes externas como entrada no confiable (XSS, XXE en RSS y sitemaps, SSRF con lista fija de dominios) y la concentración de funciones en el gateway como amenaza de elevación de privilegios (hallazgos B2 y B6 del #15).
+- [x] **E1:** contenido de las fuentes externas como entrada no confiable (XSS, XXE, SSRF) y concentración de funciones en el gateway, modelados en el issue #18 (amenazas 2, 5, 20 y 21). Los controles siguen sin verificar hasta que haya código y pruebas (E3).
+- [ ] **E1 (issue #18):** exportar los PNG de los DFD (persona), revisión de `revisor-seguridad` y PR.
+- [ ] ADR de cifrado dentro del clúster (TLS/mTLS para Vault, PostgreSQL y RabbitMQ), antes de E5.
+- [ ] Elegir el nivel objetivo de OWASP ASVS (no acordado).
+- [ ] Modelar la cadena de suministro de CI/CD (E4/E7).
 - [ ] **E3:** antes de añadir `pysentimiento`, verificar nombre, mantenedor, licencia y actividad (AGENTS.md §3) y fijar el modelo de Hugging Face por hash de commit (riesgo de deserialización con `torch`) (hallazgo B5 del #15).
 - [ ] **E7:** referenciar las imágenes por digest, no solo por `vX.Y.Z` y `latest` (hallazgo B4 del #15).
 - [ ] Traslado a una rama del repositorio del curso: última tarea del proyecto (decidido el 2026-09-29).

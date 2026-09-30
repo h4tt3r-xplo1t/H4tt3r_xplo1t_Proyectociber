@@ -46,3 +46,4 @@ There is no test runner for prose. Checks: guardia and ruleset suites, the gitle
 ## Progress
 - T1 done 2026-09-29: ADR 0004 committed as e9e8520; BITACORA entry and pendientes in the follow-up commit `docs: log ADR 0004 in bitacora (#20)`. Guardia 164/164 and ruleset 15/15 pass.
 - Parent review of T1: the roles table gave the administrador "add domains" and "edit content", which contradicts decision 5. Fixed: nobody adds domains from the app (PR only), only the editor toggles existing sources, and the administrador manages people, not content.
+- Security review (revisor-seguridad): NOT ready, 3 high findings. Fixed 2026-09-29 in the ADR: decisions 10 (admin-assisted recovery, person's choice) and 11 (MFA enrollment, first-admin bootstrap) added; decision 6 widened to security events; ASVS IDs corrected against v5.0.0; PyJWT >= 2.15.0. Status set to Propuesto. Next: T3 re-review, then PR.

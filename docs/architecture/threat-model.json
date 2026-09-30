@@ -1062,7 +1062,7 @@
                   "severity": "Medium",
                   "type": "Elevation of privilege / Elevación de privilegios",
                   "description": "El gateway concentra autenticación, búsqueda y auditoría. Un fallo de autorización en un endpoint permitiría a un lector acceder a funciones de administración o al registro de auditoría.",
-                  "mitigation": "Control de roles en cada endpoint con denegación por defecto; pruebas de autorización por rol; contenedor sin root; sin salida a internet (NetworkPolicy). Si la auditoría crece, separarla en su propio servicio (ADR 0003).",
+                  "mitigation": "Control de roles en cada endpoint con denegación por defecto; contenedor sin root; sin salida a internet (NetworkPolicy). Si la auditoría crece, separarla en su propio servicio (ADR 0003). Verificación: pruebas de autorización por rol (un lector recibe 403 en endpoints de administración y de auditoría).",
                   "modelType": "STRIDE",
                   "new": false,
                   "number": 2,

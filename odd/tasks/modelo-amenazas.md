@@ -30,7 +30,8 @@ There is no test runner for prose. Checks: `tests/hooks/guardia_test.sh`, `tests
 - [x] **T4**: 30 STRIDE threats (`2403a3f` by the person, `1804afa`).
 - [x] **T5**: `docs/threat-model.md`, the guide and the BITACORA entry (`81415a8`, `a0f585d`, `c28434d`).
 - [x] **T6**: exported PNGs (person); level 1 re-exported without a selection artifact; threat 2 verification added (`d6fb902`).
-- [ ] **T7**: `revisor-seguridad` review, then PR.
+- [x] **T7a**: `revisor-seguridad` review: ready for PR; its 4 medium findings were fixed (SSRF control, 12 missing threats giving 42 in total, audit guarantee, Vault protocol) and the low findings were recorded as pending decisions.
+- [ ] **T7b**: re-export both PNGs (person), then PR.
 
 ## Progress
 - Issue #18 created on request. Branch from `main` at `ff33c6f`.

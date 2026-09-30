@@ -31,7 +31,8 @@ Las amenazas se concentran donde los flujos cruzan un **límite de confianza** (
 ## Supuestos
 
 - El clúster es K3s local, ejecutado con k3d (ADR 0003 y ficha del proyecto).
-- Solo `worker-noticias` y `worker-tendencias` tienen salida a internet, y solo hacia una lista fija de dominios. El gateway y `worker-analisis` no tienen salida.
+- Solo `worker-noticias` y `worker-tendencias` tienen salida a internet, y solo hacia una lista fija de dominios mediante un proxy de salida (las NetworkPolicy nativas filtran por IP, no por dominio; ver amenaza 21). El gateway y `worker-analisis` no tienen salida.
+- Se descargan solo feeds y sitemaps; los artículos no se descargan: se guardan titular, enlace, fecha y resumen del propio feed.
 - El modelo cubre **solo la aplicación**. La cadena de suministro de CI/CD (GitHub Actions, Docker Hub, dependencias del pipeline) **no está modelada**: tendrá su propia sección en E4/E7. Es una brecha declarada, no un olvido.
 - Los flujos internos del clúster están marcados como no cifrados a propósito, para que la brecha siga visible hasta decidir el cifrado interno (ver «Decisiones pendientes»).
 
@@ -86,7 +87,7 @@ Flujos (16). Cada flecha apunta en la dirección en que se mueven los **datos**,
 | gateway (FastAPI) → Lector | Resultados agrupados con sentimiento | HTTPS | Sí | Sí |
 | gateway (FastAPI) → PostgreSQL | Usuarios y registro de auditoría | PostgreSQL | No | No |
 | PostgreSQL → gateway (FastAPI) | Noticias agrupadas y datos de usuario | PostgreSQL | No | No |
-| Vault → gateway (FastAPI) | Clave de firma JWT y credenciales de BD | HTTPS (API de Vault) | No | No |
+| Vault → gateway (FastAPI) | Clave de firma JWT y credenciales de BD | HTTP (API de Vault) | No | No |
 | gateway (FastAPI) → RabbitMQ | Trabajo: buscar vídeos del tema | AMQP | No | No |
 | Medios de noticias → worker-noticias | RSS y sitemaps (titulares) | HTTPS | Sí | Sí |
 | worker-noticias → PostgreSQL | Noticias nuevas | PostgreSQL | No | No |
@@ -96,7 +97,7 @@ Flujos (16). Cada flecha apunta en la dirección en que se mueven los **datos**,
 | RabbitMQ → worker-tendencias | Trabajo de búsqueda de vídeos | AMQP | No | No |
 | Fuentes de tendencias → worker-tendencias | Tendencias y vídeos | HTTPS | Sí | Sí |
 | worker-tendencias → PostgreSQL | Tendencias y vídeos guardados | PostgreSQL | No | No |
-| Vault → worker-tendencias | Clave de la API de YouTube | HTTPS (API de Vault) | No | No |
+| Vault → worker-tendencias | Clave de la API de YouTube | HTTP (API de Vault) | No | No |
 
 Límites de confianza: «Internet ↔ Clúster»; «Clúster ↔ Fuentes externas».
 
@@ -104,22 +105,24 @@ Simplificación: los workers también leen sus credenciales de base de datos des
 
 ## Amenazas STRIDE
 
-Total: 30 amenazas, todas en estado **Abierta** (aún no hay código ni pruebas que demuestren los controles).
+Total: 42 amenazas, todas en estado **Abierta** (aún no hay código ni pruebas que demuestren los controles).
 
 | Categoría STRIDE | Amenazas |
 |---|---|
-| Suplantación (S) | 5 |
-| Manipulación (T) | 6 |
+| Suplantación (S) | 7 |
+| Manipulación (T) | 11 |
 | Repudiación (R) | 2 |
-| Divulgación de información (I) | 8 |
+| Divulgación de información (I) | 10 |
 | Denegación de servicio (D) | 7 |
-| Elevación de privilegios (E) | 2 |
+| Elevación de privilegios (E) | 5 |
 
 | Severidad | Amenazas |
 |---|---|
-| Alta | 11 |
-| Media | 16 |
+| Alta | 17 |
+| Media | 22 |
 | Baja | 3 |
+
+Criterio de clasificación: el XXE (20) se clasifica como Manipulación porque la entrada manipulada altera el procesamiento del worker, aunque su efecto puede ser divulgación o denegación de servicio; el SSRF (21) y la deserialización insegura (33) como Elevación de privilegios, porque el atacante usa la identidad y el acceso de red del servicio para llegar donde él no puede.
 
 | # | Elemento o flujo | Categoría | Severidad | Título | Control | Verificación | Estado |
 |---|---|---|---|---|---|---|---|
@@ -133,19 +136,19 @@ Total: 30 amenazas, todas en estado **Abierta** (aún no hay código ni pruebas 
 | 8 | gateway (FastAPI) | Suplantación (S) | Alta | Fuerza bruta o relleno de credenciales en el login | Límite de intentos por usuario e IP con bloqueo temporal; contraseñas con hash lento (Argon2 o bcrypt); mensajes de error que no revelan si el usuario existe. | prueba de intentos fallidos que devuelve 429. | Abierta |
 | 9 | gateway (FastAPI) | Manipulación (T) | Alta | Inyección SQL mediante el texto de búsqueda | Consultas parametrizadas mediante el ORM; validación de longitud y caracteres con Pydantic. | Bandit y Semgrep en CI, pruebas con cargas de inyección y escaneo con ZAP. | Abierta |
 | 10 | gateway (FastAPI) | Denegación de servicio (D) | Alta | Abuso de la búsqueda para agotar recursos o la cuota de YouTube | Límite de peticiones por usuario e IP; caché de búsquedas repetidas; tope de trabajos en cola por usuario. | prueba de carga básica y prueba de límite que devuelve 429. | Abierta |
-| 11 | gateway (FastAPI) | Repudiación (R) | Media | Acciones administrativas sin trazabilidad | Registro de auditoría de solo inserción para acciones de administración. | prueba que confirma que cada acción de administración deja registro. | Abierta |
+| 11 | gateway (FastAPI) | Repudiación (R) | Media | Acciones administrativas sin trazabilidad | Registro de auditoría de acciones de administración, escrito por el gateway con un rol de solo inserción (ver la amenaza de modificación de la auditoría: protege frente al gateway, no frente al administrador de BD). | prueba que confirma que cada acción de administración deja registro. | Abierta |
 | 12 | gateway (FastAPI) | Divulgación de información (I) | Media | Mensajes de error con detalles internos | Errores genéricos hacia el cliente y detalle solo en logs internos; sin modo debug en producción; cabeceras de servidor mínimas. | escaneo con ZAP. | Abierta |
 | 13 | Vault | Divulgación de información (I) | Alta | Exposición de secretos por políticas de Vault demasiado amplias | Una política por servicio con mínimo privilegio; autenticación de Kubernetes por cuenta de servicio; tokens de corta duración. | prueba que confirma que cada servicio recibe 403 en los secretos ajenos. | Abierta |
 | 14 | Vault | Denegación de servicio (D) | Media | Vault sellado o no disponible impide arrancar los servicios | Procedimiento documentado de desellado; los servicios reintentan con espera y fallan de forma controlada. | prueba de arranque con Vault detenido. | Abierta |
 | 15 | PostgreSQL | Divulgación de información (I) | Alta | Acceso a la base de datos con credenciales compartidas o por defecto | Un usuario de base de datos por servicio con permisos mínimos; credenciales en Vault; puerto no expuesto fuera del clúster (NetworkPolicy). | Checkov sobre los manifiestos y prueba de permisos por usuario. | Abierta |
-| 16 | PostgreSQL | Manipulación (T) | Media | Modificación o borrado del registro de auditoría | El usuario del gateway solo tiene permiso INSERT sobre la tabla de auditoría, sin UPDATE ni DELETE. | prueba que confirma que un UPDATE sobre la auditoría falla. | Abierta |
-| 17 | PostgreSQL | Denegación de servicio (D) | Baja | Crecimiento sin límite de noticias y tendencias | Política de retención (borrado periódico de datos antiguos) e índices adecuados. | prueba de la tarea de retención. | Abierta |
+| 16 | PostgreSQL | Manipulación (T) | Media | Modificación o borrado del registro de auditoría | El rol del gateway solo tiene INSERT sobre la tabla de auditoría, sin UPDATE ni DELETE; la retención de datos no toca la auditoría y, si algún día lo hace, usa un rol propio. La garantía es frente a un gateway comprometido, no frente a un administrador de la base de datos (riesgo residual). Encadenar cada registro con el hash del anterior queda como mejora opcional (E3). | prueba que confirma que un UPDATE o DELETE sobre la auditoría falla con el rol del gateway. | Abierta |
+| 17 | PostgreSQL | Denegación de servicio (D) | Baja | Crecimiento sin límite de noticias y tendencias | Política de retención (borrado periódico de noticias y tendencias antiguas, excluida la tabla de auditoría) e índices adecuados. | prueba de la tarea de retención que comprueba que la auditoría no se toca. | Abierta |
 | 18 | RabbitMQ | Suplantación (S) | Media | Publicación de mensajes falsos en la cola | Un usuario de RabbitMQ por servicio con permisos por cola; usuario guest desactivado; credenciales en Vault; puerto solo accesible dentro del clúster. | prueba de publicación con credenciales ajenas. | Abierta |
 | 19 | RabbitMQ | Denegación de servicio (D) | Media | Saturación de la cola | Longitud máxima de cola, TTL de mensajes y cola de mensajes fallidos (dead-letter). | prueba con la cola llena. | Abierta |
 | 20 | worker-noticias | Manipulación (T) | Alta | XML malicioso en RSS o sitemaps (XXE) | Parser XML sin entidades externas (por ejemplo, defusedxml) y tamaño máximo de respuesta. | prueba unitaria con una carga XXE conocida y regla de Bandit. | Abierta |
-| 21 | worker-noticias | Elevación de privilegios (E) | Alta | SSRF: URLs del contenido usadas para alcanzar servicios internos | Solo se consultan dominios de una lista fija y no se siguen URLs del contenido; NetworkPolicy de salida limitada a esos dominios. | prueba con una URL interna que debe rechazarse. | Abierta |
+| 21 | worker-noticias | Elevación de privilegios (E) | Alta | SSRF: URLs del contenido usadas para alcanzar servicios internos | Solo se descargan feeds y sitemaps de una lista fija de dominios, nunca los artículos ni otras URL del contenido. La salida pasa por un proxy de salida con lista de dominios permitidos (o política por nombre de dominio, por ejemplo Cilium; por decidir), porque las NetworkPolicy nativas filtran por IP y no por dominio. En código: solo https, validación del host antes de cada petición y sin seguir redirecciones a otro host, y bloqueo de IP privadas, de enlace local y de metadatos. | pruebas con una URL interna, una IP literal y una redirección 3xx hacia 127.0.0.1. | Abierta |
 | 22 | worker-noticias | Denegación de servicio (D) | Media | Respuesta enorme o lenta de un medio bloquea el worker | Tiempos de espera, tamaño máximo de respuesta y reintentos con espera creciente. | prueba con un servidor simulado lento. | Abierta |
-| 23 | worker-tendencias | Divulgación de información (I) | Media | Fuga de la clave de la API de YouTube | Clave en Vault, restringida a la API de YouTube y nunca registrada en logs. | gitleaks en CI y revisión de logs. | Abierta |
+| 23 | worker-tendencias | Divulgación de información (I) | Media | Fuga de la clave de la API de YouTube | Clave en Vault y restringida a la API de YouTube. Como la clave viaja en la URL (parámetro key), los logs, trazas y mensajes de excepción redactan ese parámetro y nunca registran la URL completa. | gitleaks en CI y prueba que provoca un error de la API y comprueba que la clave no aparece en el log. | Abierta |
 | 24 | worker-tendencias | Denegación de servicio (D) | Media | Agotamiento de la cuota diaria de YouTube | Caché de resultados, límite por usuario y degradación controlada (se muestran las noticias aunque falten vídeos). | prueba de degradación con la API simulada devolviendo 403. | Abierta |
 | 25 | worker-analisis | Manipulación (T) | Alta | Modelo de sentimiento manipulado (cadena de suministro) | Modelo fijado por hash de commit e incluido en la imagen; formato safetensors si está disponible; sin descargas en ejecución. | comprobación del hash en el build y Trivy. | Abierta |
 | 26 | worker-analisis | Denegación de servicio (D) | Baja | Textos enormes agotan CPU o memoria del análisis | Truncado del texto de entrada y límites de CPU y memoria en Kubernetes. | prueba con un texto de gran tamaño. | Abierta |
@@ -153,6 +156,18 @@ Total: 30 amenazas, todas en estado **Abierta** (aún no hay código ni pruebas 
 | 28 | Flujo: Clave de firma JWT y credenciales de BD (Vault → gateway (FastAPI)) | Divulgación de información (I) | Alta | Secretos sin cifrar dentro del clúster | Decisión pendiente: TLS en Vault y entre servicios, más NetworkPolicy que solo permite hablar con Vault a los servicios autorizados. Se resolverá en un ADR antes de E5. | Decisión pendiente | Abierta |
 | 29 | Flujo: Usuarios y registro de auditoría (gateway (FastAPI) → PostgreSQL) | Divulgación de información (I) | Media | Tráfico sin cifrar hacia la base de datos | Decisión pendiente: TLS en PostgreSQL (sslmode=verify-full) y NetworkPolicy. Se resolverá junto con el ADR de cifrado interno. | Decisión pendiente | Abierta |
 | 30 | Flujo: RSS y sitemaps (titulares) (Medios de noticias → worker-noticias) | Suplantación (S) | Media | Suplantación de un medio (DNS o intermediario) | Solo HTTPS con verificación de certificado hacia dominios fijos. | prueba que rechaza un certificado no válido. | Abierta |
+| 31 | worker-tendencias | Manipulación (T) | Alta | Enlaces maliciosos en las tendencias | Solo se aceptan enlaces http y https; se muestra el dominio de destino; los enlaces se abren con rel="noopener noreferrer"; el texto se escapa. | prueba unitaria con enlaces javascript:, data: y con caracteres de control. | Abierta |
+| 32 | worker-tendencias | Manipulación (T) | Media | JSON o XML no confiable de las fuentes de tendencias | Análisis estricto con validación de esquema, tamaño máximo de respuesta y parser XML sin entidades externas para el RSS de Trends. | pruebas con respuestas malformadas y de gran tamaño. | Abierta |
+| 33 | RabbitMQ | Elevación de privilegios (E) | Alta | Deserialización insegura de los mensajes de la cola | Serialización solo en JSON (en Celery, accept_content=["json"]), nunca pickle; validación de esquema de cada mensaje. | regla de Bandit o Semgrep contra pickle y prueba que rechaza un mensaje no JSON. | Abierta |
+| 34 | Flujo: Trabajo: buscar vídeos del tema (gateway (FastAPI) → RabbitMQ) | Manipulación (T) | Media | Inyección del tema del usuario en la consulta a YouTube | El tema se envía como dato del mensaje y la librería cliente lo codifica como parámetro; nunca se construyen URLs concatenando texto; longitud limitada. | prueba con caracteres especiales (&, #, saltos de línea) en el tema. | Abierta |
+| 35 | gateway (FastAPI) | Suplantación (S) | Alta | Tokens sin revocación ni rotación | Token de acceso de vida corta y token de refresco rotado en cada uso; cierre de sesión que revoca el refresco; clave de firma con identificador (kid) para poder rotarla. | prueba de que tras cerrar sesión el refresco se rechaza y prueba de rotación de clave. | Abierta |
+| 36 | gateway (FastAPI) | Manipulación (T) | Alta | CSRF y CORS mal configurado | Cookie con Secure, HttpOnly y SameSite; token anti-CSRF en peticiones que cambian estado; CORS con lista de orígenes permitidos, nunca «*» con credenciales. | escaneo con ZAP y prueba de CORS desde un origen no permitido. | Abierta |
+| 37 | gateway (FastAPI) | Elevación de privilegios (E) | Alta | Acceso a datos de otro usuario (IDOR) | Autorización por objeto: cada consulta filtra por el propietario autenticado; identificadores no secuenciales. | pruebas de autorización cruzada entre dos usuarios. | Abierta |
+| 38 | gateway (FastAPI) | Suplantación (S) | Media | Falseo de X-Forwarded-For para esquivar los límites por IP | Solo se confía en la cabecera que añade el Ingress (proxy de confianza configurado); los límites se aplican también por usuario. | prueba que envía una cabecera X-Forwarded-For falsa y comprueba que el límite se mantiene. | Abierta |
+| 39 | gateway (FastAPI) | Divulgación de información (I) | Media | Datos sensibles o inyección en los logs | Logs estructurados en JSON; redacción de Authorization, cookies y parámetros de clave; el texto de búsqueda no se registra completo; escape de saltos de línea. | prueba que revisa los logs de una petición autenticada en busca de tokens. | Abierta |
+| 40 | gateway (FastAPI) | Elevación de privilegios (E) | Media | Contenedores o cuentas de servicio con privilegios excesivos | Pod Security «restricted»: sin root, sistema de archivos de solo lectura, sin capacidades extra; cuentas de servicio sin token montado salvo que lo necesiten y RBAC mínimo; secretos de Kubernetes cifrados en etcd (opción de K3s por verificar). | Checkov sobre los manifiestos y Trivy sobre la configuración. | Abierta |
+| 41 | worker-analisis | Manipulación (T) | Media | Envenenamiento de datos que sesga la agrupación y el sentimiento | Fuentes fijas y atribución visible del medio en cada resultado; el sentimiento se presenta como estimación; alerta ante saltos anómalos de volumen por fuente. | prueba con un feed simulado anómalo que dispara la alerta. | Abierta |
+| 42 | Vault | Divulgación de información (I) | Alta | Vault en modo desarrollo o claves de desellado mal custodiadas | Modo dev solo en pruebas locales, nunca en el entorno de producción simulado; token raíz revocado tras la configuración inicial; claves de desellado fuera del repositorio con custodia documentada. | comprobación en el despliegue de que Vault arranca sellado y de que no existe token raíz activo. | Abierta |
 
 ## Casos de abuso de la búsqueda por tema
 
@@ -160,9 +175,9 @@ La búsqueda es la historia de usuario de la sustentación y el punto más expue
 
 | Caso | Qué hace el atacante | Amenazas que lo cubren |
 |---|---|---|
-| Texto libre malicioso | Envía SQL, HTML/JavaScript o un texto enorme en el campo de búsqueda | 9 (inyección SQL), 5 (XSS), 26 (texto enorme en el análisis) |
-| Agotar la cuota de YouTube | Un bot lanza muchas búsquedas para consumir las 10 000 unidades diarias | 10, 24, 19 (cola saturada), 3 (cuentas falsas para esquivar el límite por usuario) |
-| Enumeración o fuerza bruta en el login | Prueba contraseñas o averigua qué usuarios existen | 8, 3, 27 (credenciales en tránsito) |
+| Texto libre malicioso | Envía SQL, HTML/JavaScript o un texto enorme en el campo de búsqueda | 9 (inyección SQL), 5 (XSS), 26 (texto enorme en el análisis), 34 (inyección en la consulta a YouTube) |
+| Agotar la cuota de YouTube | Un bot lanza muchas búsquedas para consumir las 10 000 unidades diarias | 10, 24, 19 (cola saturada), 3 (cuentas falsas), 38 (falseo de X-Forwarded-For para esquivar el límite por IP) |
+| Enumeración o fuerza bruta en el login | Prueba contraseñas o averigua qué usuarios existen | 8, 3, 27 (credenciales en tránsito), 35 (tokens sin revocación) |
 | Negar una búsqueda | Un usuario afirma que no hizo una búsqueda | 4, 11, 16 (protección del registro de auditoría) |
 
 ## Decisiones pendientes
@@ -172,6 +187,10 @@ La búsqueda es la historia de usuario de la sustentación y el punto más expue
 | Cifrado dentro del clúster (TLS o mTLS para Vault, PostgreSQL y RabbitMQ) | 28 (flujo «Clave de firma JWT y credenciales de BD»), 29 (flujo «Usuarios y registro de auditoría») y el resto de flujos internos no cifrados | ADR antes de E5 |
 | Nivel objetivo de OWASP ASVS | Todas las de aplicación web | Pendiente: no está acordado con el responsable humano |
 | Separar la auditoría del gateway en su propio servicio | 2 | Solo si la auditoría crece (ADR 0003); **NO VERIFICADO** que haga falta |
+| Control de salida por dominio: proxy de salida o política por nombre de dominio (por ejemplo, Cilium) | 21 | ADR antes de E5 |
+| Algoritmo de firma de los JWT (simétrico o asimétrico) y uso de la audiencia | 1, 35 | ADR de autenticación en E3 |
+| Si el registro de auditoría guarda el texto de búsqueda (dato de comportamiento del usuario; la recomendación es no guardarlo completo) | 4, 39 | Antes de E3 |
+| Respaldo y restauración de PostgreSQL y Vault | — (fuera de este modelo) | E8 |
 
 ## Riesgos residuales
 

@@ -1114,7 +1114,7 @@
                   "severity": "Medium",
                   "type": "Repudiation / Repudiación",
                   "description": "Un administrador o un atacante con su cuenta cambia la configuración sin dejar rastro.",
-                  "mitigation": "Registro de auditoría de solo inserción para acciones de administración. Verificación: prueba que confirma que cada acción de administración deja registro.",
+                  "mitigation": "Registro de auditoría de acciones de administración, escrito por el gateway con un rol de solo inserción (ver la amenaza de modificación de la auditoría: protege frente al gateway, no frente al administrador de BD). Verificación: prueba que confirma que cada acción de administración deja registro.",
                   "modelType": "STRIDE",
                   "new": false,
                   "number": 11,
@@ -1131,6 +1131,84 @@
                   "modelType": "STRIDE",
                   "new": false,
                   "number": 12,
+                  "score": ""
+                },
+                {
+                  "id": "e02dd0b7-2a12-4692-bac7-d76daee280cf",
+                  "title": "Tokens sin revocación ni rotación",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Spoofing / Spoofing",
+                  "description": "Un token robado sigue siendo válido tras cerrar sesión, y una clave de firma comprometida no se puede sustituir sin invalidar todo.",
+                  "mitigation": "Token de acceso de vida corta y token de refresco rotado en cada uso; cierre de sesión que revoca el refresco; clave de firma con identificador (kid) para poder rotarla. Verificación: prueba de que tras cerrar sesión el refresco se rechaza y prueba de rotación de clave.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 35,
+                  "score": ""
+                },
+                {
+                  "id": "beac8d82-c78a-4dcc-9452-6924cf346e7f",
+                  "title": "CSRF y CORS mal configurado",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Tampering / Manipulación",
+                  "description": "Si el token viaja en una cookie, otra web puede provocar peticiones en nombre del lector; un CORS abierto permite leer respuestas desde otros orígenes.",
+                  "mitigation": "Cookie con Secure, HttpOnly y SameSite; token anti-CSRF en peticiones que cambian estado; CORS con lista de orígenes permitidos, nunca «*» con credenciales. Verificación: escaneo con ZAP y prueba de CORS desde un origen no permitido.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 36,
+                  "score": ""
+                },
+                {
+                  "id": "51d52746-e6ff-4003-aaf7-d7a0f2606786",
+                  "title": "Acceso a datos de otro usuario (IDOR)",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Elevation of privilege / Elevación de privilegios",
+                  "description": "Cambiando un identificador en la petición, un lector consulta o modifica los temas favoritos de otro usuario.",
+                  "mitigation": "Autorización por objeto: cada consulta filtra por el propietario autenticado; identificadores no secuenciales. Verificación: pruebas de autorización cruzada entre dos usuarios.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 37,
+                  "score": ""
+                },
+                {
+                  "id": "3b6542df-c8d5-4488-ade1-25f8521eac2f",
+                  "title": "Falseo de X-Forwarded-For para esquivar los límites por IP",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Spoofing / Spoofing",
+                  "description": "Si el gateway confía en la cabecera X-Forwarded-For que envía el cliente, un bot cambia de «IP» en cada petición.",
+                  "mitigation": "Solo se confía en la cabecera que añade el Ingress (proxy de confianza configurado); los límites se aplican también por usuario. Verificación: prueba que envía una cabecera X-Forwarded-For falsa y comprueba que el límite se mantiene.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 38,
+                  "score": ""
+                },
+                {
+                  "id": "65494580-855b-4e86-8a5e-253ba137d7f9",
+                  "title": "Datos sensibles o inyección en los logs",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Information disclosure / Brecha de información",
+                  "description": "Los logs pueden registrar tokens, cabeceras Authorization o el texto de búsqueda, y un texto con saltos de línea puede falsear entradas del log.",
+                  "mitigation": "Logs estructurados en JSON; redacción de Authorization, cookies y parámetros de clave; el texto de búsqueda no se registra completo; escape de saltos de línea. Verificación: prueba que revisa los logs de una petición autenticada en busca de tokens.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 39,
+                  "score": ""
+                },
+                {
+                  "id": "a6adfb3e-9f77-4d6d-993d-366ffaa23e58",
+                  "title": "Contenedores o cuentas de servicio con privilegios excesivos",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Elevation of privilege / Elevación de privilegios",
+                  "description": "Aplica a todos los servicios: un contenedor como root, con capacidades de más o con el token de Kubernetes montado facilita escalar desde un servicio comprometido.",
+                  "mitigation": "Pod Security «restricted»: sin root, sistema de archivos de solo lectura, sin capacidades extra; cuentas de servicio sin token montado salvo que lo necesiten y RBAC mínimo; secretos de Kubernetes cifrados en etcd (opción de K3s por verificar). Verificación: Checkov sobre los manifiestos y Trivy sobre la configuración.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 40,
                   "score": ""
                 }
               ],
@@ -1294,6 +1372,19 @@
                   "new": false,
                   "number": 19,
                   "score": ""
+                },
+                {
+                  "id": "0a85783d-9036-4733-8c00-a1f6797b8c09",
+                  "title": "Deserialización insegura de los mensajes de la cola",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Elevation of privilege / Elevación de privilegios",
+                  "description": "Si los workers aceptan mensajes serializados con pickle (por ejemplo, la configuración por defecto antigua de Celery), un mensaje manipulado ejecuta código.",
+                  "mitigation": "Serialización solo en JSON (en Celery, accept_content=[\"json\"]), nunca pickle; validación de esquema de cada mensaje. Verificación: regla de Bandit o Semgrep contra pickle y prueba que rechaza un mensaje no JSON.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 33,
+                  "score": ""
                 }
               ]
             }
@@ -1422,7 +1513,7 @@
                   "status": "Open",
                   "severity": "High",
                   "type": "Tampering / Manipulación",
-                  "description": "Un feed manipulado usa entidades externas para leer archivos internos o provocar consumo excesivo (hallazgo B2).",
+                  "description": "Un feed manipulado usa entidades externas para leer archivos internos o provocar consumo excesivo (hallazgo B2 del issue #15).",
                   "mitigation": "Parser XML sin entidades externas (por ejemplo, defusedxml) y tamaño máximo de respuesta. Verificación: prueba unitaria con una carga XXE conocida y regla de Bandit.",
                   "modelType": "STRIDE",
                   "new": false,
@@ -1435,8 +1526,8 @@
                   "status": "Open",
                   "severity": "High",
                   "type": "Elevation of privilege / Elevación de privilegios",
-                  "description": "Si el worker siguiera enlaces del contenido, un atacante podría dirigirlo contra servicios internos del clúster (hallazgo B2).",
-                  "mitigation": "Solo se consultan dominios de una lista fija y no se siguen URLs del contenido; NetworkPolicy de salida limitada a esos dominios. Verificación: prueba con una URL interna que debe rechazarse.",
+                  "description": "Si el worker siguiera enlaces del contenido, redirecciones o direcciones IP literales, un atacante podría dirigirlo contra servicios internos del clúster o de metadatos (hallazgo B2 del issue #15).",
+                  "mitigation": "Solo se descargan feeds y sitemaps de una lista fija de dominios, nunca los artículos ni otras URL del contenido. La salida pasa por un proxy de salida con lista de dominios permitidos (o política por nombre de dominio, por ejemplo Cilium; por decidir), porque las NetworkPolicy nativas filtran por IP y no por dominio. En código: solo https, validación del host antes de cada petición y sin seguir redirecciones a otro host, y bloqueo de IP privadas, de enlace local y de metadatos. Verificación: pruebas con una URL interna, una IP literal y una redirección 3xx hacia 127.0.0.1.",
                   "modelType": "STRIDE",
                   "new": false,
                   "number": 21,
@@ -1583,7 +1674,7 @@
                   "severity": "Medium",
                   "type": "Information disclosure / Brecha de información",
                   "description": "La clave aparece en logs, en el repositorio o en variables visibles y un tercero consume nuestra cuota.",
-                  "mitigation": "Clave en Vault, restringida a la API de YouTube y nunca registrada en logs. Verificación: gitleaks en CI y revisión de logs.",
+                  "mitigation": "Clave en Vault y restringida a la API de YouTube. Como la clave viaja en la URL (parámetro key), los logs, trazas y mensajes de excepción redactan ese parámetro y nunca registran la URL completa. Verificación: gitleaks en CI y prueba que provoca un error de la API y comprueba que la clave no aparece en el log.",
                   "modelType": "STRIDE",
                   "new": false,
                   "number": 23,
@@ -1600,6 +1691,32 @@
                   "modelType": "STRIDE",
                   "new": false,
                   "number": 24,
+                  "score": ""
+                },
+                {
+                  "id": "8be2a920-4de6-4635-a5fd-70540c89939e",
+                  "title": "Enlaces maliciosos en las tendencias",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Tampering / Manipulación",
+                  "description": "Mastodon y las demás fuentes devuelven enlaces arbitrarios: esquemas javascript: o data:, redirecciones abiertas o phishing que se mostrarían al lector.",
+                  "mitigation": "Solo se aceptan enlaces http y https; se muestra el dominio de destino; los enlaces se abren con rel=\"noopener noreferrer\"; el texto se escapa. Verificación: prueba unitaria con enlaces javascript:, data: y con caracteres de control.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 31,
+                  "score": ""
+                },
+                {
+                  "id": "a7f67a6b-1fc8-4543-b7b6-d79fc9e127b1",
+                  "title": "JSON o XML no confiable de las fuentes de tendencias",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Tampering / Manipulación",
+                  "description": "Las respuestas de YouTube, Google Trends y Mastodon pueden llegar malformadas, gigantes o con campos inesperados.",
+                  "mitigation": "Análisis estricto con validación de esquema, tamaño máximo de respuesta y parser XML sin entidades externas para el RSS de Trends. Verificación: pruebas con respuestas malformadas y de gran tamaño.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 32,
                   "score": ""
                 }
               ]
@@ -1729,7 +1846,7 @@
                   "status": "Open",
                   "severity": "High",
                   "type": "Tampering / Manipulación",
-                  "description": "Un titular, resumen o texto de búsqueda con código JavaScript se ejecuta en el navegador del lector y puede robar su token (hallazgo B2).",
+                  "description": "Un titular, resumen o texto de búsqueda con código JavaScript se ejecuta en el navegador del lector y puede robar su token (hallazgo B2 del issue #15).",
                   "mitigation": "React escapa el contenido por defecto; se prohíbe dangerouslySetInnerHTML; cabecera Content-Security-Policy estricta en Nginx; el token no se guarda en localStorage. Verificación: regla de Semgrep y escaneo con ZAP.",
                   "modelType": "STRIDE",
                   "new": false,
@@ -1889,7 +2006,7 @@
                   "status": "Open",
                   "severity": "High",
                   "type": "Tampering / Manipulación",
-                  "description": "Un modelo descargado o sustituido ejecuta código al cargarse (deserialización con pickle) o da resultados sesgados (hallazgo B5).",
+                  "description": "Un modelo descargado o sustituido ejecuta código al cargarse (deserialización con pickle) o da resultados sesgados (hallazgo B5 del issue #15).",
                   "mitigation": "Modelo fijado por hash de commit e incluido en la imagen; formato safetensors si está disponible; sin descargas en ejecución. Verificación: comprobación del hash en el build y Trivy.",
                   "modelType": "STRIDE",
                   "new": false,
@@ -1907,6 +2024,19 @@
                   "modelType": "STRIDE",
                   "new": false,
                   "number": 26,
+                  "score": ""
+                },
+                {
+                  "id": "51371b3f-50e5-4475-9c1f-3d11884762e1",
+                  "title": "Envenenamiento de datos que sesga la agrupación y el sentimiento",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Tampering / Manipulación",
+                  "description": "Un medio comprometido o un feed manipulado publica muchas noticias falsas o sesgadas y distorsiona los grupos y el tono mostrados.",
+                  "mitigation": "Fuentes fijas y atribución visible del medio en cada resultado; el sentimiento se presenta como estimación; alerta ante saltos anómalos de volumen por fuente. Verificación: prueba con un feed simulado anómalo que dispara la alerta.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 41,
                   "score": ""
                 }
               ]
@@ -2058,7 +2188,7 @@
                   "severity": "Medium",
                   "type": "Tampering / Manipulación",
                   "description": "Quien controle el gateway podría borrar su rastro en la tabla de auditoría.",
-                  "mitigation": "El usuario del gateway solo tiene permiso INSERT sobre la tabla de auditoría, sin UPDATE ni DELETE. Verificación: prueba que confirma que un UPDATE sobre la auditoría falla.",
+                  "mitigation": "El rol del gateway solo tiene INSERT sobre la tabla de auditoría, sin UPDATE ni DELETE; la retención de datos no toca la auditoría y, si algún día lo hace, usa un rol propio. La garantía es frente a un gateway comprometido, no frente a un administrador de la base de datos (riesgo residual). Encadenar cada registro con el hash del anterior queda como mejora opcional (E3). Verificación: prueba que confirma que un UPDATE o DELETE sobre la auditoría falla con el rol del gateway.",
                   "modelType": "STRIDE",
                   "new": false,
                   "number": 16,
@@ -2071,7 +2201,7 @@
                   "severity": "Low",
                   "type": "Denial of service / Denegación de servicio",
                   "description": "La acumulación de datos llena el disco y degrada las consultas.",
-                  "mitigation": "Política de retención (borrado periódico de datos antiguos) e índices adecuados. Verificación: prueba de la tarea de retención.",
+                  "mitigation": "Política de retención (borrado periódico de noticias y tendencias antiguas, excluida la tabla de auditoría) e índices adecuados. Verificación: prueba de la tarea de retención que comprueba que la auditoría no se toca.",
                   "modelType": "STRIDE",
                   "new": false,
                   "number": 17,
@@ -2230,6 +2360,19 @@
                   "modelType": "STRIDE",
                   "new": false,
                   "number": 14,
+                  "score": ""
+                },
+                {
+                  "id": "3d3db426-1e5d-4cc7-89ef-b6851fe06e51",
+                  "title": "Vault en modo desarrollo o claves de desellado mal custodiadas",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Information disclosure / Brecha de información",
+                  "description": "El modo dev de Vault guarda todo en memoria y arranca desellado con un token raíz conocido; unas claves de desellado o un token raíz filtrados dan acceso a todos los secretos.",
+                  "mitigation": "Modo dev solo en pruebas locales, nunca en el entorno de producción simulado; token raíz revocado tras la configuración inicial; claves de desellado fuera del repositorio con custodia documentada. Verificación: comprobación en el despliegue de que Vault arranca sellado y de que no existe token raíz activo.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 42,
                   "score": ""
                 }
               ]
@@ -2716,7 +2859,7 @@
               "isBidirectional": false,
               "isEncrypted": false,
               "isPublicNetwork": false,
-              "protocol": "HTTPS (API de Vault)",
+              "protocol": "HTTP (API de Vault)",
               "threats": [
                 {
                   "id": "46cd4510-c6db-461a-be3d-eafc76dd15a3",
@@ -2758,14 +2901,15 @@
             "shape": "flow",
             "attrs": {
               "line": {
-                "stroke": "#333333",
+                "stroke": "red",
                 "targetMarker": {
                   "name": "block"
                 },
                 "sourceMarker": {
                   "name": ""
                 },
-                "strokeDasharray": null
+                "strokeDasharray": null,
+                "strokeWidth": 2.5
               }
             },
             "width": 200,
@@ -2784,12 +2928,26 @@
               "outOfScope": false,
               "isTrustBoundary": false,
               "reasonOutOfScope": "",
-              "hasOpenThreats": false,
+              "hasOpenThreats": true,
               "isBidirectional": false,
               "isEncrypted": false,
               "isPublicNetwork": false,
               "protocol": "AMQP",
-              "threats": [],
+              "threats": [
+                {
+                  "id": "448a45fe-ad16-4f9a-9955-2ada86ac0a27",
+                  "title": "Inyección del tema del usuario en la consulta a YouTube",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Tampering / Manipulación",
+                  "description": "El texto de búsqueda viaja hasta el worker y se usa como parámetro de la API de YouTube; concatenado a mano podría alterar la petición.",
+                  "mitigation": "El tema se envía como dato del mensaje y la librería cliente lo codifica como parámetro; nunca se construyen URLs concatenando texto; longitud limitada. Verificación: prueba con caracteres especiales (&, #, saltos de línea) en el tema.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 34,
+                  "score": ""
+                }
+              ],
               "trustBoundaryIds": []
             },
             "labels": [
@@ -3325,7 +3483,7 @@
               "isBidirectional": false,
               "isEncrypted": false,
               "isPublicNetwork": false,
-              "protocol": "HTTPS (API de Vault)",
+              "protocol": "HTTP (API de Vault)",
               "threats": [],
               "trustBoundaryIds": []
             },
@@ -3556,6 +3714,6 @@
     ],
     "diagramTop": 2,
     "reviewer": "revisor-seguridad",
-    "threatTop": 30
+    "threatTop": 42
   }
 }

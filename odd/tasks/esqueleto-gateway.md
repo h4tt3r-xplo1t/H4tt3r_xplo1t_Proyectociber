@@ -34,11 +34,12 @@ Mode: strict, enabled (source: global user configuration "Strict TDD Mode: enabl
 
 ## Tasks
 - [x] **T0**: issue #25 created (person authorized), branch `feat/25-esqueleto-gateway`, versions verified.
-- [ ] **T1**: TDD skeleton (RED, GREEN, REFACTOR), `pyproject.toml` with ruff incl. `S`, `uv.lock`.
-- [ ] **T2**: `gateway` CI job and Dependabot uv entry; actionlint locally.
-- [ ] **T3**: `.gitignore`, `.claude/settings.json`, BITACORA, PROJECT_CONTEXT E2 status; advisory check.
+- [x] **T1**: TDD skeleton, `pyproject.toml` with ruff incl. `S`, `uv.lock` (`9a80e17`). RED: `ModuleNotFoundError: gateway.main`; GREEN: 1 passed; ruff check and format clean. REFACTOR: nothing to refactor.
+- [x] **T2**: `gateway` CI job with the official uv binary pinned by sha256 (setup-uv dropped, same pattern as gitleaks) and Dependabot uv entry (`9a7e5ea`). actionlint not installed locally: YAML parsed, job steps run locally and pass; actionlint runs in CI (pending).
+- [x] **T3**: `.gitignore` (in `9a80e17`), settings allow rules (`483c245`), BITACORA and PROJECT_CONTEXT (`a442262`). `uv audit --locked`: no known vulnerabilities in 22 packages (experimental command: PARTIAL). guardia 164/164, ruleset 15/15.
 - [ ] **T4**: `revisor-seguridad` review and fixes.
 - [ ] **T5**: push and PR (only on the person's explicit request).
 
 ## Progress
 - 2026-09-30: T0 done.
+- 2026-09-30: T1-T3 done. `httpx2` swap blocked by the auto-mode permission classifier; kept `httpx` (deprecation warning only) and left the decision to the person. T4 running.

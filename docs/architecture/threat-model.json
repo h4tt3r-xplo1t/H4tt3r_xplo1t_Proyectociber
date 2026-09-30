@@ -1,0 +1,3719 @@
+{
+  "version": "2.6.2",
+  "summary": {
+    "title": "H4tt3r_1nf0rm4t1v0",
+    "owner": "H4TT3R_XPLO1T",
+    "description": "Modelo de amenazas del agregador de noticias y tendencias. Issue #18",
+    "id": 0
+  },
+  "detail": {
+    "contributors": [],
+    "diagrams": [
+      {
+        "id": 0,
+        "title": "DFD nivel 0 - Contexto",
+        "diagramType": "STRIDE",
+        "placeholder": "Descripción de nuevo diagrama STRIDE",
+        "thumbnail": "./public/content/images/thumbnail.stride.jpg",
+        "version": "2.6.2",
+        "cells": [
+          {
+            "position": {
+              "x": 400,
+              "y": 180
+            },
+            "size": {
+              "width": 160,
+              "height": 160
+            },
+            "attrs": {
+              "text": {
+                "text": "H4tt3r_1nf0rm4t1v0"
+              },
+              "body": {
+                "stroke": "#333333",
+                "strokeWidth": 1.5,
+                "strokeDasharray": null
+              }
+            },
+            "visible": true,
+            "shape": "process",
+            "zIndex": 1,
+            "ports": {
+              "groups": {
+                "top": {
+                  "position": "top",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "position": "right",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "bottom": {
+                  "position": "bottom",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "left": {
+                  "position": "left",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                }
+              },
+              "items": [
+                {
+                  "group": "top",
+                  "id": "3d41edf9-0cd9-451e-9b60-47eb977ea3d1"
+                },
+                {
+                  "group": "right",
+                  "id": "5d8ddc1a-d7e2-46b3-90c6-07eeaca7cfe1"
+                },
+                {
+                  "group": "bottom",
+                  "id": "c5ebf25a-cd71-443d-b080-205d2b3f6f35"
+                },
+                {
+                  "group": "left",
+                  "id": "2a7b2f61-a9b2-4ea8-a418-9402840194c8"
+                }
+              ]
+            },
+            "id": "daf7b2bb-1ecd-4764-8a7b-f8bd29bb24d2",
+            "data": {
+              "type": "tm.Process",
+              "name": "H4tt3r_1nf0rm4t1v0",
+              "description": "Sistema completo: frontend, gateway, workers, RabbitMQ, PostgreSQL y Vault en un clúster K3s local (k3d).",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "handlesCardPayment": false,
+              "handlesGoodsOrServices": false,
+              "isWebApplication": false,
+              "privilegeLevel": "",
+              "threats": []
+            }
+          },
+          {
+            "position": {
+              "x": 30,
+              "y": 225
+            },
+            "size": {
+              "width": 150,
+              "height": 70
+            },
+            "attrs": {
+              "text": {
+                "text": "Lector"
+              },
+              "body": {
+                "stroke": "#333333",
+                "strokeWidth": 1.5,
+                "strokeDasharray": null
+              }
+            },
+            "visible": true,
+            "shape": "actor",
+            "zIndex": 2,
+            "ports": {
+              "groups": {
+                "top": {
+                  "position": "top",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "position": "right",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "bottom": {
+                  "position": "bottom",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "left": {
+                  "position": "left",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                }
+              },
+              "items": [
+                {
+                  "group": "top",
+                  "id": "92d61c01-c9f1-4365-91f5-d52597049602"
+                },
+                {
+                  "group": "right",
+                  "id": "f53e58de-c356-48ff-883e-cf516c2510a8"
+                },
+                {
+                  "group": "bottom",
+                  "id": "79a7f1bf-8514-496d-a8c6-97ed1c53ce1b"
+                },
+                {
+                  "group": "left",
+                  "id": "0b3b29fa-8934-45fd-8f1e-74d61b17e35b"
+                }
+              ]
+            },
+            "id": "b972b495-e748-41dc-bdf6-aadc519cd4c9",
+            "data": {
+              "type": "tm.Actor",
+              "name": "Lector",
+              "description": "Persona que usa la aplicación desde el navegador.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "providesAuthentication": false,
+              "threats": []
+            }
+          },
+          {
+            "position": {
+              "x": 840,
+              "y": 370
+            },
+            "size": {
+              "width": 200,
+              "height": 80
+            },
+            "attrs": {
+              "text": {
+                "text": "Medios de noticias"
+              },
+              "body": {
+                "stroke": "#333333",
+                "strokeWidth": 1.5,
+                "strokeDasharray": null
+              }
+            },
+            "visible": true,
+            "shape": "actor",
+            "zIndex": 3,
+            "ports": {
+              "groups": {
+                "top": {
+                  "position": "top",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "position": "right",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "bottom": {
+                  "position": "bottom",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "left": {
+                  "position": "left",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                }
+              },
+              "items": [
+                {
+                  "group": "top",
+                  "id": "92d61c01-c9f1-4365-91f5-d52597049602"
+                },
+                {
+                  "group": "right",
+                  "id": "f53e58de-c356-48ff-883e-cf516c2510a8"
+                },
+                {
+                  "group": "bottom",
+                  "id": "79a7f1bf-8514-496d-a8c6-97ed1c53ce1b"
+                },
+                {
+                  "group": "left",
+                  "id": "0b3b29fa-8934-45fd-8f1e-74d61b17e35b"
+                }
+              ]
+            },
+            "id": "5a979d7f-98b3-44ac-a20d-0fccba3a56ab",
+            "data": {
+              "type": "tm.Actor",
+              "name": "Medios de noticias",
+              "description": "RCN y Semana (RSS); Caracol, Blu Radio y Citytv (sitemaps).",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "providesAuthentication": false,
+              "threats": []
+            }
+          },
+          {
+            "position": {
+              "x": 840,
+              "y": 70
+            },
+            "size": {
+              "width": 200,
+              "height": 80
+            },
+            "attrs": {
+              "text": {
+                "text": "Fuentes de tendencias"
+              },
+              "body": {
+                "stroke": "#333333",
+                "strokeWidth": 1.5,
+                "strokeDasharray": null
+              }
+            },
+            "visible": true,
+            "shape": "actor",
+            "zIndex": 4,
+            "ports": {
+              "groups": {
+                "top": {
+                  "position": "top",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "position": "right",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "bottom": {
+                  "position": "bottom",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "left": {
+                  "position": "left",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                }
+              },
+              "items": [
+                {
+                  "group": "top",
+                  "id": "92d61c01-c9f1-4365-91f5-d52597049602"
+                },
+                {
+                  "group": "right",
+                  "id": "f53e58de-c356-48ff-883e-cf516c2510a8"
+                },
+                {
+                  "group": "bottom",
+                  "id": "79a7f1bf-8514-496d-a8c6-97ed1c53ce1b"
+                },
+                {
+                  "group": "left",
+                  "id": "0b3b29fa-8934-45fd-8f1e-74d61b17e35b"
+                }
+              ]
+            },
+            "id": "0b966162-b340-4a8d-8768-6d3644ebb713",
+            "data": {
+              "type": "tm.Actor",
+              "name": "Fuentes de tendencias",
+              "description": "YouTube Data API, Google Trends (RSS) y Mastodon (solo etiquetas y enlaces).",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "providesAuthentication": false,
+              "threats": []
+            }
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Credenciales y texto de búsqueda",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": true,
+              "isPublicNetwork": true,
+              "protocol": "HTTPS",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Credenciales y texto de búsqueda"
+            ],
+            "id": "bdb40a0d-e0ce-4f23-a480-b3966ddef291",
+            "source": {
+              "cell": "b972b495-e748-41dc-bdf6-aadc519cd4c9",
+              "port": "92d61c01-c9f1-4365-91f5-d52597049602"
+            },
+            "target": {
+              "cell": "daf7b2bb-1ecd-4764-8a7b-f8bd29bb24d2",
+              "port": "3d41edf9-0cd9-451e-9b60-47eb977ea3d1"
+            },
+            "vertices": [
+              {
+                "x": 105,
+                "y": 150
+              },
+              {
+                "x": 480,
+                "y": 150
+              }
+            ]
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "RSS y sitemaps (titulares)",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": true,
+              "isPublicNetwork": true,
+              "protocol": "HTTPS",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "RSS y sitemaps (titulares)"
+            ],
+            "id": "b56ca078-e677-4d01-aa53-66baa3685d86",
+            "source": {
+              "cell": "5a979d7f-98b3-44ac-a20d-0fccba3a56ab",
+              "port": "0b3b29fa-8934-45fd-8f1e-74d61b17e35b"
+            },
+            "target": {
+              "cell": "daf7b2bb-1ecd-4764-8a7b-f8bd29bb24d2",
+              "port": "5d8ddc1a-d7e2-46b3-90c6-07eeaca7cfe1"
+            },
+            "vertices": [
+              {
+                "x": 700,
+                "y": 410
+              },
+              {
+                "x": 620,
+                "y": 280
+              }
+            ]
+          },
+          {
+            "shape": "trust-boundary-curve",
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Boundary",
+              "name": "Internet ↔ Clúster",
+              "description": "",
+              "isTrustBoundary": true,
+              "hasOpenThreats": false,
+              "crossingFlows": [],
+              "containedElements": []
+            },
+            "labels": [
+              "Internet ↔ Clúster"
+            ],
+            "id": "96775feb-e754-44e8-b18b-386b81b1d5d1",
+            "source": {
+              "x": 290,
+              "y": 110
+            },
+            "target": {
+              "x": 290,
+              "y": 420
+            },
+            "vertices": []
+          },
+          {
+            "shape": "trust-boundary-curve",
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Boundary",
+              "name": "Clúster ↔ Fuentes externas",
+              "description": "",
+              "isTrustBoundary": true,
+              "hasOpenThreats": false,
+              "crossingFlows": [],
+              "containedElements": []
+            },
+            "labels": [
+              "Clúster ↔ Fuentes externas"
+            ],
+            "id": "ec890ec6-61f4-4037-8276-5f090a3a1c3e",
+            "source": {
+              "x": 730,
+              "y": 40
+            },
+            "target": {
+              "x": 730,
+              "y": 470
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Resultados agrupados con sentimiento",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": true,
+              "isPublicNetwork": true,
+              "protocol": "HTTPS",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Resultados agrupados con sentimiento"
+            ],
+            "id": "15795cfc-8ccc-4095-8ab7-cb4a929d9896",
+            "source": {
+              "cell": "daf7b2bb-1ecd-4764-8a7b-f8bd29bb24d2",
+              "port": "c5ebf25a-cd71-443d-b080-205d2b3f6f35"
+            },
+            "target": {
+              "cell": "b972b495-e748-41dc-bdf6-aadc519cd4c9",
+              "port": "79a7f1bf-8514-496d-a8c6-97ed1c53ce1b"
+            },
+            "vertices": [
+              {
+                "x": 480,
+                "y": 375
+              },
+              {
+                "x": 105,
+                "y": 375
+              }
+            ]
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Flow",
+              "name": "Tendencias y vídeos",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": true,
+              "isPublicNetwork": true,
+              "protocol": "HTTPS",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Tendencias y vídeos"
+            ],
+            "id": "192db2b6-21d4-4788-bc9f-adb26f1c2c0f",
+            "source": {
+              "cell": "0b966162-b340-4a8d-8768-6d3644ebb713",
+              "port": "0b3b29fa-8934-45fd-8f1e-74d61b17e35b"
+            },
+            "target": {
+              "cell": "daf7b2bb-1ecd-4764-8a7b-f8bd29bb24d2",
+              "port": "5d8ddc1a-d7e2-46b3-90c6-07eeaca7cfe1"
+            },
+            "vertices": [
+              {
+                "x": 700,
+                "y": 110
+              },
+              {
+                "x": 620,
+                "y": 220
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": 1,
+        "title": "DFD nivel 1 - Servicios",
+        "diagramType": "STRIDE",
+        "placeholder": "Descripción de nuevo diagrama STRIDE",
+        "thumbnail": "./public/content/images/thumbnail.stride.jpg",
+        "version": "2.6.2",
+        "cells": [
+          {
+            "position": {
+              "x": 0,
+              "y": 415
+            },
+            "size": {
+              "width": 160,
+              "height": 70
+            },
+            "attrs": {
+              "text": {
+                "text": "Lector"
+              },
+              "body": {
+                "stroke": "red",
+                "strokeWidth": 2.5,
+                "strokeDasharray": null
+              }
+            },
+            "visible": true,
+            "shape": "actor",
+            "zIndex": 1,
+            "ports": {
+              "groups": {
+                "top": {
+                  "position": "top",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "position": "right",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "bottom": {
+                  "position": "bottom",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "left": {
+                  "position": "left",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                }
+              },
+              "items": [
+                {
+                  "group": "top",
+                  "id": "5f68721e-56bf-46a0-af68-3a9da588b1c8"
+                },
+                {
+                  "group": "right",
+                  "id": "2d82de1f-4bbd-4c9c-882d-b761f182e669"
+                },
+                {
+                  "group": "bottom",
+                  "id": "61216901-da4b-4473-bd52-695945643c56"
+                },
+                {
+                  "group": "left",
+                  "id": "9672ab01-36a7-4381-a9e0-20ce118dac96"
+                }
+              ]
+            },
+            "id": "826e29ff-d451-4bc7-bfab-d7ed41561510",
+            "data": {
+              "type": "tm.Actor",
+              "name": "Lector",
+              "description": "Persona que usa la aplicación desde el navegador.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": true,
+              "providesAuthentication": false,
+              "threats": [
+                {
+                  "id": "6dd1ba4a-ce59-4ea4-b81c-7d97a53d6532",
+                  "title": "Registro masivo de cuentas falsas",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Spoofing / Spoofing",
+                  "description": "Un atacante automatiza el registro de muchas cuentas para abusar de la búsqueda o esquivar los límites por usuario.",
+                  "mitigation": "Límite de registros por IP y por intervalo; política de contraseñas según OWASP ASVS; el límite de búsquedas se aplica también por IP. Verificación: prueba de registros repetidos que devuelven 429.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 3,
+                  "score": ""
+                },
+                {
+                  "id": "adca4a47-b8cc-4bfe-b170-9aea32b7f492",
+                  "title": "El lector niega haber realizado una búsqueda o acción",
+                  "status": "Open",
+                  "severity": "Low",
+                  "type": "Repudiation / Repudiación",
+                  "description": "Sin trazabilidad no se puede demostrar quién realizó una acción sobre la plataforma.",
+                  "mitigation": "Registro de auditoría con identificador de usuario, fecha, hora y acción, sin más datos personales. Verificación: prueba unitaria que comprueba el registro tras cada búsqueda.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 4,
+                  "score": ""
+                }
+              ]
+            }
+          },
+          {
+            "position": {
+              "x": 470,
+              "y": 375
+            },
+            "size": {
+              "width": 150,
+              "height": 150
+            },
+            "attrs": {
+              "text": {
+                "text": "gateway (FastAPI)"
+              },
+              "body": {
+                "stroke": "red",
+                "strokeWidth": 2.5,
+                "strokeDasharray": null
+              }
+            },
+            "visible": true,
+            "shape": "process",
+            "zIndex": 2,
+            "ports": {
+              "groups": {
+                "top": {
+                  "position": "top",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "position": "right",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "bottom": {
+                  "position": "bottom",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "left": {
+                  "position": "left",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                }
+              },
+              "items": [
+                {
+                  "group": "top",
+                  "id": "7f810da5-733c-4726-ab8b-245d5b26d6b3"
+                },
+                {
+                  "group": "right",
+                  "id": "2dc5c4d2-50a2-4c28-86a0-449f1ddb05cc"
+                },
+                {
+                  "group": "bottom",
+                  "id": "cc7061e2-9ff6-4b88-b148-6a8ed15e5d10"
+                },
+                {
+                  "group": "left",
+                  "id": "7c2ce913-9e73-44c7-8828-6417a5d6e38c"
+                }
+              ]
+            },
+            "id": "2cf199e1-d714-4051-8760-444e3d00ca08",
+            "data": {
+              "type": "tm.Process",
+              "name": "gateway (FastAPI)",
+              "description": "Única API pública: autenticación JWT con roles, búsqueda, auditoría y límite de peticiones. Sin salida a internet.",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": true,
+              "handlesCardPayment": false,
+              "handlesGoodsOrServices": false,
+              "isWebApplication": false,
+              "privilegeLevel": "",
+              "threats": [
+                {
+                  "id": "afa507e6-e490-40ca-b595-466427095e89",
+                  "title": "Suplantación de usuario con un JWT robado o falsificado",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Spoofing / Spoofing",
+                  "description": "Un atacante que roba un token (por XSS en la web o en tránsito) o que conoce la clave de firma puede hacerse pasar por otro usuario ante el gateway.",
+                  "mitigation": "JWT de vida corta firmado con clave guardada en Vault; algoritmo fijo (se rechaza \"none\"); validación de firma, expiración y audiencia en cada petición; HTTPS obligatorio. Verificación: pruebas con token caducado, alterado y con alg=none; escaneo con ZAP.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 1,
+                  "score": ""
+                },
+                {
+                  "id": "03eb3f96-4d5a-4dd1-8a6b-6c0308034fb4",
+                  "title": "Elevación de privilegios por concentración de funciones en el gateway",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Elevation of privilege / Elevación de privilegios",
+                  "description": "El gateway concentra autenticación, búsqueda y auditoría. Un fallo de autorización en un endpoint permitiría a un lector acceder a funciones de administración o al registro de auditoría.",
+                  "mitigation": "Control de roles en cada endpoint con denegación por defecto; contenedor sin root; sin salida a internet (NetworkPolicy). Si la auditoría crece, separarla en su propio servicio (ADR 0003). Verificación: pruebas de autorización por rol (un lector recibe 403 en endpoints de administración y de auditoría).",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 2,
+                  "score": ""
+                },
+                {
+                  "id": "dacd2628-3b75-421d-92a9-07b4b260648b",
+                  "title": "Fuerza bruta o relleno de credenciales en el login",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Spoofing / Spoofing",
+                  "description": "Un atacante prueba contraseñas filtradas o masivas contra el endpoint de login.",
+                  "mitigation": "Límite de intentos por usuario e IP con bloqueo temporal; contraseñas con hash lento (Argon2 o bcrypt); mensajes de error que no revelan si el usuario existe. Verificación: prueba de intentos fallidos que devuelve 429.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 8,
+                  "score": ""
+                },
+                {
+                  "id": "606813d0-496f-4c7f-999d-e4d9dd6b778d",
+                  "title": "Inyección SQL mediante el texto de búsqueda",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Tampering / Manipulación",
+                  "description": "El texto libre de la búsqueda se usa para construir una consulta y altera su lógica.",
+                  "mitigation": "Consultas parametrizadas mediante el ORM; validación de longitud y caracteres con Pydantic. Verificación: Bandit y Semgrep en CI, pruebas con cargas de inyección y escaneo con ZAP.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 9,
+                  "score": ""
+                },
+                {
+                  "id": "d618030d-2f84-4adf-a7b0-74eb70a8a002",
+                  "title": "Abuso de la búsqueda para agotar recursos o la cuota de YouTube",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Denial of service / Denegación de servicio",
+                  "description": "Un usuario o bot lanza muchas búsquedas y agota la CPU, la cola de trabajos o la cuota diaria de la API de YouTube.",
+                  "mitigation": "Límite de peticiones por usuario e IP; caché de búsquedas repetidas; tope de trabajos en cola por usuario. Verificación: prueba de carga básica y prueba de límite que devuelve 429.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 10,
+                  "score": ""
+                },
+                {
+                  "id": "852ff33c-020d-498c-b81c-3ecd516c9f4f",
+                  "title": "Acciones administrativas sin trazabilidad",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Repudiation / Repudiación",
+                  "description": "Un administrador o un atacante con su cuenta cambia la configuración sin dejar rastro.",
+                  "mitigation": "Registro de auditoría de acciones de administración, escrito por el gateway con un rol de solo inserción (ver la amenaza de modificación de la auditoría: protege frente al gateway, no frente al administrador de BD). Verificación: prueba que confirma que cada acción de administración deja registro.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 11,
+                  "score": ""
+                },
+                {
+                  "id": "f6f43078-74bf-4b72-869f-686278ad08f0",
+                  "title": "Mensajes de error con detalles internos",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Information disclosure / Brecha de información",
+                  "description": "Las trazas de error o las cabeceras revelan versiones, rutas o consultas internas.",
+                  "mitigation": "Errores genéricos hacia el cliente y detalle solo en logs internos; sin modo debug en producción; cabeceras de servidor mínimas. Verificación: escaneo con ZAP.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 12,
+                  "score": ""
+                },
+                {
+                  "id": "e02dd0b7-2a12-4692-bac7-d76daee280cf",
+                  "title": "Tokens sin revocación ni rotación",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Spoofing / Spoofing",
+                  "description": "Un token robado sigue siendo válido tras cerrar sesión, y una clave de firma comprometida no se puede sustituir sin invalidar todo.",
+                  "mitigation": "Token de acceso de vida corta y token de refresco rotado en cada uso; cierre de sesión que revoca el refresco; clave de firma con identificador (kid) para poder rotarla. Verificación: prueba de que tras cerrar sesión el refresco se rechaza y prueba de rotación de clave.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 35,
+                  "score": ""
+                },
+                {
+                  "id": "beac8d82-c78a-4dcc-9452-6924cf346e7f",
+                  "title": "CSRF y CORS mal configurado",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Tampering / Manipulación",
+                  "description": "Si el token viaja en una cookie, otra web puede provocar peticiones en nombre del lector; un CORS abierto permite leer respuestas desde otros orígenes.",
+                  "mitigation": "Cookie con Secure, HttpOnly y SameSite; token anti-CSRF en peticiones que cambian estado; CORS con lista de orígenes permitidos, nunca «*» con credenciales. Verificación: escaneo con ZAP y prueba de CORS desde un origen no permitido.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 36,
+                  "score": ""
+                },
+                {
+                  "id": "51d52746-e6ff-4003-aaf7-d7a0f2606786",
+                  "title": "Acceso a datos de otro usuario (IDOR)",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Elevation of privilege / Elevación de privilegios",
+                  "description": "Cambiando un identificador en la petición, un lector consulta o modifica los temas favoritos de otro usuario.",
+                  "mitigation": "Autorización por objeto: cada consulta filtra por el propietario autenticado; identificadores no secuenciales. Verificación: pruebas de autorización cruzada entre dos usuarios.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 37,
+                  "score": ""
+                },
+                {
+                  "id": "3b6542df-c8d5-4488-ade1-25f8521eac2f",
+                  "title": "Falseo de X-Forwarded-For para esquivar los límites por IP",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Spoofing / Spoofing",
+                  "description": "Si el gateway confía en la cabecera X-Forwarded-For que envía el cliente, un bot cambia de «IP» en cada petición.",
+                  "mitigation": "Solo se confía en la cabecera que añade el Ingress (proxy de confianza configurado); los límites se aplican también por usuario. Verificación: prueba que envía una cabecera X-Forwarded-For falsa y comprueba que el límite se mantiene.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 38,
+                  "score": ""
+                },
+                {
+                  "id": "65494580-855b-4e86-8a5e-253ba137d7f9",
+                  "title": "Datos sensibles o inyección en los logs",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Information disclosure / Brecha de información",
+                  "description": "Los logs pueden registrar tokens, cabeceras Authorization o el texto de búsqueda, y un texto con saltos de línea puede falsear entradas del log.",
+                  "mitigation": "Logs estructurados en JSON; redacción de Authorization, cookies y parámetros de clave; el texto de búsqueda no se registra completo; escape de saltos de línea. Verificación: prueba que revisa los logs de una petición autenticada en busca de tokens.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 39,
+                  "score": ""
+                },
+                {
+                  "id": "a6adfb3e-9f77-4d6d-993d-366ffaa23e58",
+                  "title": "Contenedores o cuentas de servicio con privilegios excesivos",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Elevation of privilege / Elevación de privilegios",
+                  "description": "Aplica a todos los servicios: un contenedor como root, con capacidades de más o con el token de Kubernetes montado facilita escalar desde un servicio comprometido.",
+                  "mitigation": "Pod Security «restricted»: sin root, sistema de archivos de solo lectura, sin capacidades extra; cuentas de servicio sin token montado salvo que lo necesiten y RBAC mínimo; secretos de Kubernetes cifrados en etcd (opción de K3s por verificar). Verificación: Checkov sobre los manifiestos y Trivy sobre la configuración.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 40,
+                  "score": ""
+                }
+              ],
+              "threatFrequency": {
+                "spoofing": 1,
+                "tampering": 1,
+                "repudiation": 0,
+                "informationDisclosure": 0,
+                "denialOfService": 0,
+                "elevationOfPrivilege": 0
+              }
+            },
+            "tools": {
+              "items": [
+                "boundary",
+                "button-remove"
+              ],
+              "name": null
+            }
+          },
+          {
+            "position": {
+              "x": 925,
+              "y": 385
+            },
+            "size": {
+              "width": 130,
+              "height": 130
+            },
+            "attrs": {
+              "text": {
+                "text": "RabbitMQ"
+              },
+              "body": {
+                "stroke": "red",
+                "strokeWidth": 2.5,
+                "strokeDasharray": null
+              }
+            },
+            "visible": true,
+            "shape": "process",
+            "zIndex": 3,
+            "ports": {
+              "groups": {
+                "top": {
+                  "position": "top",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "position": "right",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "bottom": {
+                  "position": "bottom",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "left": {
+                  "position": "left",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                }
+              },
+              "items": [
+                {
+                  "group": "top",
+                  "id": "7f810da5-733c-4726-ab8b-245d5b26d6b3"
+                },
+                {
+                  "group": "right",
+                  "id": "2dc5c4d2-50a2-4c28-86a0-449f1ddb05cc"
+                },
+                {
+                  "group": "bottom",
+                  "id": "cc7061e2-9ff6-4b88-b148-6a8ed15e5d10"
+                },
+                {
+                  "group": "left",
+                  "id": "7c2ce913-9e73-44c7-8828-6417a5d6e38c"
+                }
+              ]
+            },
+            "id": "a702ef56-d549-477a-a694-6923ace3dc74",
+            "data": {
+              "type": "tm.Process",
+              "name": "RabbitMQ",
+              "description": "Cola de trabajos entre el gateway y los workers.",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": true,
+              "handlesCardPayment": false,
+              "handlesGoodsOrServices": false,
+              "isWebApplication": false,
+              "privilegeLevel": "",
+              "threats": [
+                {
+                  "id": "a1c7c882-99a1-4a3c-9f52-e08078704d5a",
+                  "title": "Publicación de mensajes falsos en la cola",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Spoofing / Spoofing",
+                  "description": "Un componente no autorizado publica trabajos o noticias falsas que los workers procesan como legítimos.",
+                  "mitigation": "Un usuario de RabbitMQ por servicio con permisos por cola; usuario guest desactivado; credenciales en Vault; puerto solo accesible dentro del clúster. Verificación: prueba de publicación con credenciales ajenas.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 18,
+                  "score": ""
+                },
+                {
+                  "id": "51b9d20e-b43e-491d-b9b8-52b7ae05ee37",
+                  "title": "Saturación de la cola",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Denial of service / Denegación de servicio",
+                  "description": "Una avalancha de trabajos llena la memoria del broker y detiene el procesamiento.",
+                  "mitigation": "Longitud máxima de cola, TTL de mensajes y cola de mensajes fallidos (dead-letter). Verificación: prueba con la cola llena.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 19,
+                  "score": ""
+                },
+                {
+                  "id": "0a85783d-9036-4733-8c00-a1f6797b8c09",
+                  "title": "Deserialización insegura de los mensajes de la cola",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Elevation of privilege / Elevación de privilegios",
+                  "description": "Si los workers aceptan mensajes serializados con pickle (por ejemplo, la configuración por defecto antigua de Celery), un mensaje manipulado ejecuta código.",
+                  "mitigation": "Serialización solo en JSON (en Celery, accept_content=[\"json\"]), nunca pickle; validación de esquema de cada mensaje. Verificación: regla de Bandit o Semgrep contra pickle y prueba que rechaza un mensaje no JSON.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 33,
+                  "score": ""
+                }
+              ]
+            }
+          },
+          {
+            "position": {
+              "x": 1380,
+              "y": 60
+            },
+            "size": {
+              "width": 150,
+              "height": 150
+            },
+            "attrs": {
+              "text": {
+                "text": "worker-noticias"
+              },
+              "body": {
+                "stroke": "red",
+                "strokeWidth": 2.5,
+                "strokeDasharray": null
+              }
+            },
+            "visible": true,
+            "shape": "process",
+            "zIndex": 4,
+            "ports": {
+              "groups": {
+                "top": {
+                  "position": "top",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "position": "right",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "bottom": {
+                  "position": "bottom",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "left": {
+                  "position": "left",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                }
+              },
+              "items": [
+                {
+                  "group": "top",
+                  "id": "7f810da5-733c-4726-ab8b-245d5b26d6b3"
+                },
+                {
+                  "group": "right",
+                  "id": "2dc5c4d2-50a2-4c28-86a0-449f1ddb05cc"
+                },
+                {
+                  "group": "bottom",
+                  "id": "cc7061e2-9ff6-4b88-b148-6a8ed15e5d10"
+                },
+                {
+                  "group": "left",
+                  "id": "7c2ce913-9e73-44c7-8828-6417a5d6e38c"
+                }
+              ]
+            },
+            "id": "58775818-3907-4162-ae3d-87efe048d61d",
+            "data": {
+              "type": "tm.Process",
+              "name": "worker-noticias",
+              "description": "Lee RSS y sitemaps de los 5 medios (lista fija de dominios).",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": true,
+              "handlesCardPayment": false,
+              "handlesGoodsOrServices": false,
+              "isWebApplication": false,
+              "privilegeLevel": "",
+              "threats": [
+                {
+                  "id": "cf43a5e1-986a-4da1-8259-e80d8bd3f51c",
+                  "title": "XML malicioso en RSS o sitemaps (XXE)",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Tampering / Manipulación",
+                  "description": "Un feed manipulado usa entidades externas para leer archivos internos o provocar consumo excesivo (hallazgo B2 del issue #15).",
+                  "mitigation": "Parser XML sin entidades externas (por ejemplo, defusedxml) y tamaño máximo de respuesta. Verificación: prueba unitaria con una carga XXE conocida y regla de Bandit.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 20,
+                  "score": ""
+                },
+                {
+                  "id": "d7c05af2-6635-4437-b64e-5e38396343ec",
+                  "title": "SSRF: URLs del contenido usadas para alcanzar servicios internos",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Elevation of privilege / Elevación de privilegios",
+                  "description": "Si el worker siguiera enlaces del contenido, redirecciones o direcciones IP literales, un atacante podría dirigirlo contra servicios internos del clúster o de metadatos (hallazgo B2 del issue #15).",
+                  "mitigation": "Solo se descargan feeds y sitemaps de una lista fija de dominios, nunca los artículos ni otras URL del contenido. La salida pasa por un proxy de salida con lista de dominios permitidos (o política por nombre de dominio, por ejemplo Cilium; por decidir), porque las NetworkPolicy nativas filtran por IP y no por dominio. En código: solo https, validación del host antes de cada petición y sin seguir redirecciones a otro host, y bloqueo de IP privadas, de enlace local y de metadatos. Verificación: pruebas con una URL interna, una IP literal y una redirección 3xx hacia 127.0.0.1.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 21,
+                  "score": ""
+                },
+                {
+                  "id": "d3933e67-ee1a-4393-bf6d-1c2914de1515",
+                  "title": "Respuesta enorme o lenta de un medio bloquea el worker",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Denial of service / Denegación de servicio",
+                  "description": "Un medio caído o malicioso devuelve respuestas gigantes o nunca responde.",
+                  "mitigation": "Tiempos de espera, tamaño máximo de respuesta y reintentos con espera creciente. Verificación: prueba con un servidor simulado lento.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 22,
+                  "score": ""
+                }
+              ]
+            }
+          },
+          {
+            "position": {
+              "x": 1380,
+              "y": 375
+            },
+            "size": {
+              "width": 150,
+              "height": 150
+            },
+            "attrs": {
+              "text": {
+                "text": "worker-tendencias"
+              },
+              "body": {
+                "stroke": "red",
+                "strokeWidth": 2.5,
+                "strokeDasharray": null
+              }
+            },
+            "visible": true,
+            "shape": "process",
+            "zIndex": 5,
+            "ports": {
+              "groups": {
+                "top": {
+                  "position": "top",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "position": "right",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "bottom": {
+                  "position": "bottom",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "left": {
+                  "position": "left",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                }
+              },
+              "items": [
+                {
+                  "group": "top",
+                  "id": "7f810da5-733c-4726-ab8b-245d5b26d6b3"
+                },
+                {
+                  "group": "right",
+                  "id": "2dc5c4d2-50a2-4c28-86a0-449f1ddb05cc"
+                },
+                {
+                  "group": "bottom",
+                  "id": "cc7061e2-9ff6-4b88-b148-6a8ed15e5d10"
+                },
+                {
+                  "group": "left",
+                  "id": "7c2ce913-9e73-44c7-8828-6417a5d6e38c"
+                }
+              ]
+            },
+            "id": "211e6d6e-a5db-4014-899c-891e8301540f",
+            "data": {
+              "type": "tm.Process",
+              "name": "worker-tendencias",
+              "description": "Consulta YouTube, Google Trends y Mastodon (lista fija de dominios).",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": true,
+              "handlesCardPayment": false,
+              "handlesGoodsOrServices": false,
+              "isWebApplication": false,
+              "privilegeLevel": "",
+              "threats": [
+                {
+                  "id": "e88b3f55-57ac-42a7-9eec-150bb65cdadf",
+                  "title": "Fuga de la clave de la API de YouTube",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Information disclosure / Brecha de información",
+                  "description": "La clave aparece en logs, en el repositorio o en variables visibles y un tercero consume nuestra cuota.",
+                  "mitigation": "Clave en Vault y restringida a la API de YouTube. Como la clave viaja en la URL (parámetro key), los logs, trazas y mensajes de excepción redactan ese parámetro y nunca registran la URL completa. Verificación: gitleaks en CI y prueba que provoca un error de la API y comprueba que la clave no aparece en el log.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 23,
+                  "score": ""
+                },
+                {
+                  "id": "4b7b6c1f-c2bf-43e2-bbe3-cbdcbf83f5c4",
+                  "title": "Agotamiento de la cuota diaria de YouTube",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Denial of service / Denegación de servicio",
+                  "description": "Muchas búsquedas consumen la cuota y la función de vídeos deja de responder.",
+                  "mitigation": "Caché de resultados, límite por usuario y degradación controlada (se muestran las noticias aunque falten vídeos). Verificación: prueba de degradación con la API simulada devolviendo 403.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 24,
+                  "score": ""
+                },
+                {
+                  "id": "8be2a920-4de6-4635-a5fd-70540c89939e",
+                  "title": "Enlaces maliciosos en las tendencias",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Tampering / Manipulación",
+                  "description": "Mastodon y las demás fuentes devuelven enlaces arbitrarios: esquemas javascript: o data:, redirecciones abiertas o phishing que se mostrarían al lector.",
+                  "mitigation": "Solo se aceptan enlaces http y https; se muestra el dominio de destino; los enlaces se abren con rel=\"noopener noreferrer\"; el texto se escapa. Verificación: prueba unitaria con enlaces javascript:, data: y con caracteres de control.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 31,
+                  "score": ""
+                },
+                {
+                  "id": "a7f67a6b-1fc8-4543-b7b6-d79fc9e127b1",
+                  "title": "JSON o XML no confiable de las fuentes de tendencias",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Tampering / Manipulación",
+                  "description": "Las respuestas de YouTube, Google Trends y Mastodon pueden llegar malformadas, gigantes o con campos inesperados.",
+                  "mitigation": "Análisis estricto con validación de esquema, tamaño máximo de respuesta y parser XML sin entidades externas para el RSS de Trends. Verificación: pruebas con respuestas malformadas y de gran tamaño.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 32,
+                  "score": ""
+                }
+              ]
+            }
+          },
+          {
+            "position": {
+              "x": 470,
+              "y": 60
+            },
+            "size": {
+              "width": 150,
+              "height": 150
+            },
+            "attrs": {
+              "text": {
+                "text": "frontend (React + Nginx)"
+              },
+              "body": {
+                "stroke": "red",
+                "strokeWidth": 2.5,
+                "strokeDasharray": null
+              }
+            },
+            "visible": true,
+            "shape": "process",
+            "zIndex": 6,
+            "ports": {
+              "groups": {
+                "top": {
+                  "position": "top",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "position": "right",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "bottom": {
+                  "position": "bottom",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "left": {
+                  "position": "left",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                }
+              },
+              "items": [
+                {
+                  "group": "top",
+                  "id": "7f810da5-733c-4726-ab8b-245d5b26d6b3"
+                },
+                {
+                  "group": "right",
+                  "id": "2dc5c4d2-50a2-4c28-86a0-449f1ddb05cc"
+                },
+                {
+                  "group": "bottom",
+                  "id": "cc7061e2-9ff6-4b88-b148-6a8ed15e5d10"
+                },
+                {
+                  "group": "left",
+                  "id": "7c2ce913-9e73-44c7-8828-6417a5d6e38c"
+                }
+              ]
+            },
+            "id": "462dd755-c7aa-440a-81a1-81652a75673e",
+            "data": {
+              "type": "tm.Process",
+              "name": "frontend (React + Nginx)",
+              "description": "SPA estática servida por Nginx. Sin lógica de negocio ni secretos.",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": true,
+              "handlesCardPayment": false,
+              "handlesGoodsOrServices": false,
+              "isWebApplication": false,
+              "privilegeLevel": "",
+              "threats": [
+                {
+                  "id": "9c22ee5a-cdca-46d1-b9bf-160060394035",
+                  "title": "XSS con contenido de los medios o del usuario",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Tampering / Manipulación",
+                  "description": "Un titular, resumen o texto de búsqueda con código JavaScript se ejecuta en el navegador del lector y puede robar su token (hallazgo B2 del issue #15).",
+                  "mitigation": "React escapa el contenido por defecto; se prohíbe dangerouslySetInnerHTML; cabecera Content-Security-Policy estricta en Nginx; el token no se guarda en localStorage. Verificación: regla de Semgrep y escaneo con ZAP.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 5,
+                  "score": ""
+                },
+                {
+                  "id": "7cded293-db78-462e-b887-9b8303d561e8",
+                  "title": "Imagen o dependencias npm manipuladas",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Tampering / Manipulación",
+                  "description": "Una dependencia npm comprometida o una imagen alterada introduce código malicioso en la web.",
+                  "mitigation": "package-lock.json versionado; escaneo con Trivy de dependencias e imagen; imágenes referenciadas por digest (E7). Verificación: job de Trivy en CI que falla con CVE críticos.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 6,
+                  "score": ""
+                },
+                {
+                  "id": "1a5bda01-aa94-4324-99e7-6445476bacf5",
+                  "title": "Secretos o direcciones internas en el código de la web",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Information disclosure / Brecha de información",
+                  "description": "Todo lo que se incluye en el JavaScript es visible para cualquiera; una clave o URL interna quedaría expuesta.",
+                  "mitigation": "El frontend no contiene secretos: solo conoce la URL pública del gateway. Verificación: gitleaks en pre-commit y en CI sobre el repositorio y el build.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 7,
+                  "score": ""
+                }
+              ]
+            }
+          },
+          {
+            "position": {
+              "x": 1380,
+              "y": 680
+            },
+            "size": {
+              "width": 150,
+              "height": 150
+            },
+            "attrs": {
+              "text": {
+                "text": "worker-analisis"
+              },
+              "body": {
+                "stroke": "red",
+                "strokeWidth": 2.5,
+                "strokeDasharray": null
+              }
+            },
+            "visible": true,
+            "shape": "process",
+            "zIndex": 7,
+            "ports": {
+              "groups": {
+                "top": {
+                  "position": "top",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "position": "right",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "bottom": {
+                  "position": "bottom",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "left": {
+                  "position": "left",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                }
+              },
+              "items": [
+                {
+                  "group": "top",
+                  "id": "7f810da5-733c-4726-ab8b-245d5b26d6b3"
+                },
+                {
+                  "group": "right",
+                  "id": "2dc5c4d2-50a2-4c28-86a0-449f1ddb05cc"
+                },
+                {
+                  "group": "bottom",
+                  "id": "cc7061e2-9ff6-4b88-b148-6a8ed15e5d10"
+                },
+                {
+                  "group": "left",
+                  "id": "7c2ce913-9e73-44c7-8828-6417a5d6e38c"
+                }
+              ]
+            },
+            "id": "2b1fb265-1d1c-4927-b313-85f0f54533f5",
+            "data": {
+              "type": "tm.Process",
+              "name": "worker-analisis",
+              "description": "Agrupa noticias de distintos medios y calcula el sentimiento (pysentimiento, sin salida a internet).",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": true,
+              "handlesCardPayment": false,
+              "handlesGoodsOrServices": false,
+              "isWebApplication": false,
+              "privilegeLevel": "",
+              "threats": [
+                {
+                  "id": "f477b4c8-1dab-4587-b596-ba7f2e993ae5",
+                  "title": "Modelo de sentimiento manipulado (cadena de suministro)",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Tampering / Manipulación",
+                  "description": "Un modelo descargado o sustituido ejecuta código al cargarse (deserialización con pickle) o da resultados sesgados (hallazgo B5 del issue #15).",
+                  "mitigation": "Modelo fijado por hash de commit e incluido en la imagen; formato safetensors si está disponible; sin descargas en ejecución. Verificación: comprobación del hash en el build y Trivy.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 25,
+                  "score": ""
+                },
+                {
+                  "id": "9ce63395-5670-402c-84ca-8ab665d96b5f",
+                  "title": "Textos enormes agotan CPU o memoria del análisis",
+                  "status": "Open",
+                  "severity": "Low",
+                  "type": "Denial of service / Denegación de servicio",
+                  "description": "Un texto muy largo ralentiza el modelo y bloquea el procesamiento.",
+                  "mitigation": "Truncado del texto de entrada y límites de CPU y memoria en Kubernetes. Verificación: prueba con un texto de gran tamaño.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 26,
+                  "score": ""
+                },
+                {
+                  "id": "51371b3f-50e5-4475-9c1f-3d11884762e1",
+                  "title": "Envenenamiento de datos que sesga la agrupación y el sentimiento",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Tampering / Manipulación",
+                  "description": "Un medio comprometido o un feed manipulado publica muchas noticias falsas o sesgadas y distorsiona los grupos y el tono mostrados.",
+                  "mitigation": "Fuentes fijas y atribución visible del medio en cada resultado; el sentimiento se presenta como estimación; alerta ante saltos anómalos de volumen por fuente. Verificación: prueba con un feed simulado anómalo que dispara la alerta.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 41,
+                  "score": ""
+                }
+              ]
+            }
+          },
+          {
+            "position": {
+              "x": 900,
+              "y": 800
+            },
+            "size": {
+              "width": 180,
+              "height": 60
+            },
+            "attrs": {
+              "text": {
+                "text": "PostgreSQL"
+              },
+              "topLine": {
+                "strokeWidth": 1.5,
+                "strokeDasharray": null
+              },
+              "bottomLine": {
+                "strokeWidth": 1.5,
+                "strokeDasharray": null
+              },
+              "body": {
+                "stroke": "red",
+                "strokeWidth": 2.5
+              }
+            },
+            "visible": true,
+            "shape": "store",
+            "zIndex": 8,
+            "ports": {
+              "groups": {
+                "top": {
+                  "position": "top",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "position": "right",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "bottom": {
+                  "position": "bottom",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "left": {
+                  "position": "left",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                }
+              },
+              "items": [
+                {
+                  "group": "top",
+                  "id": "d6841177-cb47-45a7-8627-7f142b107597"
+                },
+                {
+                  "group": "right",
+                  "id": "a6a24e16-a939-48e4-9fed-6b09f1dcf1a1"
+                },
+                {
+                  "group": "bottom",
+                  "id": "6b1c5579-f8dd-4721-b702-1074ecf96ea8"
+                },
+                {
+                  "group": "left",
+                  "id": "5fbbccbd-7115-42dd-b7de-87a678c64b99"
+                }
+              ]
+            },
+            "id": "10122e1e-7ea2-414e-a5b1-b239fb170634",
+            "data": {
+              "type": "tm.Store",
+              "name": "PostgreSQL",
+              "description": "Usuarios, noticias, grupos, sentimiento y auditoría.",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": true,
+              "isALog": false,
+              "isEncrypted": false,
+              "isSigned": false,
+              "storesCredentials": false,
+              "storesInventory": false,
+              "threats": [
+                {
+                  "id": "81ea3785-f9f5-419a-809e-44ad9f3aa3e9",
+                  "title": "Acceso a la base de datos con credenciales compartidas o por defecto",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Information disclosure / Brecha de información",
+                  "description": "Un único usuario con todos los permisos, o una contraseña por defecto, permite leer o borrar todos los datos si se filtra.",
+                  "mitigation": "Un usuario de base de datos por servicio con permisos mínimos; credenciales en Vault; puerto no expuesto fuera del clúster (NetworkPolicy). Verificación: Checkov sobre los manifiestos y prueba de permisos por usuario.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 15,
+                  "score": ""
+                },
+                {
+                  "id": "0f5b9476-e6eb-4332-846d-3b257938107b",
+                  "title": "Modificación o borrado del registro de auditoría",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Tampering / Manipulación",
+                  "description": "Quien controle el gateway podría borrar su rastro en la tabla de auditoría.",
+                  "mitigation": "El rol del gateway solo tiene INSERT sobre la tabla de auditoría, sin UPDATE ni DELETE; la retención de datos no toca la auditoría y, si algún día lo hace, usa un rol propio. La garantía es frente a un gateway comprometido, no frente a un administrador de la base de datos (riesgo residual). Encadenar cada registro con el hash del anterior queda como mejora opcional (E3). Verificación: prueba que confirma que un UPDATE o DELETE sobre la auditoría falla con el rol del gateway.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 16,
+                  "score": ""
+                },
+                {
+                  "id": "1a0090b3-9481-439d-b284-52b6cb9168ee",
+                  "title": "Crecimiento sin límite de noticias y tendencias",
+                  "status": "Open",
+                  "severity": "Low",
+                  "type": "Denial of service / Denegación de servicio",
+                  "description": "La acumulación de datos llena el disco y degrada las consultas.",
+                  "mitigation": "Política de retención (borrado periódico de noticias y tendencias antiguas, excluida la tabla de auditoría) e índices adecuados. Verificación: prueba de la tarea de retención que comprueba que la auditoría no se toca.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 17,
+                  "score": ""
+                }
+              ]
+            }
+          },
+          {
+            "position": {
+              "x": 900,
+              "y": 95
+            },
+            "size": {
+              "width": 180,
+              "height": 60
+            },
+            "attrs": {
+              "text": {
+                "text": "Vault"
+              },
+              "topLine": {
+                "strokeWidth": 1.5,
+                "strokeDasharray": null
+              },
+              "bottomLine": {
+                "strokeWidth": 1.5,
+                "strokeDasharray": null
+              },
+              "body": {
+                "stroke": "red",
+                "strokeWidth": 2.5
+              }
+            },
+            "visible": true,
+            "shape": "store",
+            "zIndex": 9,
+            "ports": {
+              "groups": {
+                "top": {
+                  "position": "top",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "position": "right",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "bottom": {
+                  "position": "bottom",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "left": {
+                  "position": "left",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                }
+              },
+              "items": [
+                {
+                  "group": "top",
+                  "id": "d6841177-cb47-45a7-8627-7f142b107597"
+                },
+                {
+                  "group": "right",
+                  "id": "a6a24e16-a939-48e4-9fed-6b09f1dcf1a1"
+                },
+                {
+                  "group": "bottom",
+                  "id": "6b1c5579-f8dd-4721-b702-1074ecf96ea8"
+                },
+                {
+                  "group": "left",
+                  "id": "5fbbccbd-7115-42dd-b7de-87a678c64b99"
+                }
+              ]
+            },
+            "id": "feac366c-3408-4f1e-bd58-a36ee1111146",
+            "data": {
+              "type": "tm.Store",
+              "name": "Vault",
+              "description": "Clave de la API de YouTube, credenciales de la base de datos y clave de firma de los JWT.",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": true,
+              "isALog": false,
+              "isEncrypted": false,
+              "isSigned": false,
+              "storesCredentials": false,
+              "storesInventory": false,
+              "threats": [
+                {
+                  "id": "b44769fc-1fab-4d63-b709-aff612e9a52e",
+                  "title": "Exposición de secretos por políticas de Vault demasiado amplias",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Information disclosure / Brecha de información",
+                  "description": "Un servicio comprometido lee secretos que no necesita (por ejemplo, el gateway leyendo la clave de YouTube).",
+                  "mitigation": "Una política por servicio con mínimo privilegio; autenticación de Kubernetes por cuenta de servicio; tokens de corta duración. Verificación: prueba que confirma que cada servicio recibe 403 en los secretos ajenos.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 13,
+                  "score": ""
+                },
+                {
+                  "id": "6aa275d8-0b07-4359-9e9f-913b1cd6d673",
+                  "title": "Vault sellado o no disponible impide arrancar los servicios",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Denial of service / Denegación de servicio",
+                  "description": "Si Vault no está disponible, ningún servicio obtiene sus secretos.",
+                  "mitigation": "Procedimiento documentado de desellado; los servicios reintentan con espera y fallan de forma controlada. Verificación: prueba de arranque con Vault detenido.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 14,
+                  "score": ""
+                },
+                {
+                  "id": "3d3db426-1e5d-4cc7-89ef-b6851fe06e51",
+                  "title": "Vault en modo desarrollo o claves de desellado mal custodiadas",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Information disclosure / Brecha de información",
+                  "description": "El modo dev de Vault guarda todo en memoria y arranca desellado con un token raíz conocido; unas claves de desellado o un token raíz filtrados dan acceso a todos los secretos.",
+                  "mitigation": "Modo dev solo en pruebas locales, nunca en el entorno de producción simulado; token raíz revocado tras la configuración inicial; claves de desellado fuera del repositorio con custodia documentada. Verificación: comprobación en el despliegue de que Vault arranca sellado y de que no existe token raíz activo.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 42,
+                  "score": ""
+                }
+              ]
+            }
+          },
+          {
+            "position": {
+              "x": 1800,
+              "y": 100
+            },
+            "size": {
+              "width": 190,
+              "height": 70
+            },
+            "attrs": {
+              "text": {
+                "text": "Medios de noticias"
+              },
+              "body": {
+                "stroke": "#333333",
+                "strokeWidth": 1.5,
+                "strokeDasharray": null
+              }
+            },
+            "visible": true,
+            "shape": "actor",
+            "zIndex": 10,
+            "ports": {
+              "groups": {
+                "top": {
+                  "position": "top",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "position": "right",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "bottom": {
+                  "position": "bottom",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "left": {
+                  "position": "left",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                }
+              },
+              "items": [
+                {
+                  "group": "top",
+                  "id": "5f68721e-56bf-46a0-af68-3a9da588b1c8"
+                },
+                {
+                  "group": "right",
+                  "id": "2d82de1f-4bbd-4c9c-882d-b761f182e669"
+                },
+                {
+                  "group": "bottom",
+                  "id": "61216901-da4b-4473-bd52-695945643c56"
+                },
+                {
+                  "group": "left",
+                  "id": "9672ab01-36a7-4381-a9e0-20ce118dac96"
+                }
+              ]
+            },
+            "id": "98419682-991e-425c-9141-5ed0ff8ad90b",
+            "data": {
+              "type": "tm.Actor",
+              "name": "Medios de noticias",
+              "description": "RCN y Semana (RSS); Caracol, Blu Radio y Citytv (sitemaps).",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "providesAuthentication": false,
+              "threats": []
+            }
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": {
+              "name": "rounded",
+              "args": {
+                "radius": 8
+              }
+            },
+            "data": {
+              "type": "tm.Flow",
+              "name": "Archivos de la web (HTML y JS)",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": true,
+              "isPublicNetwork": true,
+              "protocol": "HTTPS",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Archivos de la web (HTML y JS)"
+            ],
+            "id": "10846ff2-035f-47e7-88d6-529042b0efe2",
+            "router": {
+              "name": "manhattan",
+              "args": {
+                "padding": 30
+              }
+            },
+            "source": {
+              "cell": "462dd755-c7aa-440a-81a1-81652a75673e",
+              "port": "7c2ce913-9e73-44c7-8828-6417a5d6e38c"
+            },
+            "target": {
+              "cell": "826e29ff-d451-4bc7-bfab-d7ed41561510",
+              "port": "5f68721e-56bf-46a0-af68-3a9da588b1c8"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "red",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null,
+                "strokeWidth": 2.5
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": {
+              "name": "rounded",
+              "args": {
+                "radius": 8
+              }
+            },
+            "data": {
+              "type": "tm.Flow",
+              "name": "Credenciales y texto de búsqueda",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": true,
+              "isBidirectional": false,
+              "isEncrypted": true,
+              "isPublicNetwork": true,
+              "protocol": "HTTPS",
+              "threats": [
+                {
+                  "id": "e4f34350-76b3-4e39-b41e-76b23fabee51",
+                  "title": "Robo de credenciales en tránsito",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Information disclosure / Brecha de información",
+                  "description": "Las credenciales o el token viajan por internet y podrían interceptarse.",
+                  "mitigation": "HTTPS obligatorio en el Ingress, redirección de HTTP y cabecera HSTS. Verificación: escaneo con ZAP.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 27,
+                  "score": ""
+                }
+              ],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Credenciales y texto de búsqueda"
+            ],
+            "id": "83cf8a1b-ff88-4e91-958b-c2f4129ce456",
+            "router": {
+              "name": "manhattan",
+              "args": {
+                "padding": 30
+              }
+            },
+            "source": {
+              "cell": "826e29ff-d451-4bc7-bfab-d7ed41561510",
+              "port": "2d82de1f-4bbd-4c9c-882d-b761f182e669"
+            },
+            "target": {
+              "cell": "2cf199e1-d714-4051-8760-444e3d00ca08",
+              "port": "7c2ce913-9e73-44c7-8828-6417a5d6e38c"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": {
+              "name": "rounded",
+              "args": {
+                "radius": 8
+              }
+            },
+            "data": {
+              "type": "tm.Flow",
+              "name": "Resultados agrupados con sentimiento",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": true,
+              "isPublicNetwork": true,
+              "protocol": "HTTPS",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Resultados agrupados con sentimiento"
+            ],
+            "id": "6f478741-758f-4f17-afd2-617c58df5216",
+            "router": {
+              "name": "manhattan",
+              "args": {
+                "padding": 30
+              }
+            },
+            "source": {
+              "cell": "2cf199e1-d714-4051-8760-444e3d00ca08",
+              "port": "7c2ce913-9e73-44c7-8828-6417a5d6e38c"
+            },
+            "target": {
+              "cell": "826e29ff-d451-4bc7-bfab-d7ed41561510",
+              "port": "61216901-da4b-4473-bd52-695945643c56"
+            },
+            "vertices": [
+              {
+                "x": 430,
+                "y": 590
+              },
+              {
+                "x": 80,
+                "y": 590
+              }
+            ]
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "red",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null,
+                "strokeWidth": 2.5
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": {
+              "name": "rounded",
+              "args": {
+                "radius": 8
+              }
+            },
+            "data": {
+              "type": "tm.Flow",
+              "name": "Usuarios y registro de auditoría",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": true,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "PostgreSQL",
+              "threats": [
+                {
+                  "id": "04eb4a1e-7dae-4796-9bf4-d50fad972da1",
+                  "title": "Tráfico sin cifrar hacia la base de datos",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Information disclosure / Brecha de información",
+                  "description": "Las consultas y los datos de usuario viajan en claro dentro del clúster.",
+                  "mitigation": "Decisión pendiente: TLS en PostgreSQL (sslmode=verify-full) y NetworkPolicy. Se resolverá junto con el ADR de cifrado interno.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 29,
+                  "score": ""
+                }
+              ],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Usuarios y registro de auditoría"
+            ],
+            "id": "a02ab263-f2ed-46d3-9b72-96500f274353",
+            "router": {
+              "name": "manhattan",
+              "args": {
+                "padding": 30
+              }
+            },
+            "source": {
+              "cell": "2cf199e1-d714-4051-8760-444e3d00ca08",
+              "port": "cc7061e2-9ff6-4b88-b148-6a8ed15e5d10"
+            },
+            "target": {
+              "cell": "10122e1e-7ea2-414e-a5b1-b239fb170634",
+              "port": "6b1c5579-f8dd-4721-b702-1074ecf96ea8"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": {
+              "name": "rounded",
+              "args": {
+                "radius": 8
+              }
+            },
+            "data": {
+              "type": "tm.Flow",
+              "name": "Noticias agrupadas y datos de usuario",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "PostgreSQL",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Noticias agrupadas y datos de usuario"
+            ],
+            "id": "5334c2be-78a2-4553-9c6e-7e8e52b646dd",
+            "router": {
+              "name": "manhattan",
+              "args": {
+                "padding": 30
+              }
+            },
+            "source": {
+              "cell": "10122e1e-7ea2-414e-a5b1-b239fb170634",
+              "port": "5fbbccbd-7115-42dd-b7de-87a678c64b99"
+            },
+            "target": {
+              "cell": "2cf199e1-d714-4051-8760-444e3d00ca08",
+              "port": "cc7061e2-9ff6-4b88-b148-6a8ed15e5d10"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "red",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null,
+                "strokeWidth": 2.5
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": {
+              "name": "rounded",
+              "args": {
+                "radius": 8
+              }
+            },
+            "data": {
+              "type": "tm.Flow",
+              "name": "Clave de firma JWT y credenciales de BD",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": true,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "HTTP (API de Vault)",
+              "threats": [
+                {
+                  "id": "46cd4510-c6db-461a-be3d-eafc76dd15a3",
+                  "title": "Secretos sin cifrar dentro del clúster",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Information disclosure / Brecha de información",
+                  "description": "El tráfico interno no está cifrado todavía: quien acceda a la red del clúster podría leer los secretos que entrega Vault.",
+                  "mitigation": "Decisión pendiente: TLS en Vault y entre servicios, más NetworkPolicy que solo permite hablar con Vault a los servicios autorizados. Se resolverá en un ADR antes de E5.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 28,
+                  "score": ""
+                }
+              ],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Clave de firma JWT y credenciales de BD"
+            ],
+            "id": "28471806-d59c-4fd9-81db-ec58875111dc",
+            "router": {
+              "name": "manhattan",
+              "args": {
+                "padding": 30
+              }
+            },
+            "source": {
+              "cell": "feac366c-3408-4f1e-bd58-a36ee1111146",
+              "port": "6b1c5579-f8dd-4721-b702-1074ecf96ea8"
+            },
+            "target": {
+              "cell": "2cf199e1-d714-4051-8760-444e3d00ca08",
+              "port": "7f810da5-733c-4726-ab8b-245d5b26d6b3"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "red",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null,
+                "strokeWidth": 2.5
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": {
+              "name": "rounded",
+              "args": {
+                "radius": 8
+              }
+            },
+            "data": {
+              "type": "tm.Flow",
+              "name": "Trabajo: buscar vídeos del tema",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": true,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "AMQP",
+              "threats": [
+                {
+                  "id": "448a45fe-ad16-4f9a-9955-2ada86ac0a27",
+                  "title": "Inyección del tema del usuario en la consulta a YouTube",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Tampering / Manipulación",
+                  "description": "El texto de búsqueda viaja hasta el worker y se usa como parámetro de la API de YouTube; concatenado a mano podría alterar la petición.",
+                  "mitigation": "El tema se envía como dato del mensaje y la librería cliente lo codifica como parámetro; nunca se construyen URLs concatenando texto; longitud limitada. Verificación: prueba con caracteres especiales (&, #, saltos de línea) en el tema.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 34,
+                  "score": ""
+                }
+              ],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Trabajo: buscar vídeos del tema"
+            ],
+            "id": "598fff99-2f83-4054-8e35-5a6a233763a5",
+            "router": {
+              "name": "manhattan",
+              "args": {
+                "padding": 30
+              }
+            },
+            "source": {
+              "cell": "2cf199e1-d714-4051-8760-444e3d00ca08",
+              "port": "2dc5c4d2-50a2-4c28-86a0-449f1ddb05cc"
+            },
+            "target": {
+              "cell": "a702ef56-d549-477a-a694-6923ace3dc74",
+              "port": "7c2ce913-9e73-44c7-8828-6417a5d6e38c"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "red",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null,
+                "strokeWidth": 2.5
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": {
+              "name": "rounded",
+              "args": {
+                "radius": 8
+              }
+            },
+            "data": {
+              "type": "tm.Flow",
+              "name": "RSS y sitemaps (titulares)",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": true,
+              "isBidirectional": false,
+              "isEncrypted": true,
+              "isPublicNetwork": true,
+              "protocol": "HTTPS",
+              "threats": [
+                {
+                  "id": "055f3d3c-4d57-4876-884f-02b8314a4ccf",
+                  "title": "Suplantación de un medio (DNS o intermediario)",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Spoofing / Spoofing",
+                  "description": "Un atacante se hace pasar por un medio y entrega noticias falsas.",
+                  "mitigation": "Solo HTTPS con verificación de certificado hacia dominios fijos. Verificación: prueba que rechaza un certificado no válido.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 30,
+                  "score": ""
+                }
+              ],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "RSS y sitemaps (titulares)"
+            ],
+            "id": "5e9d2766-e98f-46b5-b230-549c28b14e96",
+            "router": {
+              "name": "manhattan",
+              "args": {
+                "padding": 30
+              }
+            },
+            "source": {
+              "cell": "98419682-991e-425c-9141-5ed0ff8ad90b",
+              "port": "9672ab01-36a7-4381-a9e0-20ce118dac96"
+            },
+            "target": {
+              "cell": "58775818-3907-4162-ae3d-87efe048d61d",
+              "port": "2dc5c4d2-50a2-4c28-86a0-449f1ddb05cc"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": {
+              "name": "rounded",
+              "args": {
+                "radius": 8
+              }
+            },
+            "data": {
+              "type": "tm.Flow",
+              "name": "Noticias nuevas",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "PostgreSQL",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Noticias nuevas"
+            ],
+            "id": "e4d9ed4b-9181-4caf-9918-94bb6875435e",
+            "router": {
+              "name": "manhattan",
+              "args": {
+                "padding": 30
+              }
+            },
+            "source": {
+              "cell": "58775818-3907-4162-ae3d-87efe048d61d",
+              "port": "7c2ce913-9e73-44c7-8828-6417a5d6e38c"
+            },
+            "target": {
+              "cell": "10122e1e-7ea2-414e-a5b1-b239fb170634",
+              "port": "a6a24e16-a939-48e4-9fed-6b09f1dcf1a1"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": {
+              "name": "rounded",
+              "args": {
+                "radius": 8
+              }
+            },
+            "data": {
+              "type": "tm.Flow",
+              "name": "Aviso: noticias por analizar",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "AMQP",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Aviso: noticias por analizar"
+            ],
+            "id": "08282f93-09db-43ca-996f-ef299c167041",
+            "router": {
+              "name": "manhattan",
+              "args": {
+                "padding": 30
+              }
+            },
+            "source": {
+              "cell": "58775818-3907-4162-ae3d-87efe048d61d",
+              "port": "cc7061e2-9ff6-4b88-b148-6a8ed15e5d10"
+            },
+            "target": {
+              "cell": "a702ef56-d549-477a-a694-6923ace3dc74",
+              "port": "7f810da5-733c-4726-ab8b-245d5b26d6b3"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": {
+              "name": "rounded",
+              "args": {
+                "radius": 8
+              }
+            },
+            "data": {
+              "type": "tm.Flow",
+              "name": "Noticias por analizar",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "AMQP",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Noticias por analizar"
+            ],
+            "id": "e97770de-1303-4b12-886b-039433466c6f",
+            "router": {
+              "name": "manhattan",
+              "args": {
+                "padding": 30
+              }
+            },
+            "source": {
+              "cell": "a702ef56-d549-477a-a694-6923ace3dc74",
+              "port": "cc7061e2-9ff6-4b88-b148-6a8ed15e5d10"
+            },
+            "target": {
+              "cell": "2b1fb265-1d1c-4927-b313-85f0f54533f5",
+              "port": "7c2ce913-9e73-44c7-8828-6417a5d6e38c"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": {
+              "name": "rounded",
+              "args": {
+                "radius": 8
+              }
+            },
+            "data": {
+              "type": "tm.Flow",
+              "name": "Grupos y sentimiento",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "PostgreSQL",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Grupos y sentimiento"
+            ],
+            "id": "f0ec8b85-dbdc-486f-acae-b88e71a7ddc3",
+            "router": {
+              "name": "manhattan",
+              "args": {
+                "padding": 30
+              }
+            },
+            "source": {
+              "cell": "2b1fb265-1d1c-4927-b313-85f0f54533f5",
+              "port": "cc7061e2-9ff6-4b88-b148-6a8ed15e5d10"
+            },
+            "target": {
+              "cell": "10122e1e-7ea2-414e-a5b1-b239fb170634",
+              "port": "6b1c5579-f8dd-4721-b702-1074ecf96ea8"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": {
+              "name": "rounded",
+              "args": {
+                "radius": 8
+              }
+            },
+            "data": {
+              "type": "tm.Flow",
+              "name": "Trabajo de búsqueda de vídeos",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "AMQP",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Trabajo de búsqueda de vídeos"
+            ],
+            "id": "4a0f515c-860b-4c93-88de-b1d20b5e0bd1",
+            "router": {
+              "name": "manhattan",
+              "args": {
+                "padding": 30
+              }
+            },
+            "source": {
+              "cell": "a702ef56-d549-477a-a694-6923ace3dc74",
+              "port": "2dc5c4d2-50a2-4c28-86a0-449f1ddb05cc"
+            },
+            "target": {
+              "cell": "211e6d6e-a5db-4014-899c-891e8301540f",
+              "port": "7c2ce913-9e73-44c7-8828-6417a5d6e38c"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": {
+              "name": "rounded",
+              "args": {
+                "radius": 8
+              }
+            },
+            "data": {
+              "type": "tm.Flow",
+              "name": "Tendencias y vídeos",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": true,
+              "isPublicNetwork": true,
+              "protocol": "HTTPS",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Tendencias y vídeos"
+            ],
+            "id": "70dc9a05-0dbb-435b-ae6b-f0a75b0dec2f",
+            "router": {
+              "name": "manhattan",
+              "args": {
+                "padding": 30
+              }
+            },
+            "source": {
+              "cell": "b63616c3-a166-4bda-aa04-8d622c941bdf",
+              "port": "9672ab01-36a7-4381-a9e0-20ce118dac96"
+            },
+            "target": {
+              "cell": "211e6d6e-a5db-4014-899c-891e8301540f",
+              "port": "2dc5c4d2-50a2-4c28-86a0-449f1ddb05cc"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": {
+              "name": "rounded",
+              "args": {
+                "radius": 8
+              }
+            },
+            "data": {
+              "type": "tm.Flow",
+              "name": "Tendencias y vídeos guardados",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "PostgreSQL",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Tendencias y vídeos guardados"
+            ],
+            "id": "bdee917c-d379-4978-8751-ef400d60d57d",
+            "router": {
+              "name": "manhattan",
+              "args": {
+                "padding": 30
+              }
+            },
+            "source": {
+              "cell": "211e6d6e-a5db-4014-899c-891e8301540f",
+              "port": "cc7061e2-9ff6-4b88-b148-6a8ed15e5d10"
+            },
+            "target": {
+              "cell": "10122e1e-7ea2-414e-a5b1-b239fb170634",
+              "port": "d6841177-cb47-45a7-8627-7f142b107597"
+            },
+            "vertices": []
+          },
+          {
+            "shape": "flow",
+            "attrs": {
+              "line": {
+                "stroke": "#333333",
+                "targetMarker": {
+                  "name": "block"
+                },
+                "sourceMarker": {
+                  "name": ""
+                },
+                "strokeDasharray": null
+              }
+            },
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": {
+              "name": "rounded",
+              "args": {
+                "radius": 8
+              }
+            },
+            "data": {
+              "type": "tm.Flow",
+              "name": "Clave de la API de YouTube",
+              "description": "",
+              "outOfScope": false,
+              "isTrustBoundary": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "HTTP (API de Vault)",
+              "threats": [],
+              "trustBoundaryIds": []
+            },
+            "labels": [
+              "Clave de la API de YouTube"
+            ],
+            "id": "04748c45-e282-46c6-be74-c3b62aac2ca3",
+            "router": {
+              "name": "manhattan",
+              "args": {
+                "padding": 30
+              }
+            },
+            "source": {
+              "cell": "feac366c-3408-4f1e-bd58-a36ee1111146",
+              "port": "a6a24e16-a939-48e4-9fed-6b09f1dcf1a1"
+            },
+            "target": {
+              "cell": "211e6d6e-a5db-4014-899c-891e8301540f",
+              "port": "7f810da5-733c-4726-ab8b-245d5b26d6b3"
+            },
+            "vertices": [
+              {
+                "x": 1190,
+                "y": 170
+              },
+              {
+                "x": 1190,
+                "y": 210
+              }
+            ]
+          },
+          {
+            "shape": "trust-boundary-curve",
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Boundary",
+              "name": "Internet ↔ Clúster",
+              "description": "",
+              "isTrustBoundary": true,
+              "hasOpenThreats": false,
+              "crossingFlows": [],
+              "containedElements": []
+            },
+            "labels": [
+              {
+                "attrs": {
+                  "label": {
+                    "text": "Internet ↔ Clúster"
+                  }
+                },
+                "position": {
+                  "distance": 0.03
+                }
+              }
+            ],
+            "id": "1eafab0d-5ecd-4902-a5a8-0f6efa6ea1d0",
+            "source": {
+              "x": 320,
+              "y": 0
+            },
+            "target": {
+              "x": 320,
+              "y": 900
+            },
+            "vertices": []
+          },
+          {
+            "shape": "trust-boundary-curve",
+            "width": 200,
+            "height": 100,
+            "zIndex": 10,
+            "connector": "smooth",
+            "data": {
+              "type": "tm.Boundary",
+              "name": "Clúster ↔ Fuentes externas",
+              "description": "",
+              "isTrustBoundary": true,
+              "hasOpenThreats": false,
+              "crossingFlows": [],
+              "containedElements": []
+            },
+            "labels": [
+              {
+                "attrs": {
+                  "label": {
+                    "text": "Clúster ↔ Fuentes externas"
+                  }
+                },
+                "position": {
+                  "distance": 0.03
+                }
+              }
+            ],
+            "id": "585b9e99-63ac-403f-b2bd-9744811156a6",
+            "source": {
+              "x": 1690,
+              "y": 0
+            },
+            "target": {
+              "x": 1690,
+              "y": 900
+            },
+            "vertices": []
+          },
+          {
+            "position": {
+              "x": 1800,
+              "y": 415
+            },
+            "size": {
+              "width": 190,
+              "height": 70
+            },
+            "attrs": {
+              "text": {
+                "text": "Fuentes de tendencias"
+              },
+              "body": {
+                "stroke": "#333333",
+                "strokeWidth": 1.5,
+                "strokeDasharray": null
+              }
+            },
+            "visible": true,
+            "shape": "actor",
+            "zIndex": 11,
+            "ports": {
+              "groups": {
+                "top": {
+                  "position": "top",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "right": {
+                  "position": "right",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "bottom": {
+                  "position": "bottom",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                },
+                "left": {
+                  "position": "left",
+                  "attrs": {
+                    "circle": {
+                      "r": 4,
+                      "magnet": true,
+                      "stroke": "#5F95FF",
+                      "strokeWidth": 1,
+                      "fill": "#fff",
+                      "style": {
+                        "visibility": "hidden"
+                      }
+                    }
+                  }
+                }
+              },
+              "items": [
+                {
+                  "group": "top",
+                  "id": "5f68721e-56bf-46a0-af68-3a9da588b1c8"
+                },
+                {
+                  "group": "right",
+                  "id": "2d82de1f-4bbd-4c9c-882d-b761f182e669"
+                },
+                {
+                  "group": "bottom",
+                  "id": "61216901-da4b-4473-bd52-695945643c56"
+                },
+                {
+                  "group": "left",
+                  "id": "9672ab01-36a7-4381-a9e0-20ce118dac96"
+                }
+              ]
+            },
+            "id": "b63616c3-a166-4bda-aa04-8d622c941bdf",
+            "data": {
+              "type": "tm.Actor",
+              "name": "Fuentes de tendencias",
+              "description": "YouTube Data API, Google Trends (RSS) y Mastodon (solo etiquetas y enlaces).",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "providesAuthentication": false,
+              "threats": []
+            }
+          }
+        ]
+      }
+    ],
+    "diagramTop": 2,
+    "reviewer": "revisor-seguridad",
+    "threatTop": 42
+  }
+}

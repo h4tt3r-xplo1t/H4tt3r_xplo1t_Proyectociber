@@ -37,9 +37,10 @@ Mode: strict, enabled (source: global user configuration "Strict TDD Mode: enabl
 - [x] **T1**: TDD skeleton, `pyproject.toml` with ruff incl. `S`, `uv.lock` (`9a80e17`). RED: `ModuleNotFoundError: gateway.main`; GREEN: 1 passed; ruff check and format clean. REFACTOR: nothing to refactor.
 - [x] **T2**: `gateway` CI job with the official uv binary pinned by sha256 (setup-uv dropped, same pattern as gitleaks) and Dependabot uv entry (`9a7e5ea`). actionlint not installed locally: YAML parsed, job steps run locally and pass; actionlint runs in CI (pending).
 - [x] **T3**: `.gitignore` (in `9a80e17`), settings allow rules (`483c245`), BITACORA and PROJECT_CONTEXT (`a442262`). `uv audit --locked`: no known vulnerabilities in 22 packages (experimental command: PARTIAL). guardia 164/164, ruleset 15/15.
-- [ ] **T4**: `revisor-seguridad` review and fixes.
+- [x] **T4**: `revisor-seguridad`: ready for PR, 5 low. Gentle AI review (4 lenses, lineage review-627eab7a42ccd908 on 5ce60d3): approved, acknowledged. Low fixes: `e504481` (uv-bin PATH, curl retry), `b649128` (exact allow rules), `2ab7ebf` (`.python-version` 3.14.7), `372f8c9` (bitacora rotation and pendings). uv sha256 recomputed locally from the release asset: matches.
 - [ ] **T5**: push and PR (only on the person's explicit request).
 
 ## Progress
 - 2026-09-30: T0 done.
 - 2026-09-30: T1-T3 done. `httpx2` swap blocked by the auto-mode permission classifier; kept `httpx` (deprecation warning only) and left the decision to the person. T4 running.
+- 2026-09-30: T4 done. Deferred to pendings: FastAPI docs off outside dev (E3/E6), periodic refresh of sha256-pinned tools, `gateway` as required check, `httpx2` decision.

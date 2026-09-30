@@ -28,8 +28,8 @@ There is no test runner for prose. Checks: `tests/hooks/guardia_test.sh`, `tests
 - [x] **T2**: DFD level 0 (`66984ec`).
 - [x] **T3**: DFD level 1: elements, flows and boundaries (`22ec909`, `4033c09`, `af080ee`, `bce99d0`).
 - [x] **T4**: 30 STRIDE threats (`2403a3f` by the person, `1804afa`).
-- [x] **T5**: `docs/threat-model.md`, the guide and the BITACORA entry (`81415a8`, `a0f585d`, BITACORA commit below).
-- [ ] **T6**: exported PNGs (person).
+- [x] **T5**: `docs/threat-model.md`, the guide and the BITACORA entry (`81415a8`, `a0f585d`, `c28434d`).
+- [x] **T6**: exported PNGs (person); level 1 re-exported without a selection artifact; threat 2 verification added (`d6fb902`).
 - [ ] **T7**: `revisor-seguridad` review, then PR.
 
 ## Progress

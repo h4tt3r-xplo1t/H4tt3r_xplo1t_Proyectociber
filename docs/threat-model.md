@@ -105,35 +105,35 @@ Simplificación: los workers también leen sus credenciales de base de datos des
 
 ## Amenazas STRIDE
 
-Total: 42 amenazas, todas en estado **Abierta** (aún no hay código ni pruebas que demuestren los controles).
+Total: 47 amenazas, todas en estado **Abierta** (aún no hay código ni pruebas que demuestren los controles).
 
 | Categoría STRIDE | Amenazas |
 |---|---|
-| Suplantación (S) | 7 |
+| Suplantación (S) | 8 |
 | Manipulación (T) | 11 |
 | Repudiación (R) | 2 |
-| Divulgación de información (I) | 10 |
-| Denegación de servicio (D) | 7 |
-| Elevación de privilegios (E) | 5 |
+| Divulgación de información (I) | 11 |
+| Denegación de servicio (D) | 8 |
+| Elevación de privilegios (E) | 7 |
 
 | Severidad | Amenazas |
 |---|---|
-| Alta | 17 |
-| Media | 22 |
+| Alta | 20 |
+| Media | 24 |
 | Baja | 3 |
 
 Criterio de clasificación: el XXE (20) se clasifica como Manipulación porque la entrada manipulada altera el procesamiento del worker, aunque su efecto puede ser divulgación o denegación de servicio; el SSRF (21) y la deserialización insegura (33) como Elevación de privilegios, porque el atacante usa la identidad y el acceso de red del servicio para llegar donde él no puede.
 
 | # | Elemento o flujo | Categoría | Severidad | Título | Control | Verificación | Estado |
 |---|---|---|---|---|---|---|---|
-| 1 | gateway (FastAPI) | Suplantación (S) | Alta | Suplantación de usuario con un JWT robado o falsificado | JWT de vida corta firmado con clave guardada en Vault; algoritmo fijo (se rechaza "none"); validación de firma, expiración y audiencia en cada petición; HTTPS obligatorio. | pruebas con token caducado, alterado y con alg=none; escaneo con ZAP. | Abierta |
-| 2 | gateway (FastAPI) | Elevación de privilegios (E) | Media | Elevación de privilegios por concentración de funciones en el gateway | Control de roles en cada endpoint con denegación por defecto; contenedor sin root; sin salida a internet (NetworkPolicy). Si la auditoría crece, separarla en su propio servicio (ADR 0003). | pruebas de autorización por rol (un lector recibe 403 en endpoints de administración y de auditoría). | Abierta |
+| 1 | gateway (FastAPI) | Suplantación (S) | Alta | Suplantación de usuario con un JWT robado o falsificado | JWT HS256 firmado con una clave aleatoria de al menos 256 bits guardada en Vault; algoritmo fijado (algorithms=["HS256"], se rechaza "none"); validación de exp, iss y aud en cada petición; kid para rotar la clave; token en cookie __Host- con HttpOnly, Secure y SameSite=Strict; vida de 15 minutos (ADR 0004). | pruebas con token caducado, alterado, con alg=none y con otra audiencia; escaneo con ZAP. | Abierta |
+| 2 | gateway (FastAPI) | Elevación de privilegios (E) | Media | Elevación de privilegios por concentración de funciones en el gateway | Cuatro roles (lector, editor, auditor, administrador) con denegación por defecto en cada endpoint; el administrador no puede ser auditor, ni asignarse ese rol, ni leer o borrar la auditoría; el rol va en el JWT firmado y se revalida en BD para acciones sensibles; contenedor sin root; sin salida a internet (NetworkPolicy). Si la auditoría crece, separarla en su propio servicio (ADR 0003 y 0004). | pruebas de autorización por rol (cada rol recibe 403 fuera de sus permisos, incluida la auditoría para el administrador). | Abierta |
 | 3 | Lector | Suplantación (S) | Media | Registro masivo de cuentas falsas | Límite de registros por IP y por intervalo; política de contraseñas según OWASP ASVS; el límite de búsquedas se aplica también por IP. | prueba de registros repetidos que devuelven 429. | Abierta |
-| 4 | Lector | Repudiación (R) | Baja | El lector niega haber realizado una búsqueda o acción | Registro de auditoría con identificador de usuario, fecha, hora y acción, sin más datos personales. | prueba unitaria que comprueba el registro tras cada búsqueda. | Abierta |
+| 4 | Lector | Repudiación (R) | Baja | El lector niega haber realizado una búsqueda o acción | Registro de auditoría de cada búsqueda con UUID del usuario, fecha, acción, resultado, número de resultados e IP acortada; no se guarda el texto de búsqueda; retención de 180 días con un rol de purga propio (ADR 0004). | prueba unitaria que comprueba el registro tras cada búsqueda y que el texto buscado no aparece en él. | Abierta |
 | 5 | frontend (React + Nginx) | Manipulación (T) | Alta | XSS con contenido de los medios o del usuario | React escapa el contenido por defecto; se prohíbe dangerouslySetInnerHTML; cabecera Content-Security-Policy estricta en Nginx; el token no se guarda en localStorage. | regla de Semgrep y escaneo con ZAP. | Abierta |
 | 6 | frontend (React + Nginx) | Manipulación (T) | Media | Imagen o dependencias npm manipuladas | package-lock.json versionado; escaneo con Trivy de dependencias e imagen; imágenes referenciadas por digest (E7). | job de Trivy en CI que falla con CVE críticos. | Abierta |
 | 7 | frontend (React + Nginx) | Divulgación de información (I) | Media | Secretos o direcciones internas en el código de la web | El frontend no contiene secretos: solo conoce la URL pública del gateway. | gitleaks en pre-commit y en CI sobre el repositorio y el build. | Abierta |
-| 8 | gateway (FastAPI) | Suplantación (S) | Alta | Fuerza bruta o relleno de credenciales en el login | Límite de intentos por usuario e IP con bloqueo temporal; contraseñas con hash lento (Argon2 o bcrypt); mensajes de error que no revelan si el usuario existe. | prueba de intentos fallidos que devuelve 429. | Abierta |
+| 8 | gateway (FastAPI) | Suplantación (S) | Alta | Fuerza bruta o relleno de credenciales en el login | Contraseñas con hash Argon2id (m=19456, t=2, p=1); longitud mínima 15 y máxima de al menos 64, sin reglas de composición y contra una lista local de contraseñas comunes y filtradas; bloqueo progresivo por cuenta (tras 3 fallos, esperas de 1, 5, 15 y 30 minutos) con la recuperación siempre disponible, más límite por IP tomado del Ingress; mensajes genéricos y tiempo constante; MFA TOTP obligatorio en roles con privilegios (ADR 0004). Misma respuesta (401, mismo cuerpo y tiempo similar) para cuenta bloqueada, inexistente o credenciales erróneas; 429 solo para el límite por IP. | prueba de intentos fallidos con esperas crecientes y prueba de respuesta idéntica exista o no el usuario o esté bloqueado. | Abierta |
 | 9 | gateway (FastAPI) | Manipulación (T) | Alta | Inyección SQL mediante el texto de búsqueda | Consultas parametrizadas mediante el ORM; validación de longitud y caracteres con Pydantic. | Bandit y Semgrep en CI, pruebas con cargas de inyección y escaneo con ZAP. | Abierta |
 | 10 | gateway (FastAPI) | Denegación de servicio (D) | Alta | Abuso de la búsqueda para agotar recursos o la cuota de YouTube | Límite de peticiones por usuario e IP; caché de búsquedas repetidas; tope de trabajos en cola por usuario. | prueba de carga básica y prueba de límite que devuelve 429. | Abierta |
 | 11 | gateway (FastAPI) | Repudiación (R) | Media | Acciones administrativas sin trazabilidad | Registro de auditoría de acciones de administración, escrito por el gateway con un rol de solo inserción (ver la amenaza de modificación de la auditoría: protege frente al gateway, no frente al administrador de BD). | prueba que confirma que cada acción de administración deja registro. | Abierta |
@@ -160,14 +160,19 @@ Criterio de clasificación: el XXE (20) se clasifica como Manipulación porque l
 | 32 | worker-tendencias | Manipulación (T) | Media | JSON o XML no confiable de las fuentes de tendencias | Análisis estricto con validación de esquema, tamaño máximo de respuesta y parser XML sin entidades externas para el RSS de Trends. | pruebas con respuestas malformadas y de gran tamaño. | Abierta |
 | 33 | RabbitMQ | Elevación de privilegios (E) | Alta | Deserialización insegura de los mensajes de la cola | Serialización solo en JSON (en Celery, accept_content=["json"]), nunca pickle; validación de esquema de cada mensaje. | regla de Bandit o Semgrep contra pickle y prueba que rechaza un mensaje no JSON. | Abierta |
 | 34 | Flujo: Trabajo: buscar vídeos del tema (gateway (FastAPI) → RabbitMQ) | Manipulación (T) | Media | Inyección del tema del usuario en la consulta a YouTube | El tema se envía como dato del mensaje y la librería cliente lo codifica como parámetro; nunca se construyen URLs concatenando texto; longitud limitada. | prueba con caracteres especiales (&, #, saltos de línea) en el tema. | Abierta |
-| 35 | gateway (FastAPI) | Suplantación (S) | Alta | Tokens sin revocación ni rotación | Token de acceso de vida corta y token de refresco rotado en cada uso; cierre de sesión que revoca el refresco; clave de firma con identificador (kid) para poder rotarla. | prueba de que tras cerrar sesión el refresco se rechaza y prueba de rotación de clave. | Abierta |
-| 36 | gateway (FastAPI) | Manipulación (T) | Alta | CSRF y CORS mal configurado | Cookie con Secure, HttpOnly y SameSite; token anti-CSRF en peticiones que cambian estado; CORS con lista de orígenes permitidos, nunca «*» con credenciales. | escaneo con ZAP y prueba de CORS desde un origen no permitido. | Abierta |
-| 37 | gateway (FastAPI) | Elevación de privilegios (E) | Alta | Acceso a datos de otro usuario (IDOR) | Autorización por objeto: cada consulta filtra por el propietario autenticado; identificadores no secuenciales. | pruebas de autorización cruzada entre dos usuarios. | Abierta |
+| 35 | gateway (FastAPI) | Suplantación (S) | Alta | Tokens sin revocación ni rotación | Token de acceso de 15 minutos y token de refresco opaco (solo se guarda su hash) rotado en cada uso; reutilizar uno ya usado revoca toda la familia; cerrar sesión borra el refresco y añade el jti del acceso a una lista de tokens anulados (ASVS 7.4.1); clave de firma con kid para rotarla; tiempos por rol: lector 24 h de inactividad y 7 días de vida máxima, roles con privilegios 30 min y 8 h (ADR 0004). Cada familia de refresco guarda su creación y su último uso para aplicar la vida máxima y la inactividad; sin periodo de gracia: el frontend renueva la sesión de un solo vuelo (una renovación a la vez, compartida entre pestañas) y cualquier reutilización revoca la familia; revocación por usuario con tokens_valid_since al cambiar rol, contraseña o MFA. | pruebas de que tras cerrar sesión el acceso y el refresco se rechazan, de detección de reutilización y de rotación de clave. | Abierta |
+| 36 | gateway (FastAPI) | Manipulación (T) | Alta | CSRF y CORS mal configurado | Cookie __Host- con Secure, HttpOnly y SameSite=Strict; token anti-CSRF de doble envío firmado y ligado a la sesión (cookie __Host-csrf y cabecera X-CSRF-Token) en toda petición que cambia estado, que nunca usa GET y comprobación de Sec-Fetch-Site u Origin, rechazando la petición si faltan ambas; frontend y gateway en el mismo origen, sin CORS habilitado (ADR 0004). | escaneo con ZAP, prueba sin token CSRF que devuelve 403 y prueba de petición desde otro origen rechazada. | Abierta |
+| 37 | gateway (FastAPI) | Elevación de privilegios (E) | Alta | Acceso a datos de otro usuario (IDOR) | Autorización por objeto: cada consulta filtra por el propietario autenticado; identificadores UUID no secuenciales (ADR 0004). | pruebas de autorización cruzada entre dos usuarios. | Abierta |
 | 38 | gateway (FastAPI) | Suplantación (S) | Media | Falseo de X-Forwarded-For para esquivar los límites por IP | Solo se confía en la cabecera que añade el Ingress (proxy de confianza configurado); los límites se aplican también por usuario. | prueba que envía una cabecera X-Forwarded-For falsa y comprueba que el límite se mantiene. | Abierta |
-| 39 | gateway (FastAPI) | Divulgación de información (I) | Media | Datos sensibles o inyección en los logs | Logs estructurados en JSON; redacción de Authorization, cookies y parámetros de clave; el texto de búsqueda no se registra completo; escape de saltos de línea. | prueba que revisa los logs de una petición autenticada en busca de tokens. | Abierta |
+| 39 | gateway (FastAPI) | Divulgación de información (I) | Media | Datos sensibles o inyección en los logs | Logs estructurados en JSON; redacción de Authorization, cookies, códigos TOTP y parámetros de clave; el texto de búsqueda nunca se registra; escape de saltos de línea. | prueba que revisa los logs de una petición autenticada en busca de tokens y del texto buscado. | Abierta |
 | 40 | gateway (FastAPI) | Elevación de privilegios (E) | Media | Contenedores o cuentas de servicio con privilegios excesivos | Pod Security «restricted»: sin root, sistema de archivos de solo lectura, sin capacidades extra; cuentas de servicio sin token montado salvo que lo necesiten y RBAC mínimo; secretos de Kubernetes cifrados en etcd (opción de K3s por verificar). | Checkov sobre los manifiestos y Trivy sobre la configuración. | Abierta |
 | 41 | worker-analisis | Manipulación (T) | Media | Envenenamiento de datos que sesga la agrupación y el sentimiento | Fuentes fijas y atribución visible del medio en cada resultado; el sentimiento se presenta como estimación; alerta ante saltos anómalos de volumen por fuente. | prueba con un feed simulado anómalo que dispara la alerta. | Abierta |
 | 42 | Vault | Divulgación de información (I) | Alta | Vault en modo desarrollo o claves de desellado mal custodiadas | Modo dev solo en pruebas locales, nunca en el entorno de producción simulado; token raíz revocado tras la configuración inicial; claves de desellado fuera del repositorio con custodia documentada. | comprobación en el despliegue de que Vault arranca sellado y de que no existe token raíz activo. | Abierta |
+| 43 | gateway (FastAPI) | Divulgación de información (I) | Alta | Robo del secreto TOTP | El secreto se guarda cifrado (mecanismo por decidir con el ADR de red y cifrado), solo se muestra una vez al activarlo y nunca se registra en logs. | prueba de que el secreto no aparece en claro en la base de datos ni en los logs. | Abierta |
+| 44 | gateway (FastAPI) | Suplantación (S) | Media | Fuerza bruta del código TOTP o abuso de los códigos de recuperación | El bloqueo progresivo se aplica también a los fallos de MFA; ventana de validez de un paso; un mismo código TOTP no se acepta dos veces; códigos de recuperación de un solo uso guardados como hash. | pruebas de reutilización de código y de bloqueo tras fallos de MFA. | Abierta |
+| 45 | gateway (FastAPI) | Denegación de servicio (D) | Media | Lista de tokens anulados no disponible | Falla cerrado: si la lista no se puede consultar, la petición se rechaza; las entradas caducan a los 15 minutos, así que la lista es pequeña. | prueba con la base de datos no disponible que confirma el rechazo. | Abierta |
+| 46 | gateway (FastAPI) | Elevación de privilegios (E) | Alta | Abuso de la recuperación asistida o del restablecimiento de MFA | Código de recuperación de un solo uso (aleatorio, guardado como hash, 15 minutos) que el administrador genera sin ver ni elegir la contraseña; el restablecimiento no se salta el MFA; restablecer el MFA de una cuenta con privilegios exige dos administradores distintos y verificación de identidad fuera de banda; todo queda en el registro de eventos que revisa el auditor, y el usuario ve un aviso en su siguiente inicio de sesión; si no hay dos administradores disponibles se usa el procedimiento de emergencia (break-glass) que ejecuta solo la persona responsable (ADR 0004). Riesgo residual aceptado: en cuentas sin MFA el administrador que genera el código podría usarlo. | pruebas de que un solo administrador no puede restablecer el MFA de otra cuenta con privilegios y de que el código caduca y no se reutiliza. | Abierta |
+| 47 | gateway (FastAPI) | Elevación de privilegios (E) | Alta | Credencial de arranque del primer administrador como puerta trasera | Contraseña de arranque de un solo uso, aleatoria y válida 24 horas; cambio de contraseña y alta del MFA obligatorios en el primer inicio de sesión; la persona responsable genera la contraseña con un CSPRNG; el Job destruye todas las versiones del secreto en Vault KV v2, se ejecuta a mano con backoffLimit 0 y se niega a ejecutarse si existe un administrador activo, sin excepciones; restablecer a un administrador existente solo lo hace el Job de emergencia (break-glass), que queda registrado (ADR 0004). | prueba de que el arranque falla con un administrador existente y de que el secreto ya no está en Vault. | Abierta |
 
 ## Casos de abuso de la búsqueda por tema
 
@@ -177,7 +182,7 @@ La búsqueda es la historia de usuario de la sustentación y el punto más expue
 |---|---|---|
 | Texto libre malicioso | Envía SQL, HTML/JavaScript o un texto enorme en el campo de búsqueda | 9 (inyección SQL), 5 (XSS), 26 (texto enorme en el análisis), 34 (inyección en la consulta a YouTube) |
 | Agotar la cuota de YouTube | Un bot lanza muchas búsquedas para consumir las 10 000 unidades diarias | 10, 24, 19 (cola saturada), 3 (cuentas falsas), 38 (falseo de X-Forwarded-For para esquivar el límite por IP) |
-| Enumeración o fuerza bruta en el login | Prueba contraseñas o averigua qué usuarios existen | 8, 3, 27 (credenciales en tránsito), 35 (tokens sin revocación) |
+| Enumeración o fuerza bruta en el login | Prueba contraseñas o averigua qué usuarios existen | 8, 3, 27 (credenciales en tránsito), 35 (tokens sin revocación), 44 (fuerza bruta del TOTP) |
 | Negar una búsqueda | Un usuario afirma que no hizo una búsqueda | 4, 11, 16 (protección del registro de auditoría) |
 
 ## Decisiones pendientes
@@ -185,11 +190,13 @@ La búsqueda es la historia de usuario de la sustentación y el punto más expue
 | Decisión | Amenazas afectadas | Cuándo |
 |---|---|---|
 | Cifrado dentro del clúster (TLS o mTLS para Vault, PostgreSQL y RabbitMQ) | 28 (flujo «Clave de firma JWT y credenciales de BD»), 29 (flujo «Usuarios y registro de auditoría») y el resto de flujos internos no cifrados | ADR antes de E5 |
-| Nivel objetivo de OWASP ASVS | Todas las de aplicación web | Pendiente: no está acordado con el responsable humano |
+| ~~Nivel objetivo de OWASP ASVS~~ | Todas las de aplicación web | **Resuelta** en el ADR 0004: ASVS 5.0.0, L1 en toda la aplicación y L2 en V6, V7, V8 y V9 |
 | Separar la auditoría del gateway en su propio servicio | 2 | Solo si la auditoría crece (ADR 0003); **NO VERIFICADO** que haga falta |
 | Control de salida por dominio: proxy de salida o política por nombre de dominio (por ejemplo, Cilium) | 21 | ADR antes de E5 |
-| Algoritmo de firma de los JWT (simétrico o asimétrico) y uso de la audiencia | 1, 35 | ADR de autenticación en E3 |
-| Si el registro de auditoría guarda el texto de búsqueda (dato de comportamiento del usuario; la recomendación es no guardarlo completo) | 4, 39 | Antes de E3 |
+| ~~Algoritmo de firma de los JWT y uso de la audiencia~~ | 1, 35 | **Resuelta** en el ADR 0004: HS256 con algoritmo fijado y validación de aud |
+| ~~Si el registro de auditoría guarda el texto de búsqueda~~ | 4, 39 | **Resuelta** en el ADR 0004: no se guarda |
+| Mecanismo de cifrado del secreto TOTP (Vault transit o cifrado en la aplicación) | 43 | Con el ADR de red y cifrado, antes de E5 |
+| Lista de contraseñas filtradas y su licencia (ASVS 6.2.12, L2) | 8 | E3 |
 | Respaldo y restauración de PostgreSQL y Vault | — (fuera de este modelo) | E8 |
 
 ## Riesgos residuales
@@ -200,6 +207,9 @@ La búsqueda es la historia de usuario de la sustentación y el punto más expue
 | Términos de uso de los medios | La revisión manual del 2026-09-29 no prohíbe el uso informativo con enlace, pero pueden cambiar | H4TT3R_XPLO1T | Antes de la entrega final |
 | `guardia.sh` y los controles locales | No protegen frente a un evasor deliberado (ADR 0002); la defensa real es `pre-commit` y el ruleset de GitHub | H4TT3R_XPLO1T | Al cambiar el ruleset o el hook |
 | Un solo revisor | Autofusión sin segundo revisor humano (M1, ADR 0001) | H4TT3R_XPLO1T | Cuando haya un segundo revisor y CODEOWNERS |
+| Alta del MFA con solo la contraseña (ADR 0004, N3) | Quien conozca la contraseña durante las 24 horas de la ventana de alta podría registrar su propio dispositivo; mitigado con límite de intentos y evento revisado por el auditor | H4TT3R_XPLO1T | E3 |
+| El administrador conoce el código de recuperación (ADR 0004, N4) | En cuentas sin MFA podría usarlo y suplantar al usuario; mitigado con evento registrado y aviso al usuario; eliminarlo exigiría recuperación por correo (sin salida a internet, descartada) | H4TT3R_XPLO1T | Si se adopta recuperación por correo |
+| Dependencia del procedimiento de emergencia (break-glass) | Con menos de 3 administradores, la pérdida del MFA de un administrador solo se resuelve con la intervención directa de la persona responsable en el clúster | H4TT3R_XPLO1T | Cuando haya 3 administradores |
 | Cadena de suministro de CI/CD sin modelar | Fuera del alcance de esta versión del modelo | H4TT3R_XPLO1T | E4/E7 |
 
 ## Cómo se mantiene

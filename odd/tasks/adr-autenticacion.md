@@ -41,7 +41,8 @@ There is no test runner for prose. Checks: guardia and ruleset suites, the gitle
 - [x] **T0**: decisions 1–9 with the person, plus source verification by a research subagent.
 - [x] **T1**: `docs/adr/0004-autenticacion.md` and the BITACORA entry (ADR commit e9e8520; BITACORA commit see progress note).
 - [x] **T2**: threat-model mitigations 1, 2, 4, 8, 35, 36, 37 and 39 updated; threats 43, 44 and 45 added, for 45 in total (`9247cbb`).
-- [ ] **T3**: `revisor-seguridad`, then PR.
+- [x] **T3**: `revisor-seguridad` in three passes. Pass 1: not ready (3 high). Pass 2: not ready (1 high). Pass 3: ready for PR, with its 3 minor observations fixed (bootstrap without an exception, `enroll-mfa` scope covers the password change, logout accepts an expired but valid access token).
+- [ ] **T4**: push and PR (person pushes; PR on request).
 
 ## Progress
 - T1 done 2026-09-29: ADR 0004 committed as e9e8520; BITACORA entry and pendientes in the follow-up commit `docs: log ADR 0004 in bitacora (#20)`. Guardia 164/164 and ruleset 15/15 pass.

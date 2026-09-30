@@ -194,7 +194,7 @@ sin salida a internet (ADR 0003).
 | Reutilización de un refresco viejo | Revoca toda la familia, sin excepciones ni periodo de gracia |
 | Refresco de un solo vuelo | El frontend hace el refresco en un solo vuelo: una única petición de refresco en curso a la vez, compartida entre pestañas (por ejemplo con la Web Locks API o `BroadcastChannel`); detalle de implementación para E3 |
 | Nueva sesión al autenticar | Cada login emite tokens y `sid` nuevos (7.2.4) |
-| Cierre de sesión | El cierre de sesión (otra ruta) localiza la familia de refresco por el `sid` del token de acceso y la revoca; además añade el `jti` del acceso a una lista de denegación hasta su expiración |
+| Cierre de sesión | El cierre de sesión (otra ruta) localiza la familia de refresco por el `sid` del token de acceso y la revoca; acepta un token de acceso caducado siempre que su firma, emisor y audiencia sean válidos, para poder cerrar la sesión aunque hayan pasado los 15 minutos; además añade el `jti` del acceso a una lista de denegación hasta su expiración |
 | Lista de denegación | Clave por `jti`, no por hash del token crudo (maleabilidad; guía de JWT de OWASP) |
 | Vinculación a dispositivo | **No implementada**; la protección es la cookie `HttpOnly` |
 
@@ -402,10 +402,13 @@ rango típico: es una decisión de riesgo documentada (ver Consecuencias).
   KV v2. Un Job de Kubernetes de una sola ejecución la lee y crea el
   administrador marcado `must_change_password` y `must_enroll_mfa`. En el
   primer login, el cambio de contraseña y el alta del MFA son obligatorios
-  antes de cualquier otra acción. Después el Job **destruye todas las
+  antes de cualquier otra acción; el token de alcance `enroll-mfa` autoriza
+  también, y solo, el endpoint de cambio de contraseña en ese estado. Después el Job **destruye todas las
   versiones** del secreto en Vault (`destroy` o `metadata delete` de KV v2, no
   un borrado lógico). El Job se niega a ejecutarse si existe al menos un
-  administrador ACTIVO, salvo que se pase el indicador de emergencia. No hay
+  administrador ACTIVO, sin excepciones: nunca crea un segundo administrador.
+  Restablecer a un administrador existente es tarea exclusiva del Job de
+  emergencia (break-glass) descrito a continuación. No hay
   ninguna credencial de administrador estática permanente (6.4.1).
 - **Procedimiento de emergencia (break-glass):** un Job de Kubernetes que
   ejecuta solo la persona responsable (H4TT3R_XPLO1T), con acceso directo al

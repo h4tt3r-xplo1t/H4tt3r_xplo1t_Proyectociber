@@ -1270,7 +1270,7 @@
                   "severity": "High",
                   "type": "Elevation of privilege / Elevación de privilegios",
                   "description": "Una contraseña fija de administrador guardada en Vault o un mecanismo de arranque reutilizable daría acceso total a quien los obtenga.",
-                  "mitigation": "Contraseña de arranque de un solo uso, aleatoria y válida 24 horas; cambio de contraseña y alta del MFA obligatorios en el primer inicio de sesión; la persona responsable genera la contraseña con un CSPRNG; el Job destruye todas las versiones del secreto en Vault KV v2, se ejecuta a mano con backoffLimit 0 y se niega a ejecutarse si existe un administrador activo, salvo con la opción de emergencia (break-glass), que queda registrada (ADR 0004). Verificación: prueba de que el arranque falla con un administrador existente y de que el secreto ya no está en Vault.",
+                  "mitigation": "Contraseña de arranque de un solo uso, aleatoria y válida 24 horas; cambio de contraseña y alta del MFA obligatorios en el primer inicio de sesión; la persona responsable genera la contraseña con un CSPRNG; el Job destruye todas las versiones del secreto en Vault KV v2, se ejecuta a mano con backoffLimit 0 y se niega a ejecutarse si existe un administrador activo, sin excepciones; restablecer a un administrador existente solo lo hace el Job de emergencia (break-glass), que queda registrado (ADR 0004). Verificación: prueba de que el arranque falla con un administrador existente y de que el secreto ya no está en Vault.",
                   "modelType": "STRIDE",
                   "new": false,
                   "number": 47,

@@ -4,7 +4,9 @@
     "allow": [
       "Bash(git status)", "Bash(git diff *)", "Bash(git log *)",
       "Bash(git switch *)", "Bash(git add *)", "Bash(git commit *)",
-      "Bash(gh issue view *)", "Bash(gh issue list *)"
+      "Bash(gh issue view *)", "Bash(gh issue list *)",
+      "Bash(uv sync --locked)", "Bash(uv run --locked pytest *)",
+      "Bash(uv run --locked ruff check *)", "Bash(uv run --locked ruff format --check *)"
     ],
     "ask": [
       "Bash(git push *)", "Bash(gh pr create *)",

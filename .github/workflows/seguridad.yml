@@ -97,14 +97,17 @@ jobs:
 
       # Same pattern as gitleaks: official release binary pinned by sha256
       # instead of astral-sh/setup-uv, so no extra third-party action runs.
+      # UV_SHA256 is the digest of the linux x86_64 asset only.
       - name: Descargar y verificar uv
         working-directory: ${{ runner.temp }}
         run: |
-          curl -sSfL -o uv.tar.gz \
+          curl -sSfL --retry 3 -o uv.tar.gz \
             "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz"
           echo "${UV_SHA256}  uv.tar.gz" | sha256sum -c -
-          tar -xzf uv.tar.gz --strip-components=1 uv-x86_64-unknown-linux-gnu/uv
-          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+          # A dedicated directory keeps the rest of RUNNER_TEMP off the PATH.
+          mkdir uv-bin
+          tar -xzf uv.tar.gz -C uv-bin --strip-components=1 uv-x86_64-unknown-linux-gnu/uv
+          echo "$RUNNER_TEMP/uv-bin" >> "$GITHUB_PATH"
 
       # --locked fails if uv.lock is out of date with pyproject.toml, and
       # every package is checked against the hashes in the lockfile.

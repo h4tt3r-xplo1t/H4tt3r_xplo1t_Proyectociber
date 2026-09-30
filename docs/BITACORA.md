@@ -208,6 +208,8 @@ Rama `docs/20-adr-autenticacion`. Documento: [`docs/adr/0004-autenticacion.md`](
 - **NO VERIFICADO:** el estado de mantenimiento de `python-jose`.
 - **Revisión de seguridad (revisor-seguridad) del #20:** NO listo (3 hallazgos altos), corregidos. La recuperación de cuenta se diseñó asistida por un administrador (elección de la persona; sin correo ni egress, decisión 10). Se añadieron el alta del MFA y el arranque del primer administrador (decisión 11), y el registro pasó a cubrir eventos de seguridad (decisión 6). Los IDs de ASVS se corrigieron contra el texto oficial v5.0.0 (cookies y CSRF están en V3, no en V7) y se verificaron en GitHub los avisos de PyJWT (se exige ≥ 2.15.0). El ADR queda como «Propuesto» hasta que la persona fusione el PR.
 - **Aprendizaje:** un ADR debe definir los flujos (recuperación, alta del MFA, arranque), no solo los parámetros.
+- **Segunda revisión de seguridad (revisor-seguridad) del #20:** NO listo (1 alto y 3 medios introducidos por la reescritura), corregidos. Cambios: procedimiento de emergencia (break-glass) para el bloqueo con un solo administrador; periodo de gracia de 10 s eliminado en favor de un refresco de un solo vuelo en el frontend (la reutilización de un refresco rotado revoca siempre la familia); alta del MFA con solo contraseña (N3) y código de restablecimiento conocido por el administrador (N4) documentados como riesgos residuales aceptados, con sus mitigaciones; detalles de cookie `__Secure-refresh` y de CSRF (clave HMAC en Vault, token previo a la sesión en el login); destrucción de todas las versiones del secreto de arranque en Vault KV v2; trazabilidad de la decisión 9 corregida (7.3.1 y 7.3.2).
+- **Aprendizaje:** cada mecanismo añadido debe contrastarse con los demás; la reescritura introdujo contradicciones.
 
 ## Pendientes
 - [ ] **E8:** respaldo y restauración probados de PostgreSQL y Vault (declarado en `docs/threat-model.md`).
@@ -218,11 +220,12 @@ Rama `docs/20-adr-autenticacion`. Documento: [`docs/adr/0004-autenticacion.md`](
 - [x] **E1:** contenido de las fuentes externas como entrada no confiable (XSS, XXE, SSRF) y concentración de funciones en el gateway, modelados en el issue #18 (amenazas 2, 5, 20 y 21). Los controles siguen sin verificar hasta que haya código y pruebas (E3).
 - [ ] **E1 (issue #18):** exportar los PNG de los DFD (persona), revisión de `revisor-seguridad` y PR.
 - [ ] ADR de cifrado dentro del clúster (TLS/mTLS para Vault, PostgreSQL y RabbitMQ), antes de E5.
-- [x] Nivel objetivo de OWASP ASVS: 5.0.0, L1 general y L2 en V6, V7 y V8 (ADR 0004, issue #20).
+- [x] Nivel objetivo de OWASP ASVS: 5.0.0, L1 general y L2 en V3.3/V3.5, V6, V7, V8, V9 y V16 (16.2.1, 16.2.2, 16.2.5, 16.3.1, 16.3.2) (ADR 0004, issue #20).
 - [ ] **E3:** elegir y verificar una lista de contraseñas filtradas y su licencia (ASVS 6.2.12, L2, pendiente hasta entonces).
 - [ ] Decidir el mecanismo de cifrado del secreto TOTP (transit de Vault o cifrado de aplicación), junto con el ADR de red y criptografía (antes de E5).
 - [ ] Recuperación de cuenta por correo: opción futura con ADR propio (requeriría egress).
 - [ ] **E3:** implementar el MFA con TOTP, la recuperación asistida y el arranque del primer administrador (ADR 0004, decisiones 8, 10 y 11), con sus pruebas. Las amenazas 43 a 47 ya están en el modelo.
+- [ ] **E3:** implementar la renovación de sesión de un solo vuelo en el frontend.
 - [ ] Modelar la cadena de suministro de CI/CD (E4/E7).
 - [ ] **E3:** antes de añadir `pysentimiento`, verificar nombre, mantenedor, licencia y actividad (AGENTS.md §3) y fijar el modelo de Hugging Face por hash de commit (riesgo de deserialización con `torch`) (hallazgo B5 del #15).
 - [ ] **E7:** referenciar las imágenes por digest, no solo por `vX.Y.Z` y `latest` (hallazgo B4 del #15).

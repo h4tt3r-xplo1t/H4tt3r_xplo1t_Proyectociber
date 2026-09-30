@@ -18,10 +18,10 @@ Issue #25: E2 skeleton of the `gateway` service (FastAPI) with reproducible depe
 Releases re-checked with `gh api repos/<repo>/releases/latest`; PyPI metadata came from a research subagent through a summarizer (second-hand).
 - CPython 3.14.7 (local interpreter; 3.14 supported by fastapi classifiers).
 - uv 0.12.21 (Astral, MIT OR Apache-2.0); local uv is 0.12.19.
-- astral-sh/setup-uv v10.2.0, lightweight tag, commit `c18668ad3cf93ea998bef934396af7bb5c839dc7` (MIT).
+- astral-sh/setup-uv v10.2.0 (commit `c18668ad3cf93ea998bef934396af7bb5c839dc7`) was verified but not used: CI downloads the uv binary pinned by sha256 instead.
 - fastapi 0.142.2 (MIT), pytest 9.1.1 (MIT), ruff 0.16.9 (MIT, `S` = flake8-bandit rules).
 - httpx 0.28.1 (BSD-3-Clause), last release 2024-12-06: low activity; dev-only (needed by `TestClient`).
-- NOT VERIFIED: Dependabot `uv` ecosystem on the supported-ecosystems page (only the options reference); advisories for the latest versions (to check with pip-audit/OSV before the PR).
+- NOT VERIFIED: Dependabot `uv` ecosystem on the supported-ecosystems page (only the options reference); advisories only checked with the experimental `uv audit` (0 known vulnerabilities in 22 packages, PARTIAL).
 
 ## TDD
 Mode: strict, enabled (source: global user configuration "Strict TDD Mode: enabled"). Runner: `uv run pytest` in `services/gateway`.

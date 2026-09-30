@@ -911,8 +911,8 @@
                 "text": "gateway (FastAPI)"
               },
               "body": {
-                "stroke": "#333333",
-                "strokeWidth": 1.5,
+                "stroke": "red",
+                "strokeWidth": 2.5,
                 "strokeDasharray": null
               }
             },
@@ -1009,12 +1009,54 @@
               "outOfScope": false,
               "isTrustBoundary": false,
               "reasonOutOfScope": "",
-              "hasOpenThreats": false,
+              "hasOpenThreats": true,
               "handlesCardPayment": false,
               "handlesGoodsOrServices": false,
               "isWebApplication": false,
               "privilegeLevel": "",
-              "threats": []
+              "threats": [
+                {
+                  "id": "afa507e6-e490-40ca-b595-466427095e89",
+                  "title": "Suplantación de usuario con un JWT robado o falsificado",
+                  "status": "Open",
+                  "severity": "High",
+                  "type": "Spoofing / Spoofing",
+                  "description": "Un atacante que roba un token (por XSS en la web o en tránsito) o que conoce la clave de firma puede hacerse pasar por otro usuario ante el gateway.na descripción para esta amenaza",
+                  "mitigation": "JWT de vida corta firmado con clave guardada en Vault; algoritmo fijo (se rechaza \"none\"); validación de firma, expiración y audiencia en cada petición; HTTPS obligatorio. Verificación: pruebas con token caducado, alterado y con alg=none; escaneo con ZAP.",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 1,
+                  "score": ""
+                },
+                {
+                  "id": "03eb3f96-4d5a-4dd1-8a6b-6c0308034fb4",
+                  "title": "Elevación de privilegios por concentración de funciones en el gateway",
+                  "status": "Open",
+                  "severity": "Medium",
+                  "type": "Tampering / Manipulación",
+                  "description": " El gateway concentra autenticación, búsqueda y auditoría. Un fallo de autorización en un endpoint permitiría a un lector acceder a funciones de administración o al registro de auditoría.",
+                  "mitigation": "Control de roles en cada endpoint con denegación por defecto; pruebas de autorización por rol; contenedor sin root; sin salida a internet (NetworkPolicy). Si la auditoría crece, separarla en su propio servicio (ADR 0003).",
+                  "modelType": "STRIDE",
+                  "new": false,
+                  "number": 2,
+                  "score": ""
+                }
+              ],
+              "threatFrequency": {
+                "spoofing": 1,
+                "tampering": 1,
+                "repudiation": 0,
+                "informationDisclosure": 0,
+                "denialOfService": 0,
+                "elevationOfPrivilege": 0
+              }
+            },
+            "tools": {
+              "items": [
+                "boundary",
+                "button-remove"
+              ],
+              "name": null
             }
           },
           {
@@ -3126,6 +3168,6 @@
     ],
     "diagramTop": 2,
     "reviewer": "revisor-seguridad",
-    "threatTop": 0
+    "threatTop": 2
   }
 }

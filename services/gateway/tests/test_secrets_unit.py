@@ -2,7 +2,8 @@ import base64
 
 import pytest
 
-from gateway.secrets import GatewayKeys, SecretsError, load_keys
+from gateway import secrets
+from gateway.secrets import GatewayKeys, SecretsError, load_keys, login
 
 GOOD_JWT = base64.b64encode(b"j" * 32).decode()
 GOOD_CSRF = base64.b64encode(b"c" * 32).decode()
@@ -105,3 +106,150 @@ def test_repr_never_shows_key_material():
     assert "JWTKEYBYTES" not in text
     assert "CSRFKEYBYTES" not in text
     assert "kid-1" in text
+
+
+def test_read_failure_carries_no_exception_context():
+    class Boom(FakeKv):
+        def read_secret_version(self, **_):
+            raise RuntimeError("token s.SECRETTOKEN rejected")
+
+    client = FakeClient({})
+    client.secrets.kv.v2 = Boom({})
+
+    with pytest.raises(SecretsError) as excinfo:
+        load_keys(client)
+
+    assert excinfo.value.__cause__ is None
+    assert excinfo.value.__context__ is None
+
+
+def test_unexpected_kv_response_shape_fails_closed():
+    class Odd(FakeKv):
+        def read_secret_version(self, **_):
+            return {"unexpected": "SECRETSHAPE"}
+
+    client = FakeClient({})
+    client.secrets.kv.v2 = Odd({})
+
+    with pytest.raises(SecretsError) as excinfo:
+        load_keys(client)
+
+    assert "SECRETSHAPE" not in str(excinfo.value)
+    assert excinfo.value.__context__ is None
+
+
+class FakeHvac:
+    """Stands in for hvac.Client and records how it was built and used."""
+
+    instances: list = []
+    login_error: Exception | None = None
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.token = kwargs.get("token")
+        self.auth = type("A", (), {"approle": self})()
+        FakeHvac.instances.append(self)
+
+    def login(self, role_id, secret_id):
+        if FakeHvac.login_error is not None:
+            raise FakeHvac.login_error
+        self.token = "gateway-token"
+
+    def is_authenticated(self):
+        return self.token == "gateway-token"
+
+
+@pytest.fixture
+def fake_hvac(monkeypatch):
+    FakeHvac.instances = []
+    FakeHvac.login_error = None
+    monkeypatch.setattr(secrets.hvac, "Client", FakeHvac)
+    return FakeHvac
+
+
+@pytest.mark.parametrize(
+    "addr",
+    [
+        "http://openbao.example:8200",
+        "http://10.0.0.5:8200",
+        "http://127.0.0.1.evil.example:8200",
+        "ftp://127.0.0.1:8200",
+        "127.0.0.1:8200",
+    ],
+)
+def test_login_rejects_plain_http_to_non_loopback(fake_hvac, addr):
+    with pytest.raises(SecretsError, match="https"):
+        login(addr, "role", "secret")
+
+    assert fake_hvac.instances == []
+
+
+@pytest.mark.parametrize(
+    "addr",
+    [
+        "http://127.0.0.1:8200",
+        "http://localhost:8200",
+        "http://[::1]:8200",
+        "https://openbao.example:8200",
+    ],
+)
+def test_login_accepts_loopback_http_and_any_https(fake_hvac, addr):
+    client = login(addr, "role", "secret")
+
+    assert client.is_authenticated()
+
+
+def test_login_failure_carries_no_exception_context(fake_hvac):
+    fake_hvac.login_error = RuntimeError("secret_id SECRETVALUE rejected")
+
+    with pytest.raises(SecretsError) as excinfo:
+        login("http://127.0.0.1:8200", "role", "secret")
+
+    assert "SECRETVALUE" not in str(excinfo.value)
+    assert excinfo.value.__cause__ is None
+    assert excinfo.value.__context__ is None
+
+
+def test_login_ignores_ambient_vault_token(fake_hvac, monkeypatch):
+    monkeypatch.setenv("VAULT_TOKEN", "ambient-root-token")
+
+    login("http://127.0.0.1:8200", "role", "secret")
+
+    assert fake_hvac.instances[0].kwargs["token"] is None
+    assert fake_hvac.instances[0].token != "ambient-root-token"
+
+
+@pytest.mark.parametrize("which", ["role", "secret"])
+def test_unreadable_credential_files_fail_closed(monkeypatch, tmp_path, which):
+    good = tmp_path / "good"
+    good.write_text("value")
+    missing = str(tmp_path / "missing")
+    monkeypatch.setenv("GATEWAY_OPENBAO_ADDR", "http://127.0.0.1:8200")
+    monkeypatch.setenv(
+        "GATEWAY_OPENBAO_ROLE_ID_FILE", missing if which == "role" else str(good)
+    )
+    monkeypatch.setenv(
+        "GATEWAY_OPENBAO_SECRET_ID_FILE", missing if which == "secret" else str(good)
+    )
+    secrets.get_gateway_keys.cache_clear()
+
+    with pytest.raises(SecretsError, match="file"):
+        secrets.get_gateway_keys()
+
+    secrets.get_gateway_keys.cache_clear()
+
+
+def test_real_hvac_client_does_not_keep_the_ambient_token(monkeypatch):
+    monkeypatch.setenv("VAULT_TOKEN", "ambient-root-token")
+    seen = []
+
+    def fake_login(self, **_):
+        seen.append(self._adapter.token if hasattr(self, "_adapter") else None)
+        raise RuntimeError("stop before any network call")
+
+    monkeypatch.setattr("hvac.api.auth_methods.AppRole.login", fake_login, raising=True)
+
+    with pytest.raises(SecretsError):
+        login("http://127.0.0.1:1", "role", "secret")
+
+    assert seen == [None]

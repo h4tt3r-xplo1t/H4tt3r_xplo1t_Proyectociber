@@ -108,3 +108,23 @@ def test_missing_settings_fail_closed(monkeypatch, fresh_cache):
 
     with pytest.raises(SecretsError, match="GATEWAY_OPENBAO_ADDR"):
         get_gateway_keys()
+
+
+def test_gateway_token_is_revoked_after_reading_the_keys(
+    openbao_env, fresh_cache, monkeypatch
+):
+    used = []
+    real_login = secrets.login
+
+    def capturing_login(*args):
+        client = real_login(*args)
+        used.append((client, client.token))
+        return client
+
+    monkeypatch.setattr(secrets, "login", capturing_login)
+
+    get_gateway_keys()
+
+    ((_, token),) = used
+    probe = hvac.Client(url=openbao_env["GATEWAY_OPENBAO_ADDR"], token=token)
+    assert probe.is_authenticated() is False

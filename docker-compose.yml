@@ -19,5 +19,34 @@ services:
       timeout: 3s
       retries: 10
 
+  # Secrets manager (MPL-2.0 fork of Vault). Server mode with raft storage,
+  # never -dev. Initialise and unseal it with scripts/openbao-dev-init.sh.
+  openbao:
+    image: openbao/openbao:2.7.0@sha256:71156a1c6623a5fa3f5e61b0c6a8ead0faf0df29a778339188443551995d1315
+    # Explicit command: the image's `server` shortcut adds -dev flags.
+    command: ["bao", "server", "-config=/openbao/config/config.hcl"]
+    # IPC_LOCK lets the server mlock its memory so secrets are not swapped
+    # to disk, instead of disabling mlock.
+    cap_add:
+      - IPC_LOCK
+    environment:
+      # Makes `docker compose exec openbao bao ...` talk to the local listener
+      # over plain HTTP (the CLI defaults to HTTPS).
+      BAO_ADDR: http://127.0.0.1:8200
+    # Bound to loopback only: not reachable from the network.
+    ports:
+      - "127.0.0.1:8200:8200"
+    volumes:
+      - ./deploy/openbao/config.hcl:/openbao/config/config.hcl:ro
+      - openbao_data:/openbao/file
+    healthcheck:
+      # Reports the process is up even while sealed or uninitialised
+      # (those states answer 200 with these parameters).
+      test: ["CMD-SHELL", "wget -q -O /dev/null 'http://127.0.0.1:8200/v1/sys/health?sealedcode=200&uninitcode=200&standbyok=true'"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   postgres_data:
+  openbao_data:

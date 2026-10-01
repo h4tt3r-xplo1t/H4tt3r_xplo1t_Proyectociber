@@ -56,8 +56,10 @@ siguientes reglas:
 - Exigir conversaciones resueltas antes de fusionar.
 - Fusión exclusivamente por squash (con los merge commits y el rebase merge
   deshabilitados también en la configuración general del repositorio).
-- Checks requeridos: `secretos`, `workflows` y `pruebas` (los tres jobs del
-  workflow `Seguridad`), con la rama actualizada (`strict`) antes de fusionar.
+- Checks requeridos: `secretos`, `workflows`, `pruebas` y `gateway` (los cuatro
+  jobs del workflow `Seguridad`; `gateway` se añadió en el issue #27 y se
+  aplicó en GitHub el 2026-09-30), con la rama actualizada (`strict`) antes de
+  fusionar.
   Cada check se fija a la app GitHub Actions (`integration_id` 15368, observado
   en los check runs de `a85401a`): sin ese campo, cualquier app o token con
   permiso para escribir checks podría publicar un check con el mismo nombre y

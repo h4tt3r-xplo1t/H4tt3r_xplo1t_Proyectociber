@@ -8,6 +8,7 @@ dependencies = [
     "alembic>=1.20.0",
     "argon2-cffi>=25.1.0",
     "fastapi>=0.142.2",
+    "hvac>=2.4.0",
     "psycopg[binary]>=3.3.6",
     "sqlalchemy>=2.1.1",
 ]

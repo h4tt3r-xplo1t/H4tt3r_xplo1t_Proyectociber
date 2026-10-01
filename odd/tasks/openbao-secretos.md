@@ -12,7 +12,7 @@ Issue #31 (E3, before auth A2): run OpenBao in server mode for development and C
 
 ## Constraints
 - IMPLEMENTACIÓN LOCAL on `feat/31-openbao-secretos`; Conventional Commits with `#31`; no AI attribution lines.
-- Person decisions (2026-09-30): secrets manager now; OpenBao instead of Vault (Vault >= 1.15 is BSL 1.1; course expects MPL 2.0); server mode with file storage, not dev mode (threat 42).
+- Person decisions (2026-09-30): secrets manager now; OpenBao instead of Vault (Vault >= 1.15 is BSL 1.1; course expects MPL 2.0); server mode, not dev mode (threat 42); storage is single-node raft because OpenBao 2.7 has no `file` backend.
 - Workflow changes, so the person pushes via SSH.
 
 ## Verified versions (2026-09-30)
@@ -32,7 +32,7 @@ Mode: strict, enabled (global user configuration). Runner: `uv run --locked pyte
 - [x] **T0**: issue #31 created (person authorized), branch, versions and licenses verified.
 - [x] **T1**: delegated writer `29cd855`..`e18ef57` (raft storage, not file; IPC_LOCK; 86 passed). Parent fix `4e8c793`: root revocation verified by a failing lookup. Parent end-to-end run on a fresh stack: init twice idempotent, 86 passed.
 - [x] **T2**: ADR 0005 (raft wording), BITACORA (#29 closure, #31 entry, pendings), threat 42 evidence in md and JSON.
-- [ ] **T3**: `revisor-seguridad` and fixes.
+- [x] **T3**: `revisor-seguridad` (3 medium, 5 low) and Gentle AI (lineage review-8e784195174a15e6, approved, acknowledged). Fixes by delegated writer `9344824`, `1ab0c67`, `1d4622c` (the writer hit a rate limit at the end; parent verified the result itself: fresh stack, script x3 incl. after restart, 103 passed, ruff, audit, guardia, ruleset).
 - [ ] **T4**: push (person, SSH) and PR on request.
 
 ## Progress

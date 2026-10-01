@@ -83,13 +83,19 @@ Rama `feat/31-openbao-secretos`. Paso previo al inicio de sesión (A2): las clav
   - Claves aleatorias de 32 bytes, creadas solo si faltan.
   - Credenciales en `.local/openbao/` (ignorado por git, 0700/0600).
   - El token root solo vive en una variable del script.
-  - La revocación del root era «best effort» (`|| true`); ahora se comprueba que una consulta con él falla, o el script termina con error.
-- **Cliente:** `gateway.secrets` entra con AppRole, valida que las claves tengan al menos 32 bytes y un `kid`, y falla cerrado con mensajes fijos que nunca incluyen material secreto. Aún no lo usa ninguna ruta (A2).
-- **Pruebas (TDD):** RED `ModuleNotFoundError: gateway.secrets` y luego GREEN. Total: 86 pruebas.
+  - La revocación del root era «best effort» (`|| true`); ahora solo cuenta como revocado un `403 permission denied` explícito; cualquier otro fallo (contenedor caído, red) hace terminar el script con error.
+  - Marcador `setup-complete`: una configuración interrumpida ya no se da por buena. Espera a que el nodo `raft` sea líder antes de configurar.
+- **Cliente:** `gateway.secrets` entra con AppRole, valida que las claves tengan al menos 32 bytes y un `kid`, y falla cerrado con mensajes fijos que nunca incluyen material secreto. Aún no lo usa ninguna ruta (A2). Tras la revisión:
+  - HTTP sin cifrar solo hacia loopback.
+  - Las excepciones no arrastran el error original (`__cause__` y `__context__` vacíos).
+  - El token se revoca tras leer las claves.
+  - Ignora `VAULT_TOKEN`: se comprobó que `hvac` lo copia aunque se pase `token=None`.
+- **Pruebas (TDD):** RED `ModuleNotFoundError: gateway.secrets` y luego GREEN; tras las correcciones, 103 pruebas.
   - Lectura correcta.
   - Escritura denegada, y lectura de otra ruta denegada, con el token del gateway.
   - `secret_id` incorrecto y OpenBao inalcanzable fallan cerrado.
-  - Comprobado de punta a punta por el orquestador sobre una pila nueva: dos ejecuciones del script y 86 pruebas.
+  - Comprobado de punta a punta por el orquestador sobre una pila nueva: tres ejecuciones del script (la tercera tras reiniciar OpenBao) y 103 pruebas.
+- **Revisiones:** `revisor-seguridad` (3 medios, 5 bajos) y Gentle AI (4 lentes) aprobaron sin críticos ni altos; corregidos todos los medios y los bajos de código. Dependencias transitivas comprobadas en GitHub: `requests` (Apache-2.0), `urllib3` y `charset-normalizer` (MIT), `idna` (BSD-3); la licencia de `certifi` aparece como NOASSERTION en GitHub (NO VERIFICADO).
 - **CI:** el job `gateway` levanta OpenBao con docker compose (los contenedores de servicio no permiten cambiar el comando) y ejecuta el script.
 - **Riesgos de desarrollo aceptados (ADR 0005):** una sola parte de la clave de desbloqueo, `secret_id` sin caducidad y listener sin TLS publicado solo en 127.0.0.1.
 
@@ -114,6 +120,8 @@ Rama `feat/31-openbao-secretos`. Paso previo al inicio de sesión (A2): las clav
 - [ ] Llevar a OpenBao las credenciales de PostgreSQL (hoy en variables de entorno).
 - [ ] Rotación de la clave JWT con `kid` y custodia de las claves de desbloqueo fuera de desarrollo.
 - [ ] TLS del listener de OpenBao junto con el ADR de cifrado interno.
+- [ ] Dispositivo de auditoría de OpenBao (E5/E8) y reintentos con espera del gateway al arrancar si OpenBao no responde (amenaza 14).
+- [ ] Las claves quedan en caché hasta reiniciar el proceso: la rotación con `kid` (A2 o posterior) debe definir cómo se recargan.
 
 ### E5: plataforma, red y cifrado
 - [ ] ADR de cifrado dentro del clúster (TLS/mTLS para Vault, PostgreSQL y RabbitMQ), antes de E5.

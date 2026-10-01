@@ -90,6 +90,25 @@ jobs:
     env:
       UV_VERSION: 0.12.21
       UV_SHA256: 23f02075b652bb1df64178cfae41b5caf160822e720e2663568f3f5d63bc52c0
+      # CI-only throwaway credentials: the database is ephemeral, lives on
+      # this runner and is not reachable from outside. Not a real secret.
+      GATEWAY_DATABASE_URL: postgresql+psycopg://gateway:ci-only-throwaway@localhost:5432/gateway_ci
+    # Same image and digest as docker-compose.yml. The tests run the
+    # migrations themselves (tests/conftest.py), so no extra step is needed.
+    services:
+      postgres:
+        image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_USER: gateway
+          POSTGRES_PASSWORD: ci-only-throwaway
+          POSTGRES_DB: gateway_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gateway -d gateway_ci"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

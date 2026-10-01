@@ -150,7 +150,7 @@ def test_non_unique_db_error_does_not_carry_the_hash(client, monkeypatch):
 
     monkeypatch.setattr(gateway.auth, "User", user_with_invalid_role)
 
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(RuntimeError, match=r"sqlstate 23514") as excinfo:
         register(client)
 
     logged = "".join(traceback.format_exception(excinfo.value))

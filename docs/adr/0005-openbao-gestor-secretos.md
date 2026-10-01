@@ -46,6 +46,7 @@ La tomó la persona responsable el 2026-09-30:
 - **Los ADR 0003 y 0004 no se reescriben.** Donde dicen «Vault», se lee OpenBao, y el modelo de amenazas mantiene el nombre del componente con esta aclaración.
 - **Riesgos de desarrollo aceptados:**
   - Una sola parte de la clave de desbloqueo, frente a las varias de un despliegue real.
+  - El `secret_id` del gateway no caduca, y la clave de desbloqueo, el `role_id` y el `secret_id` se guardan en texto plano en `.local/openbao/` (ignorado por git, permisos 0600).
   - El listener sin TLS, que depende del ADR de cifrado interno, pendiente antes de E5; el puerto solo se publica en 127.0.0.1.
   - Ninguno es válido fuera del entorno local ni de CI.
 - **Pendientes:**

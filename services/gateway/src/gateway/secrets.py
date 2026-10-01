@@ -136,11 +136,15 @@ def login(addr: str, role_id: str, secret_id: str):
 
 
 def _revoke(client) -> None:
-    """Best effort: drop the token once the keys are read. No error text kept."""
+    """Best effort: drop the token once the keys are read. No error text kept.
+
+    A failed revoke must not replace keys already read nor leak hvac or
+    requests text; the token still expires on its own (15 min TTL).
+    """
     try:
         client.logout(revoke_token=True)
     except Exception:
-        client.logout(revoke_token=True)
+        client.token = None
 
 
 @lru_cache

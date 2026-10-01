@@ -252,3 +252,41 @@ def test_real_hvac_client_does_not_keep_the_ambient_token(monkeypatch):
         login("http://127.0.0.1:1", "role", "secret")
 
     assert seen == [None]
+
+
+class FailingLogoutClient:
+    """Client whose revoke always fails with text that must not leak."""
+
+    def __init__(self):
+        self.token = "fake-token-value"  # noqa: S105  (fake, never sent anywhere)
+        self.calls = 0
+
+    def logout(self, revoke_token=False):
+        self.calls += 1
+        raise RuntimeError("http://openbao.internal:8200 token=fake-token-value")
+
+
+def test_failed_revoke_raises_nothing_and_drops_the_local_token():
+    client = FailingLogoutClient()
+
+    secrets._revoke(client)
+
+    assert client.token is None
+
+
+def test_failed_revoke_does_not_replace_keys_already_read(monkeypatch, tmp_path):
+    role = tmp_path / "role-id"
+    secret = tmp_path / "secret-id"
+    role.write_text("role")
+    secret.write_text("secret")
+    monkeypatch.setenv("GATEWAY_OPENBAO_ADDR", "http://127.0.0.1:8200")
+    monkeypatch.setenv("GATEWAY_OPENBAO_ROLE_ID_FILE", str(role))
+    monkeypatch.setenv("GATEWAY_OPENBAO_SECRET_ID_FILE", str(secret))
+    expected = load_keys(FakeClient(good_data()))
+    monkeypatch.setattr(secrets, "login", lambda *args: FailingLogoutClient())
+    monkeypatch.setattr(secrets, "load_keys", lambda client: expected)
+    secrets.get_gateway_keys.cache_clear()
+    try:
+        assert secrets.get_gateway_keys() == expected
+    finally:
+        secrets.get_gateway_keys.cache_clear()

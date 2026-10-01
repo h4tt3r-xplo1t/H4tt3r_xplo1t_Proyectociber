@@ -14,12 +14,13 @@ def test_docs_are_disabled_by_default(monkeypatch, path):
     assert client.get(path).status_code == 404
 
 
+@pytest.mark.parametrize("path", DOCS_PATHS)
 @pytest.mark.parametrize("value", ["", "false", "1", "yes", "TRUE "])
-def test_docs_stay_disabled_unless_flag_is_exactly_true(monkeypatch, value):
+def test_docs_stay_disabled_unless_flag_is_exactly_true(monkeypatch, value, path):
     monkeypatch.setenv("GATEWAY_DOCS_ENABLED", value)
     client = TestClient(create_app())
 
-    assert client.get("/openapi.json").status_code == 404
+    assert client.get(path).status_code == 404
 
 
 @pytest.mark.parametrize("path", DOCS_PATHS)

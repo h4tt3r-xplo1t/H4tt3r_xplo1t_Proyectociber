@@ -25,4 +25,5 @@ def create_app() -> FastAPI:
     return app
 
 
+# The flag is read once, at import time: changing it needs a restart.
 app = create_app()

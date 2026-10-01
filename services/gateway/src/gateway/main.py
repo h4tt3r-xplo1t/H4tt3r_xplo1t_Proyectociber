@@ -1,9 +1,28 @@
+import os
+
 from fastapi import FastAPI
 
-app = FastAPI(title="gateway")
+
+def create_app() -> FastAPI:
+    """Build the gateway app.
+
+    The interactive docs and the OpenAPI schema describe every route, so they
+    are off unless GATEWAY_DOCS_ENABLED is exactly "true" (development only).
+    """
+    docs_enabled = os.environ.get("GATEWAY_DOCS_ENABLED") == "true"
+    app = FastAPI(
+        title="gateway",
+        docs_url="/docs" if docs_enabled else None,
+        redoc_url="/redoc" if docs_enabled else None,
+        openapi_url="/openapi.json" if docs_enabled else None,
+    )
+
+    @app.get("/healthz")
+    def healthz() -> dict[str, str]:
+        """Liveness probe: answers without touching any dependency."""
+        return {"status": "ok"}
+
+    return app
 
 
-@app.get("/healthz")
-def healthz() -> dict[str, str]:
-    """Liveness probe: answers without touching any dependency."""
-    return {"status": "ok"}
+app = create_app()

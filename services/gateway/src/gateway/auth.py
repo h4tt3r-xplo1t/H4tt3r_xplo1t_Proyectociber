@@ -42,8 +42,11 @@ def register(
         session.commit()
     except IntegrityError as exc:
         session.rollback()
-        if getattr(exc.orig, "sqlstate", None) != UNIQUE_VIOLATION:
-            raise
+        sqlstate = getattr(exc.orig, "sqlstate", None)
+        if sqlstate != UNIQUE_VIOLATION:
+            # PostgreSQL's DETAIL repeats the failing row, hash included, so
+            # only the SQLSTATE goes into the error that gets logged.
+            raise RuntimeError(f"user insert failed (sqlstate {sqlstate})") from None
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Username not available"
         ) from None

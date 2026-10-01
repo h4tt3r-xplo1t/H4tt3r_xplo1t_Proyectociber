@@ -130,3 +130,25 @@ def test_missing_database_url_fails_closed(monkeypatch):
     assert response.status_code == 500
     assert GOOD not in response.text
     db.get_engine.cache_clear()
+
+
+def test_non_unique_db_error_does_not_carry_the_hash(client, monkeypatch):
+    # A CHECK violation makes PostgreSQL add "DETAIL: Failing row contains
+    # (...)" with the whole row, hash included. That text must not reach
+    # the error that the server logs.
+    import traceback
+
+    import gateway.auth
+    from gateway.models import User
+
+    def user_with_invalid_role(**kwargs):
+        return User(role="intruso", **kwargs)
+
+    monkeypatch.setattr(gateway.auth, "User", user_with_invalid_role)
+
+    with pytest.raises(Exception) as excinfo:
+        register(client)
+
+    logged = "".join(traceback.format_exception(excinfo.value))
+    assert "$argon2id$" not in logged
+    assert "Failing row" not in logged

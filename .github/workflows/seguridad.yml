@@ -93,6 +93,12 @@ jobs:
       # CI-only throwaway credentials: the database is ephemeral, lives on
       # this runner and is not reachable from outside. Not a real secret.
       GATEWAY_DATABASE_URL: postgresql+psycopg://gateway:ci-only-throwaway@localhost:5432/gateway_ci
+      # The OpenBao the tests read from is started by docker compose below;
+      # its dev unseal key and AppRole files live only in this runner's
+      # .local/ directory and are never printed.
+      GATEWAY_OPENBAO_ADDR: http://127.0.0.1:8200
+      GATEWAY_OPENBAO_ROLE_ID_FILE: ${{ github.workspace }}/.local/openbao/role-id
+      GATEWAY_OPENBAO_SECRET_ID_FILE: ${{ github.workspace }}/.local/openbao/secret-id
     # Same image and digest as docker-compose.yml. The tests run the
     # migrations themselves (tests/conftest.py), so no extra step is needed.
     services:
@@ -113,6 +119,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # A service container cannot override the command, and OpenBao must run
+      # in server mode (not -dev), so compose starts it with the pinned image
+      # from docker-compose.yml. The POSTGRES_* values are only needed because
+      # compose validates the whole file; the postgres service is not started.
+      - name: Iniciar OpenBao
+        working-directory: ${{ github.workspace }}
+        env:
+          POSTGRES_USER: unused
+          POSTGRES_PASSWORD: unused
+          POSTGRES_DB: unused
+        run: |
+          docker compose up -d --wait openbao
+          scripts/openbao-dev-init.sh
 
       # Same pattern as gitleaks: official release binary pinned by sha256
       # instead of astral-sh/setup-uv, so no extra third-party action runs.

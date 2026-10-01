@@ -37,3 +37,4 @@ Mode: strict, enabled (global user configuration). Runner: `uv run --locked pyte
 
 ## Progress
 - 2026-09-30: T0 done.
+- 2026-09-30: T1-T3 done. Second Gentle AI review (lineage review-31b0605892d8f702) required one correction: `_revoke` retried logout unguarded, so a raw hvac/requests error could replace the keys read (`3210da3`, RED then GREEN, 105 passed); targeted validation approved. Then the setup marker moved after the root revocation proof (`9e61abb`) and a misleading comment fixed (`61caac5`); reviewed and approved. Next: person adds the GATEWAY_OPENBAO_* vars to .env.example, pushes via SSH, PR on request.

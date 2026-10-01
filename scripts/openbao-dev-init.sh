@@ -32,9 +32,17 @@ status_field() { python3 -c 'import json,sys; print(str(json.load(sys.stdin)[sys
 
 unset BAO_TOKEN
 ROOT_TOKEN=""
+ROOT_STILL_VALID=false
+# Revoke the root token and prove it: a lookup with it must fail afterwards.
+# A root token left alive is threat 42, so this never fails silently.
 revoke_root() {
   if [[ -n "$ROOT_TOKEN" ]]; then
-    BAO_TOKEN="$ROOT_TOKEN" bao token revoke -self >/dev/null 2>&1 || true
+    BAO_TOKEN="$ROOT_TOKEN" bao token revoke -self >/dev/null 2>&1 ||
+      echo "WARNING: the root token revoke call failed" >&2
+    if BAO_TOKEN="$ROOT_TOKEN" bao token lookup >/dev/null 2>&1; then
+      echo "ERROR: the root token is still valid; revoke it by hand" >&2
+      ROOT_STILL_VALID=true
+    fi
     ROOT_TOKEN=""
     unset BAO_TOKEN
   fi
@@ -95,7 +103,8 @@ if [[ "$FIRST_SETUP" == "true" ]]; then
   fi
 
   revoke_root
-  echo "Root token revoked"
+  [[ "$ROOT_STILL_VALID" == "false" ]] || exit 1
+  echo "Root token revoked (lookup with it now fails)"
 else
   if [[ ! -s "$STATE_DIR/role-id" || ! -s "$STATE_DIR/secret-id" ]]; then
     echo "Setup is incomplete and the root token is gone. Disposable stack: docker compose down -v, rm -r .local/openbao, rerun. Otherwise generate a root token with 'bao operator generate-root'." >&2

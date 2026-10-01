@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
+from gateway.db import get_engine
 from gateway.main import create_app
 
 URL = "/api/auth/register"
@@ -12,7 +13,10 @@ NON_ASCII = "contraseña-ñandú-密码-🔒🔒"  # noqa: S105
 
 @pytest.fixture
 def client(db_engine):
-    return TestClient(create_app())
+    yield TestClient(create_app())
+    # The app's cached engine keeps pooled connections open; close them so
+    # psycopg does not warn about connections left open at exit.
+    get_engine().dispose()
 
 
 def register(client, username="alice", password=GOOD):

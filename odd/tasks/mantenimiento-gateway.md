@@ -25,8 +25,9 @@ All inline: three small, independent changes with established patterns; no open 
 - [x] **T2**: docs off unless `GATEWAY_DOCS_ENABLED == "true"` (`862894e`). RED: ImportError `create_app`; GREEN: 12 passed.
 - [x] **T3**: `httpx2` 2.13.1 verified on PyPI (pydantic, BSD-3) plus httpcore2 and truststore 0.10.4 (MIT) (`05546d0`). Deprecation warning gone; uv audit 23 packages clean.
 - [x] **T4**: BITACORA closure of #25, #27 entry, pendings updated. ADR 0001 still lists three checks: left as is (out of scope).
-- [ ] **T5**: `revisor-seguridad`.
+- [x] **T5**: `revisor-seguridad` ready (3 low) and Gentle AI review approved (lineage review-466a9a4f0651264d). Fixed: non-exact flag test over all paths (22 passed), import-time comment, `httpx2-jsfetch` (emscripten-only, BSD-3, no repo URL on PyPI: PARTIAL) documented, ADR 0001 pending added.
 - [ ] **T6**: push and PR on request; apply the ruleset after merge on request.
 
 ## Progress
 - 2026-09-30: T0 done.
+- 2026-09-30: T1-T5 done; waiting for push/PR request.

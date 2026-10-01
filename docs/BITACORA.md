@@ -44,6 +44,8 @@ Rama `chore/27-mantenimiento-gateway`. Cierra los pendientes del #25.
 - **Check obligatorio:** `.github/rulesets/main.json` exige `gateway` además de `secretos`, `workflows` y `pruebas`; la prueba del ruleset falló primero y luego pasó. Aplicarlo en GitHub es una operación remota tras la fusión. El ADR 0001 enumera los tres checks originales: no se edita (fuera de alcance); el JSON del ruleset es la fuente de verdad.
 - **Documentación de la API desactivada por defecto:** `/docs`, `/redoc` y `/openapi.json` responden 404 salvo que `GATEWAY_DOCS_ENABLED` valga exactamente `true` (solo desarrollo). `create_app()` construye la aplicación; pruebas de ambos casos (12 en total).
 - **`httpx2` en lugar de `httpx`:** verificado en PyPI (2.13.1, BSD-3-Clause, mantenedor Pydantic Services Inc., enlaza a `pydantic/httpx2`, sin vulnerabilidades registradas). Trae `httpcore2` (mismo repositorio) y `truststore` 0.10.4 (MIT, `sethmlarson/truststore`, activo). El aviso de obsoleto desaparece; `uv audit`: 23 paquetes sin vulnerabilidades conocidas.
+- **Dependencia condicional `httpx2-jsfetch` 1.0** (en `uv.lock`, solo con `sys_platform == 'emscripten'`): transporte de `httpx2` para Pyodide; BSD-3-Clause, autor Hood Chatham, sin vulnerabilidades en PyPI. PyPI no publica su repositorio: verificación PARCIAL. No se instala en Linux ni en CI.
+- **Revisiones:** `revisor-seguridad`, listo para PR sin críticos, altos ni medios; revisión de Gentle AI (4 lentes) aprobada. Corregidos: la prueba de valores no exactos cubre las tres rutas (22 pruebas) y un comentario aclara que la variable se lee al importar (cambiarla exige reiniciar).
 
 ## Pendientes
 
@@ -51,6 +53,7 @@ Rama `chore/27-mantenimiento-gateway`. Cierra los pendientes del #25.
 - [ ] **E3:** añadir a `.claude/settings.json` los comandos de prueba y lint de cada servicio nuevo (los del `gateway` ya están, issue #25).
 - [ ] Verificar las versiones del resto del stack (React, workers, PostgreSQL, RabbitMQ, Vault) antes de fijarlas; las del `gateway` se verificaron en el issue #25.
 - [ ] Aplicar en GitHub el ruleset con `gateway` obligatorio y verificarlo desde la API (operación remota tras fusionar el #27).
+- [ ] Actualizar el ADR 0001 para que liste `gateway` entre los checks obligatorios (el JSON del ruleset ya lo exige; issue #27).
 - [ ] Revisar periódicamente las versiones de `uv`, gitleaks y actionlint fijadas por sha256 en CI: Dependabot no las actualiza (hallazgo del #25).
 - [ ] **E3:** elegir y verificar una lista de contraseñas filtradas y su licencia (ASVS 6.2.12, L2, pendiente hasta entonces).
 - [ ] **E3:** implementar el MFA con TOTP, la recuperación asistida y el arranque del primer administrador (ADR 0004, decisiones 8, 10 y 11), con sus pruebas. Las amenazas 43 a 47 ya están en el modelo.

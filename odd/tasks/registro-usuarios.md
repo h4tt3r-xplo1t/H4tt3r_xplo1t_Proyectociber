@@ -36,7 +36,7 @@ Mode: strict, enabled (global user configuration). Runners: `uv run --locked pyt
 - [x] **T0**: issue #29 created (person authorized), branch, versions verified.
 - [x] **T1**: delegated writer, commits `3120548`..`c47969a`. RED: Alembic `CommandError`, `ModuleNotFoundError: gateway.passwords`; GREEN: 53 passed. Parent spot check on a fresh database: 53 passed, ruff clean.
 - [x] **T2**: BITACORA (#27 closure, ruleset applied, #29 entry) and ADR 0001 four checks.
-- [ ] **T3**: `revisor-seguridad` and fixes.
+- [x] **T3**: `revisor-seguridad` (3 medium, 7 low) and Gentle AI review (lineage review-cc06f3b305ce5398, approved, acknowledged). Fixes by delegated writer `9f8fb5d`..`47d778c` plus parent fix for PostgreSQL DETAIL leak (RED: hash in traceback; GREEN: 67 passed). Deferred to pendings: Unicode normalization (before A2), register rate limit and body cap (E5), readyz (E5), LGPL notice in image (E7).
 - [ ] **T4**: push (person, SSH) and PR on request.
 
 ## Progress

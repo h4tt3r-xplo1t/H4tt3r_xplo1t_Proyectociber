@@ -60,6 +60,7 @@ Rama `feat/29-registro-usuarios`. Primera parte de la autenticación del ADR 000
 - **Enumeración de usuarios:** el 409 revela si un nombre existe; es inherente a un alta abierta. Se mitiga con el límite por IP del Ingress (E5).
 - **Sin valores por defecto:** la URL de la base de datos sale solo de `GATEWAY_DATABASE_URL`; sin ella, las rutas de datos fallan de forma explícita. En CI se usan credenciales desechables y marcadas como tales (base efímera del runner).
 - **TDD:** RED de migraciones (`CommandError` de Alembic) y de registro (`ModuleNotFoundError: gateway.passwords`), luego GREEN: 53 pruebas contra PostgreSQL real; sin la variable, las pruebas de datos fallan con un mensaje claro (no se omiten).
+- **Revisiones:** `revisor-seguridad` y Gentle AI (4 lentes) aprobaron sin críticos ni altos. Corregido antes del PR: `hide_parameters=True` y además ningún error de inserción distinto del duplicado lleva el `DETAIL` de PostgreSQL (la fila con el hash), solo el SQLSTATE; `connect_timeout` de 5 s; como mucho 4 hashes Argon2id a la vez por proceso (19 MiB cada uno en una ruta sin autenticar); las pruebas se niegan a correr contra una base cuyo nombre no termine en `_test` o `_ci` (vacían tablas); la restricción de roles sale de `ROLES`; Alembic funciona desde la terminal. Resultado: 67 pruebas.
 
 ## Pendientes
 
@@ -72,6 +73,11 @@ Rama `feat/29-registro-usuarios`. Primera parte de la autenticación del ADR 000
 - [ ] **E3:** implementar la renovación de sesión de un solo vuelo en el frontend.
 - [ ] **E3:** antes de añadir `pysentimiento`, verificar nombre, mantenedor, licencia y actividad (AGENTS.md §3) y fijar el modelo de Hugging Face por hash de commit (riesgo de deserialización con `torch`) (hallazgo B5 del #15).
 
+### E3: pendientes del registro (issue #29)
+- [ ] Decidir la normalización Unicode de las contraseñas (NFKC u otra) antes del inicio de sesión (A2); sin ella, la misma contraseña escrita desde otro teclado puede no coincidir.
+- [ ] Límite de tasa en `POST /api/auth/register` y tope de tamaño del cuerpo (Ingress, E5); hoy solo hay el límite de 4 hashes simultáneos.
+- [ ] `readyz` que compruebe la base de datos (E5): sin `GATEWAY_DATABASE_URL`, `/healthz` responde pero la API falla.
+
 ### E5: plataforma, red y cifrado
 - [ ] ADR de cifrado dentro del clúster (TLS/mTLS para Vault, PostgreSQL y RabbitMQ), antes de E5.
 - [ ] Decidir el mecanismo de cifrado del secreto TOTP (transit de Vault o cifrado de aplicación), junto con el ADR de red y criptografía (antes de E5).
@@ -79,6 +85,7 @@ Rama `feat/29-registro-usuarios`. Primera parte de la autenticación del ADR 000
 ### E4/E7: CI/CD y cadena de suministro
 - [ ] Modelar la cadena de suministro de CI/CD (E4/E7).
 - [ ] **E7:** referenciar las imágenes por digest, no solo por `vX.Y.Z` y `latest` (hallazgo B4 del #15).
+- [ ] **E7:** la imagen del `gateway` redistribuye `psycopg-binary` (LGPL-3.0 con libpq y OpenSSL empaquetados): incluir el aviso de licencia y declararlo en el SBOM (issue #29).
 
 ### E8: operación
 - [ ] **E8:** respaldo y restauración probados de PostgreSQL y Vault (declarado en `docs/threat-model.md`).

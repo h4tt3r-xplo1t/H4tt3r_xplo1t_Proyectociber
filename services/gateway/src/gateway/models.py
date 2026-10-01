@@ -16,7 +16,7 @@ class User(Base):
     __tablename__ = "users"
     __table_args__ = (
         CheckConstraint(
-            "role IN ('lector', 'editor', 'auditor', 'administrador')",
+            "role IN (" + ", ".join(f"'{role}'" for role in ROLES) + ")",
             name="users_role_check",
         ),
     )

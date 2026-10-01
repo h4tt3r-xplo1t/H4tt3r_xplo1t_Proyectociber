@@ -3,6 +3,7 @@ from alembic import command
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 
+from gateway.models import ROLES
 from tests.conftest import alembic_config
 
 
@@ -40,9 +41,24 @@ def test_role_defaults_to_lector(db_engine):
 
 def test_downgrade_then_upgrade_works(migrated_db):
     cfg = alembic_config()
-    command.downgrade(cfg, "base")
     engine = create_engine(migrated_db)
-    assert "users" not in inspect(engine).get_table_names()
-    command.upgrade(cfg, "head")
-    assert "users" in inspect(engine).get_table_names()
-    engine.dispose()
+    try:
+        command.downgrade(cfg, "base")
+        assert "users" not in inspect(engine).get_table_names()
+    finally:
+        command.upgrade(cfg, "head")
+        assert "users" in inspect(engine).get_table_names()
+        engine.dispose()
+
+
+def test_role_constraint_accepts_exactly_the_model_roles(db_engine):
+    insert = text(
+        "INSERT INTO users (id, username, password_hash, role) "
+        "VALUES (gen_random_uuid(), :u, 'x', :r)"
+    )
+    for index, role in enumerate(ROLES):
+        with db_engine.begin() as conn:
+            conn.execute(insert, {"u": f"user-{index}", "r": role})
+
+    with pytest.raises(IntegrityError), db_engine.begin() as conn:
+        conn.execute(insert, {"u": "intruder", "r": "not-a-role"})

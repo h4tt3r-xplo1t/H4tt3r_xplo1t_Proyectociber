@@ -78,6 +78,16 @@ def test_duplicate_username_returns_generic_409(client):
     assert response.json() == {"detail": "Username not available"}
 
 
+def test_role_in_the_body_is_rejected_and_no_user_is_created(client, db_engine):
+    response = client.post(
+        URL, json={"username": "mallory", "password": GOOD, "role": "administrador"}
+    )
+
+    assert response.status_code == 422
+    with db_engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM users")).scalar_one() == 0
+
+
 def test_password_never_appears_in_error_bodies(client):
     secret = "q" * 14  # too short, so the request is rejected
     response = register(client, password=secret)

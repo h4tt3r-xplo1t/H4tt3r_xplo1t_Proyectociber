@@ -128,12 +128,13 @@ if [[ "$FIRST_SETUP" == "true" ]]; then
       bao kv put -mount=secret gateway/csrf key=- >/dev/null
   fi
 
-  # Written only after every step above succeeded: its absence marks a
-  # partial setup even when role-id and secret-id already exist.
-  : >"$STATE_DIR/setup-complete"
-
   revoke_root || exit 1
   echo "Root token revoked (lookup with it answers 403 permission denied)"
+
+  # Written only after every step above succeeded, root revocation proof
+  # included: its absence marks a partial setup even when role-id and
+  # secret-id already exist, so a root token left alive is never "set up".
+  : >"$STATE_DIR/setup-complete"
 else
   if [[ ! -s "$STATE_DIR/role-id" || ! -s "$STATE_DIR/secret-id" || ! -e "$STATE_DIR/setup-complete" ]]; then
     echo "Setup is incomplete and the root token is gone. Disposable stack: docker compose down -v, remove the files in $STATE_DIR, rerun. Otherwise generate a root token with 'bao operator generate-root'." >&2

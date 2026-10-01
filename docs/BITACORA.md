@@ -62,6 +62,37 @@ Rama `feat/29-registro-usuarios`. Primera parte de la autenticación del ADR 000
 - **TDD:** RED de migraciones (`CommandError` de Alembic) y de registro (`ModuleNotFoundError: gateway.passwords`), luego GREEN: 53 pruebas contra PostgreSQL real; sin la variable, las pruebas de datos fallan con un mensaje claro (no se omiten).
 - **Revisiones:** `revisor-seguridad` y Gentle AI (4 lentes) aprobaron sin críticos ni altos. Corregido antes del PR: `hide_parameters=True` y además ningún error de inserción distinto del duplicado lleva el `DETAIL` de PostgreSQL (la fila con el hash), solo el SQLSTATE; `connect_timeout` de 5 s; como mucho 4 hashes Argon2id a la vez por proceso (19 MiB cada uno en una ruta sin autenticar); las pruebas se niegan a correr contra una base cuyo nombre no termine en `_test` o `_ci` (vacían tablas); la restricción de roles sale de `ROLES`; Alembic funciona desde la terminal. Resultado: 67 pruebas.
 
+- **Cierre:** PR #30 fusionado con squash como `e87b521`; issue #29 cerrado. Push por SSH (la rama cambiaba el workflow); en CI corrieron las 67 pruebas contra el contenedor de PostgreSQL.
+
+## 2026-09-30 · Issue #31: OpenBao para los secretos del gateway
+
+Rama `feat/31-openbao-secretos`. Paso previo al inicio de sesión (A2): las claves de JWT y CSRF salen de un gestor de secretos. Decisión registrada en el [ADR 0005](adr/0005-openbao-gestor-secretos.md).
+
+- **Decisiones de la persona:**
+  - Gestor de secretos ya, sin pasar por archivos ni por variables de entorno.
+  - **OpenBao** en lugar de HashiCorp Vault: el `LICENSE` de Vault es la BSL 1.1 desde la versión 1.15, y el enunciado espera MPL 2.0.
+  - **Modo servidor**, nunca dev (amenaza 42).
+- **Verificado (2026-09-30):**
+  - OpenBao 2.7.0 (MPL-2.0); la imagen tiene el mismo digest en ghcr.io, quay.io y Docker Hub.
+  - `hvac` 2.4.0 (Apache-2.0), que trae `requests`. OpenBao no está en su matriz de pruebas: la compatibilidad se demuestra con pruebas de integración contra OpenBao real.
+- **Almacenamiento `raft` de un nodo:** OpenBao 2.7 ya no tiene `file`.
+- **Script `scripts/openbao-dev-init.sh` (solo desarrollo e idempotente):**
+  - Inicializa con una parte de la clave de desbloqueo y desbloquea.
+  - Habilita KV v2 y AppRole.
+  - Política de solo lectura sobre `secret/data/gateway/*`.
+  - Claves aleatorias de 32 bytes, creadas solo si faltan.
+  - Credenciales en `.local/openbao/` (ignorado por git, 0700/0600).
+  - El token root solo vive en una variable del script.
+  - La revocación del root era «best effort» (`|| true`); ahora se comprueba que una consulta con él falla, o el script termina con error.
+- **Cliente:** `gateway.secrets` entra con AppRole, valida que las claves tengan al menos 32 bytes y un `kid`, y falla cerrado con mensajes fijos que nunca incluyen material secreto. Aún no lo usa ninguna ruta (A2).
+- **Pruebas (TDD):** RED `ModuleNotFoundError: gateway.secrets` y luego GREEN. Total: 86 pruebas.
+  - Lectura correcta.
+  - Escritura denegada, y lectura de otra ruta denegada, con el token del gateway.
+  - `secret_id` incorrecto y OpenBao inalcanzable fallan cerrado.
+  - Comprobado de punta a punta por el orquestador sobre una pila nueva: dos ejecuciones del script y 86 pruebas.
+- **CI:** el job `gateway` levanta OpenBao con docker compose (los contenedores de servicio no permiten cambiar el comando) y ejecuta el script.
+- **Riesgos de desarrollo aceptados (ADR 0005):** una sola parte de la clave de desbloqueo, `secret_id` sin caducidad y listener sin TLS publicado solo en 127.0.0.1.
+
 ## Pendientes
 
 ### E3: primer flujo (búsqueda por tema) y autenticación
@@ -78,6 +109,11 @@ Rama `feat/29-registro-usuarios`. Primera parte de la autenticación del ADR 000
 - [ ] Límite de tasa en `POST /api/auth/register` y tope de tamaño del cuerpo (Ingress, E5); hoy solo hay el límite de 4 hashes simultáneos.
 - [ ] `readyz` que compruebe la base de datos (E5): sin `GATEWAY_DATABASE_URL`, `/healthz` responde pero la API falla.
 - [ ] **A2:** tiempo máximo de espera en el semáforo de Argon2id (hoy espera sin límite) y respuesta 503 al agotarlo, antes de que el login comparta el semáforo con el registro (aviso de la revisión del #29).
+
+### OpenBao (issue #31)
+- [ ] Llevar a OpenBao las credenciales de PostgreSQL (hoy en variables de entorno).
+- [ ] Rotación de la clave JWT con `kid` y custodia de las claves de desbloqueo fuera de desarrollo.
+- [ ] TLS del listener de OpenBao junto con el ADR de cifrado interno.
 
 ### E5: plataforma, red y cifrado
 - [ ] ADR de cifrado dentro del clúster (TLS/mTLS para Vault, PostgreSQL y RabbitMQ), antes de E5.

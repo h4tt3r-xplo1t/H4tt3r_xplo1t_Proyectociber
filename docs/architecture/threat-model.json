@@ -2434,7 +2434,7 @@
                   "severity": "High",
                   "type": "Information disclosure / Brecha de información",
                   "description": "El modo dev de Vault guarda todo en memoria y arranca desellado con un token raíz conocido; unas claves de desellado o un token raíz filtrados dan acceso a todos los secretos.",
-                  "mitigation": "Modo dev solo en pruebas locales, nunca en el entorno de producción simulado; token raíz revocado tras la configuración inicial; claves de desellado fuera del repositorio con custodia documentada. Verificación: comprobación en el despliegue de que Vault arranca sellado y de que no existe token raíz activo.",
+                  "mitigation": "Modo dev solo en pruebas locales, nunca en el entorno de producción simulado; token raíz revocado tras la configuración inicial; claves de desellado fuera del repositorio con custodia documentada. Desarrollo y CI (issue #31, ADR 0005): OpenBao en modo servidor, nunca dev; el script de inicialización revoca el token raíz y comprueba que una consulta con él falla; la clave de desellado de desarrollo vive en `.local/` (ignorado por git, permisos 0600). Pendiente: custodia de las claves de desellado fuera de desarrollo. Verificación: comprobación en el despliegue de que Vault arranca sellado y de que no existe token raíz activo.",
                   "modelType": "STRIDE",
                   "new": false,
                   "number": 42,

@@ -120,8 +120,9 @@ def _check_address(addr: str) -> None:
 def login(addr: str, role_id: str, secret_id: str):
     """Return an hvac client authenticated with AppRole."""
     _check_address(addr)
-    # token=None on purpose: hvac would otherwise pick up VAULT_TOKEN from the
-    # environment, and this client must only ever hold its own AppRole token.
+    # hvac copies VAULT_TOKEN (or ~/.vault-token) into the client even with
+    # token=None, so the token is cleared explicitly right after: this client
+    # must only ever hold its own AppRole token.
     client = hvac.Client(url=addr, token=None, timeout=REQUEST_TIMEOUT_SECONDS)
     client.token = None
     authenticated = False

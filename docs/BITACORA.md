@@ -47,13 +47,25 @@ Rama `chore/27-mantenimiento-gateway`. Cierra los pendientes del #25.
 - **Dependencia condicional `httpx2-jsfetch` 1.0** (en `uv.lock`, solo con `sys_platform == 'emscripten'`): transporte de `httpx2` para Pyodide; BSD-3-Clause, autor Hood Chatham, sin vulnerabilidades en PyPI. PyPI no publica su repositorio: verificación PARCIAL. No se instala en Linux ni en CI.
 - **Revisiones:** `revisor-seguridad`, listo para PR sin críticos, altos ni medios; revisión de Gentle AI (4 lentes) aprobada. Corregidos: la prueba de valores no exactos cubre las tres rutas (22 pruebas) y un comentario aclara que la variable se lee al importar (cambiarla exige reiniciar).
 
+- **Cierre:** PR #28 fusionado con squash como `8ea3b1b`; issue #27 cerrado. Con autorización de la persona, el ruleset se aplicó con `gh api -X PUT` sobre `protege` (id 24097824): exige `secretos`, `workflows`, `pruebas` y `gateway` (app 15368). La única diferencia entre la regla anterior y la nueva es `gateway`; los campos `require_extra_approval_for_unattributed_changes` y `required_reviewers` los añade GitHub por defecto y ya estaban.
+
+## 2026-09-30 · Issue #29: E3, registro de usuarios (autenticación A1)
+
+Rama `feat/29-registro-usuarios`. Primera parte de la autenticación del ADR 0004; el inicio de sesión y las sesiones van en A2.
+
+- **Decisiones de la persona:** SQLAlchemy 2 con Alembic (síncrono, psycopg 3); PostgreSQL con Docker Compose en local y un contenedor de servicio en CI, ambos con `postgres:18.6-alpine` fijado por digest (`sha256:77f5851…a1873`, igual en la API de Docker Hub y en el registro).
+- **Dependencias verificadas (2026-09-30):** SQLAlchemy 2.1.1 y Alembic 1.20.0 (MIT), psycopg 3.3.6 con `binary` (LGPL-3.0-only: se usa como biblioteca importada, compatible con distribuir bajo Apache-2.0), argon2-cffi 25.1.0 (MIT). `uv audit`: 34 paquetes sin vulnerabilidades conocidas.
+- **Registro:** `POST /api/auth/register` con nombre de usuario (3 a 32, `[a-z0-9_.-]`) y sin correo (minimización de datos; recuperación asistida, decisión 10). Contraseña de 15 a 128 caracteres, cualquier carácter, sin reglas de composición; Argon2id con m=19456, t=2, p=1. Responde 201 con `id`, `username` y `role`; 409 genérico si el nombre existe (se apoya en la restricción `UNIQUE`, sin carrera).
+- **Fuga evitada:** el manejador 422 por defecto de FastAPI devuelve el valor rechazado, incluida la contraseña; se comprobó con las pruebas y se sustituyó por uno que solo dice qué campo falló y por qué.
+- **Enumeración de usuarios:** el 409 revela si un nombre existe; es inherente a un alta abierta. Se mitiga con el límite por IP del Ingress (E5).
+- **Sin valores por defecto:** la URL de la base de datos sale solo de `GATEWAY_DATABASE_URL`; sin ella, las rutas de datos fallan de forma explícita. En CI se usan credenciales desechables y marcadas como tales (base efímera del runner).
+- **TDD:** RED de migraciones (`CommandError` de Alembic) y de registro (`ModuleNotFoundError: gateway.passwords`), luego GREEN: 53 pruebas contra PostgreSQL real; sin la variable, las pruebas de datos fallan con un mensaje claro (no se omiten).
+
 ## Pendientes
 
 ### E3: primer flujo (búsqueda por tema) y autenticación
 - [ ] **E3:** añadir a `.claude/settings.json` los comandos de prueba y lint de cada servicio nuevo (los del `gateway` ya están, issue #25).
 - [ ] Verificar las versiones del resto del stack (React, workers, PostgreSQL, RabbitMQ, Vault) antes de fijarlas; las del `gateway` se verificaron en el issue #25.
-- [ ] Aplicar en GitHub el ruleset con `gateway` obligatorio y verificarlo desde la API (operación remota tras fusionar el #27).
-- [ ] Actualizar el ADR 0001 para que liste `gateway` entre los checks obligatorios (el JSON del ruleset ya lo exige; issue #27).
 - [ ] Revisar periódicamente las versiones de `uv`, gitleaks y actionlint fijadas por sha256 en CI: Dependabot no las actualiza (hallazgo del #25).
 - [ ] **E3:** elegir y verificar una lista de contraseñas filtradas y su licencia (ASVS 6.2.12, L2, pendiente hasta entonces).
 - [ ] **E3:** implementar el MFA con TOTP, la recuperación asistida y el arranque del primer administrador (ADR 0004, decisiones 8, 10 y 11), con sus pruebas. Las amenazas 43 a 47 ya están en el modelo.
@@ -97,3 +109,4 @@ Rama `chore/27-mantenimiento-gateway`. Cierra los pendientes del #25.
 - [x] **E1 (issue #18, PR #19):** DFD de nivel 0 y 1 en Threat Dragon, 42 amenazas iniciales, PNG exportados y revisión de seguridad.
 - [x] **ADR 0004 (issue #20, PR #21):** autenticación y autorización; modelo ampliado a 47 amenazas.
 - [x] **E2 (issue #25, PR #26):** esqueleto del `gateway` con `uv.lock`, lint y pruebas en CI.
+- [x] **Issue #27 (PR #28):** `gateway` obligatorio en el ruleset (aplicado en GitHub el 2026-09-30 y verificado desde la API), documentación de la API desactivada por defecto y `httpx2`. ADR 0001 actualizado en el issue #29.

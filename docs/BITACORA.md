@@ -77,6 +77,7 @@ Rama `feat/29-registro-usuarios`. Primera parte de la autenticación del ADR 000
 - [ ] Decidir la normalización Unicode de las contraseñas (NFKC u otra) antes del inicio de sesión (A2); sin ella, la misma contraseña escrita desde otro teclado puede no coincidir.
 - [ ] Límite de tasa en `POST /api/auth/register` y tope de tamaño del cuerpo (Ingress, E5); hoy solo hay el límite de 4 hashes simultáneos.
 - [ ] `readyz` que compruebe la base de datos (E5): sin `GATEWAY_DATABASE_URL`, `/healthz` responde pero la API falla.
+- [ ] **A2:** tiempo máximo de espera en el semáforo de Argon2id (hoy espera sin límite) y respuesta 503 al agotarlo, antes de que el login comparta el semáforo con el registro (aviso de la revisión del #29).
 
 ### E5: plataforma, red y cifrado
 - [ ] ADR de cifrado dentro del clúster (TLS/mTLS para Vault, PostgreSQL y RabbitMQ), antes de E5.

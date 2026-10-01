@@ -66,8 +66,8 @@ check "solo fusion por squash" \
   "$(rule pull_request) | .parameters.allowed_merge_methods == [\"squash\"]"
 check "checks con rama actualizada (strict)" \
   "$(rule required_status_checks) | .parameters.strict_required_status_checks_policy == true"
-check "checks requeridos: secretos, workflows, pruebas" \
-  "$(rule required_status_checks) | [.parameters.required_status_checks[].context] | sort == [\"pruebas\",\"secretos\",\"workflows\"]"
+check "checks requeridos: secretos, workflows, pruebas, gateway" \
+  "$(rule required_status_checks) | [.parameters.required_status_checks[].context] | sort == [\"gateway\",\"pruebas\",\"secretos\",\"workflows\"]"
 check "cada check fijado a GitHub Actions (integration_id $GITHUB_ACTIONS_APP_ID)" \
   "$(rule required_status_checks) | all(.parameters.required_status_checks[]; .integration_id == $GITHUB_ACTIONS_APP_ID)"
 check "sin reglas que bloquean todo cambio o apuntan a herramientas inexistentes" \

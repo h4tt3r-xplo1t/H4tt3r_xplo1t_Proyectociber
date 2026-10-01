@@ -32,7 +32,8 @@
         "required_status_checks": [
           { "context": "secretos", "integration_id": 15368 },
           { "context": "workflows", "integration_id": 15368 },
-          { "context": "pruebas", "integration_id": 15368 }
+          { "context": "pruebas", "integration_id": 15368 },
+          { "context": "gateway", "integration_id": 15368 }
         ]
       }
     }

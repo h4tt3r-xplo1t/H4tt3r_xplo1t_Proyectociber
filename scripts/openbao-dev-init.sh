@@ -12,10 +12,11 @@
 #   unseal-key  to unseal after a restart
 #   role-id     AppRole role_id of the gateway
 #   secret-id   AppRole secret_id of the gateway (no expiry in dev)
+#   setup-complete  marker written after every first-setup step succeeded
 #
 # Recovery: if the setup is interrupted after init, the root token is gone.
-# For a disposable dev stack run `docker compose down -v`, delete .local/openbao
-# and run this script again.
+# For a disposable dev stack run `docker compose down -v`, delete the files in
+# .local/openbao and run this script again.
 set -euo pipefail
 umask 077
 
@@ -32,22 +33,31 @@ status_field() { python3 -c 'import json,sys; print(str(json.load(sys.stdin)[sys
 
 unset BAO_TOKEN
 ROOT_TOKEN=""
-ROOT_STILL_VALID=false
-# Revoke the root token and prove it: a lookup with it must fail afterwards.
-# A root token left alive is threat 42, so this never fails silently.
+# Revoke the root token and prove it. Proof means OpenBao itself answered the
+# lookup with an explicit denial (HTTP 403 "permission denied"). Any other
+# failure (docker, network, sealed server) proves nothing, so it counts as
+# "not verified" and fails. A root token left alive is threat 42.
+# Returns 0 only when revocation is proven; the EXIT trap calls it again as a
+# best-effort safety net and turns a failure into a non-zero exit.
 revoke_root() {
-  if [[ -n "$ROOT_TOKEN" ]]; then
-    BAO_TOKEN="$ROOT_TOKEN" bao token revoke -self >/dev/null 2>&1 ||
-      echo "WARNING: the root token revoke call failed" >&2
-    if BAO_TOKEN="$ROOT_TOKEN" bao token lookup >/dev/null 2>&1; then
-      echo "ERROR: the root token is still valid; revoke it by hand" >&2
-      ROOT_STILL_VALID=true
-    fi
-    ROOT_TOKEN=""
-    unset BAO_TOKEN
+  [[ -n "$ROOT_TOKEN" ]] || return 0
+  local out
+  if ! BAO_TOKEN="$ROOT_TOKEN" bao token revoke -self >/dev/null 2>&1; then
+    echo "ERROR: the root token revoke call failed (or it was already revoked); verify by hand" >&2
+    return 1
   fi
+  if out=$(BAO_TOKEN="$ROOT_TOKEN" bao token lookup 2>&1); then
+    echo "ERROR: the root token is still valid; revoke it by hand" >&2
+    return 1
+  fi
+  if [[ "$out" != *"Code: 403"* || "$out" != *"permission denied"* ]]; then
+    echo "ERROR: could not verify the root token revocation (no explicit permission-denied answer from OpenBao); check it by hand" >&2
+    return 1
+  fi
+  ROOT_TOKEN=""
+  unset BAO_TOKEN
 }
-trap revoke_root EXIT
+trap 'revoke_root || exit 1' EXIT
 
 # Wait until the API answers (an uninitialised or sealed server still answers).
 for _ in $(seq 1 30); do
@@ -61,9 +71,11 @@ FIRST_SETUP=false
 if [[ "$(status_field initialized <<<"$STATUS")" == "false" ]]; then
   echo "Initialising OpenBao (1 key share, development only)"
   INIT_JSON=$(bao operator init -key-shares=1 -key-threshold=1 -format=json)
-  python3 -c 'import json,sys; sys.stdout.write(json.load(sys.stdin)["unseal_keys_b64"][0])' \
-    <<<"$INIT_JSON" >"$STATE_DIR/unseal-key"
-  ROOT_TOKEN=$(python3 -c 'import json,sys; sys.stdout.write(json.load(sys.stdin)["root_token"])' <<<"$INIT_JSON")
+  printf '%s' "$INIT_JSON" |
+    python3 -c 'import json,sys; sys.stdout.write(json.load(sys.stdin)["unseal_keys_b64"][0])' \
+      >"$STATE_DIR/unseal-key"
+  ROOT_TOKEN=$(printf '%s' "$INIT_JSON" |
+    python3 -c 'import json,sys; sys.stdout.write(json.load(sys.stdin)["root_token"])')
   INIT_JSON=""
   FIRST_SETUP=true
 fi
@@ -76,6 +88,20 @@ if [[ "$(status_field sealed <<<"$(bao_status)")" == "true" ]]; then
   docker compose exec -T openbao sh -c 'bao operator unseal "$(cat)"' \
     <"$STATE_DIR/unseal-key" >/dev/null
 fi
+
+# Raft elects itself leader a moment after unsealing; mutating calls before
+# that fail or hit a standby. Wait (bounded) until this node is the active one.
+LEADER=false
+for _ in $(seq 1 30); do
+  CURRENT=$(bao_status)
+  if [[ -n "$CURRENT" && "$(status_field sealed <<<"$CURRENT")" == "false" &&
+    "$(status_field is_self <<<"$CURRENT")" == "true" ]]; then
+    LEADER=true
+    break
+  fi
+  sleep 1
+done
+[[ "$LEADER" == "true" ]] || { echo "OpenBao did not become the active (leader) node within 30 s" >&2; exit 1; }
 
 if [[ "$FIRST_SETUP" == "true" ]]; then
   export BAO_TOKEN="$ROOT_TOKEN"
@@ -102,12 +128,15 @@ if [[ "$FIRST_SETUP" == "true" ]]; then
       bao kv put -mount=secret gateway/csrf key=- >/dev/null
   fi
 
-  revoke_root
-  [[ "$ROOT_STILL_VALID" == "false" ]] || exit 1
-  echo "Root token revoked (lookup with it now fails)"
+  # Written only after every step above succeeded: its absence marks a
+  # partial setup even when role-id and secret-id already exist.
+  : >"$STATE_DIR/setup-complete"
+
+  revoke_root || exit 1
+  echo "Root token revoked (lookup with it answers 403 permission denied)"
 else
-  if [[ ! -s "$STATE_DIR/role-id" || ! -s "$STATE_DIR/secret-id" ]]; then
-    echo "Setup is incomplete and the root token is gone. Disposable stack: docker compose down -v, rm -r .local/openbao, rerun. Otherwise generate a root token with 'bao operator generate-root'." >&2
+  if [[ ! -s "$STATE_DIR/role-id" || ! -s "$STATE_DIR/secret-id" || ! -e "$STATE_DIR/setup-complete" ]]; then
+    echo "Setup is incomplete and the root token is gone. Disposable stack: docker compose down -v, remove the files in $STATE_DIR, rerun. Otherwise generate a root token with 'bao operator generate-root'." >&2
     exit 1
   fi
   echo "Already set up: nothing to do"

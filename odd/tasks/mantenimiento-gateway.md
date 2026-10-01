@@ -21,10 +21,10 @@ All inline: three small, independent changes with established patterns; no open 
 
 ## Tasks
 - [x] **T0**: issue #27 created (person authorized), branch created.
-- [ ] **T1**: ruleset requires `gateway` (test first).
-- [ ] **T2**: docs routes off by default, enabled by env var (tests first).
-- [ ] **T3**: `httpx2` verified and swapped; lockfile regenerated.
-- [ ] **T4**: BITACORA closure of #25 and pendings.
+- [x] **T1**: ruleset requires `gateway` (`528e5f4`). RED: 15 cases, 1 failed; GREEN: 0 failed.
+- [x] **T2**: docs off unless `GATEWAY_DOCS_ENABLED == "true"` (`862894e`). RED: ImportError `create_app`; GREEN: 12 passed.
+- [x] **T3**: `httpx2` 2.13.1 verified on PyPI (pydantic, BSD-3) plus httpcore2 and truststore 0.10.4 (MIT) (`05546d0`). Deprecation warning gone; uv audit 23 packages clean.
+- [x] **T4**: BITACORA closure of #25, #27 entry, pendings updated. ADR 0001 still lists three checks: left as is (out of scope).
 - [ ] **T5**: `revisor-seguridad`.
 - [ ] **T6**: push and PR on request; apply the ruleset after merge on request.
 

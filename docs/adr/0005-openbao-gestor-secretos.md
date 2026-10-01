@@ -35,7 +35,8 @@ La tomó la persona responsable el 2026-09-30:
    - una sola parte de la clave de desbloqueo, guardada fuera del repositorio con permisos 0600;
    - KV v2 y AppRole habilitados;
    - claves aleatorias de al menos 256 bits;
-   - el token root revocado al terminar, y comprobado: una consulta con él debe fallar después, o el script termina con error.
+   - el token root revocado al terminar, y comprobado: solo cuenta como revocado un `403 permission denied` explícito; cualquier otro fallo (contenedor caído, red) hace terminar el script con error;
+   - un marcador `setup-complete` que solo se escribe si toda la configuración terminó, y una espera a que el nodo `raft` sea el líder antes de configurar.
 5. **Acceso del gateway** mediante AppRole, con una política de solo lectura sobre `secret/data/gateway/*`.
 6. **Cliente** `hvac` 2.4.0 (Apache-2.0). Su compatibilidad con OpenBao se demuestra con pruebas de integración contra un OpenBao real. Si fallara, se sustituye por llamadas HTTP directas a los dos endpoints necesarios.
 

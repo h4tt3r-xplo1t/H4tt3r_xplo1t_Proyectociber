@@ -242,7 +242,11 @@ def login(
             _log_event("account_locked", subject, now, logging.WARNING)
         raise _login_failed()
 
-    session.delete(attempt)
+    # Reset in place instead of deleting: a request queued on this row's lock
+    # would otherwise wake up to a missing row.
+    attempt.failures = 0
+    attempt.locked_until = None
+    attempt.updated_at = now
     session.commit()
     token, claims = issue_access_token(user.id, user.role, keys, now)
     response.set_cookie(

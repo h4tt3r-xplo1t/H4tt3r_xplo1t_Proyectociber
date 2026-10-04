@@ -104,3 +104,93 @@ def test_login_attempts_downgrade_to_previous_revision_drops_only_that_table(
         command.upgrade(cfg, "head")
         assert "login_attempts" in inspect(engine).get_table_names()
         engine.dispose()
+
+
+def test_upgrade_creates_refresh_tokens(migrated_db):
+    engine = create_engine(migrated_db)
+    try:
+        inspector = inspect(engine)
+        columns = {c["name"]: c for c in inspector.get_columns("refresh_tokens")}
+        foreign_keys = inspector.get_foreign_keys("refresh_tokens")
+        unique = inspector.get_unique_constraints("refresh_tokens")
+        indexes = inspector.get_indexes("refresh_tokens")
+    finally:
+        engine.dispose()
+
+    assert set(columns) == {"id", "family_id", "token_hash", "created_at", "used_at"}
+    assert columns["used_at"]["nullable"] is True
+    assert columns["token_hash"]["nullable"] is False
+    (fk,) = foreign_keys
+    assert fk["referred_table"] == "refresh_families"
+    assert fk["options"]["ondelete"] == "CASCADE"
+    assert any(u["column_names"] == ["token_hash"] for u in unique) or any(
+        i["column_names"] == ["token_hash"] and i["unique"] for i in indexes
+    )
+    assert any(i["column_names"] == ["family_id"] for i in indexes)
+
+
+def test_refresh_token_hash_is_unique_and_cascades_with_the_family(db_engine):
+    with db_engine.begin() as conn:
+        user_id = conn.execute(
+            text(
+                "INSERT INTO users (id, username, password_hash) "
+                "VALUES (gen_random_uuid(), 'carol', 'x') RETURNING id"
+            )
+        ).scalar_one()
+        family_id = conn.execute(
+            text("INSERT INTO refresh_families (user_id) VALUES (:u) RETURNING id"),
+            {"u": user_id},
+        ).scalar_one()
+        conn.execute(
+            text(
+                "INSERT INTO refresh_tokens (family_id, token_hash) "
+                "VALUES (:f, 'hash-1')"
+            ),
+            {"f": family_id},
+        )
+
+    with pytest.raises(IntegrityError), db_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO refresh_tokens (family_id, token_hash) "
+                "VALUES (:f, 'hash-1')"
+            ),
+            {"f": family_id},
+        )
+
+    with db_engine.begin() as conn:
+        conn.execute(text("DELETE FROM refresh_families"))
+        remaining = conn.execute(text("SELECT count(*) FROM refresh_tokens")).scalar()
+    assert remaining == 0
+
+
+def test_upgrade_creates_revoked_jtis(migrated_db):
+    engine = create_engine(migrated_db)
+    try:
+        inspector = inspect(engine)
+        columns = {c["name"]: c for c in inspector.get_columns("revoked_jtis")}
+        primary_key = inspector.get_pk_constraint("revoked_jtis")
+        indexes = inspector.get_indexes("revoked_jtis")
+    finally:
+        engine.dispose()
+
+    assert set(columns) == {"jti", "expires_at"}
+    assert primary_key["constrained_columns"] == ["jti"]
+    assert columns["expires_at"]["nullable"] is False
+    assert any(i["column_names"] == ["expires_at"] for i in indexes)
+
+
+def test_session_tables_downgrade_to_0002_drops_only_them(migrated_db):
+    cfg = alembic_config()
+    engine = create_engine(migrated_db)
+    try:
+        command.downgrade(cfg, "0002")
+        tables = set(inspect(engine).get_table_names())
+        assert "refresh_tokens" not in tables
+        assert "revoked_jtis" not in tables
+        assert {"refresh_families", "login_attempts"} <= tables
+    finally:
+        command.upgrade(cfg, "head")
+        tables = set(inspect(engine).get_table_names())
+        assert {"refresh_tokens", "revoked_jtis"} <= tables
+        engine.dispose()

@@ -57,6 +57,10 @@ def issue_access_token(
 
 def decode_access_token(token: str, keys: GatewayKeys) -> dict:
     """Verify signature, algorithm, kid, iss, aud, times and required claims."""
+    # Settings are read outside the try: a missing issuer or audience is a
+    # server misconfiguration (500), not a client authentication failure (401).
+    issuer = get_jwt_issuer()
+    audience = get_jwt_audience()
     claims = None
     try:
         header = jwt.get_unverified_header(token)
@@ -67,12 +71,12 @@ def decode_access_token(token: str, keys: GatewayKeys) -> dict:
                 token,
                 keys.jwt_key,
                 algorithms=[ALGORITHM],
-                audience=get_jwt_audience(),
-                issuer=get_jwt_issuer(),
+                audience=audience,
+                issuer=issuer,
                 leeway=LEEWAY_SECONDS,
                 options={"require": list(REQUIRED_CLAIMS)},
             )
-    except Exception:
+    except jwt.PyJWTError:
         claims = None
     if claims is None:
         raise InvalidToken

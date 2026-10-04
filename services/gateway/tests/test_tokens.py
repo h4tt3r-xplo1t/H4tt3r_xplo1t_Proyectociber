@@ -368,3 +368,17 @@ def test_csrf_with_a_malformed_issued_at_is_rejected(stamp):
     junk = f"{random_part}.{stamp}.{mac}"
 
     assert not check_csrf(junk, junk, "sid-1", KEYS.csrf_key, now(), 600)
+
+
+# --- configuration errors are not authentication failures -----------------
+
+
+@pytest.mark.parametrize("name", ["GATEWAY_JWT_ISSUER", "GATEWAY_JWT_AUDIENCE"])
+def test_missing_claim_settings_raise_a_server_error_not_invalid_token(
+    name, monkeypatch
+):
+    token, _ = issue_access_token(USER_ID, "lector", KEYS, now())
+    monkeypatch.delenv(name)
+
+    with pytest.raises(RuntimeError, match=f"^{name} is not set$"):
+        decode_access_token(token, KEYS)

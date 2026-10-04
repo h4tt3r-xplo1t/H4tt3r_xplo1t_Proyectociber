@@ -4,7 +4,9 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from gateway.auth import LoginBusy, log_service_busy
 from gateway.auth import router as auth_router
+from gateway.passwords import HashingBusy
 
 
 def create_app() -> FastAPI:
@@ -34,6 +36,20 @@ def create_app() -> FastAPI:
             for e in exc.errors()
         ]
         return JSONResponse(status_code=422, content={"detail": errors})
+
+    busy_body = {"detail": "Service busy; try again later"}
+
+    # Two causes, one answer: clients must not tell them apart, so the cause
+    # only goes to the security log.
+    @app.exception_handler(HashingBusy)
+    async def hashing_busy(request: Request, exc: HashingBusy) -> JSONResponse:
+        log_service_busy("hash_saturated")
+        return JSONResponse(status_code=503, content=busy_body)
+
+    @app.exception_handler(LoginBusy)
+    async def login_busy(request: Request, exc: LoginBusy) -> JSONResponse:
+        log_service_busy("attempt_row_locked")
+        return JSONResponse(status_code=503, content=busy_body)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

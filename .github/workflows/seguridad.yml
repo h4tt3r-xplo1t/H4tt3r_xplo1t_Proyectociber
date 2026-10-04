@@ -99,6 +99,10 @@ jobs:
       GATEWAY_OPENBAO_ADDR: http://127.0.0.1:8200
       GATEWAY_OPENBAO_ROLE_ID_FILE: ${{ github.workspace }}/.local/openbao/role-id
       GATEWAY_OPENBAO_SECRET_ID_FILE: ${{ github.workspace }}/.local/openbao/secret-id
+      # Fake CI values for the token claims and the Origin check; not secrets.
+      GATEWAY_JWT_ISSUER: h4tt3r-gateway-ci
+      GATEWAY_JWT_AUDIENCE: h4tt3r-web-ci
+      GATEWAY_ALLOWED_ORIGIN: https://testserver
     # Same image and digest as docker-compose.yml. The tests run the
     # migrations themselves (tests/conftest.py), so no extra step is needed.
     services:

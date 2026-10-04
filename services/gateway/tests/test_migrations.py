@@ -62,3 +62,45 @@ def test_role_constraint_accepts_exactly_the_model_roles(db_engine):
 
     with pytest.raises(IntegrityError), db_engine.begin() as conn:
         conn.execute(insert, {"u": "intruder", "r": "not-a-role"})
+
+
+def test_upgrade_creates_login_attempts(migrated_db):
+    engine = create_engine(migrated_db)
+    try:
+        columns = {c["name"]: c for c in inspect(engine).get_columns("login_attempts")}
+        primary_key = inspect(engine).get_pk_constraint("login_attempts")
+    finally:
+        engine.dispose()
+
+    assert set(columns) == {"attempt_key", "failures", "locked_until", "updated_at"}
+    assert primary_key["constrained_columns"] == ["attempt_key"]
+    assert columns["locked_until"]["nullable"] is True
+    assert columns["failures"]["nullable"] is False
+
+
+def test_login_attempts_failures_default_to_zero(db_engine):
+    with db_engine.begin() as conn:
+        failures = conn.execute(
+            text(
+                "INSERT INTO login_attempts (attempt_key) VALUES ('ghost') "
+                "RETURNING failures"
+            )
+        ).scalar_one()
+
+    assert failures == 0
+
+
+def test_login_attempts_downgrade_to_previous_revision_drops_only_that_table(
+    migrated_db,
+):
+    cfg = alembic_config()
+    engine = create_engine(migrated_db)
+    try:
+        command.downgrade(cfg, "0001")
+        tables = set(inspect(engine).get_table_names())
+        assert "login_attempts" not in tables
+        assert "users" in tables
+    finally:
+        command.upgrade(cfg, "head")
+        assert "login_attempts" in inspect(engine).get_table_names()
+        engine.dispose()

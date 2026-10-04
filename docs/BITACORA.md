@@ -9,95 +9,31 @@ Las entradas de issues cerrados se mueven a `docs/bitacora/` para no superar el 
 - [2026-09-27 a 2026-09-28](bitacora/2026-09-27_28.md): arranque, `guardia.sh` (issue #1, PR #3), protección de `main` (issue #4) y pruebas reales en CI (issue #9).
 - Decisiones deliberadas que solo están en ese historial, y que no deben «arreglarse» sin revisarlo: `.env.example` no se puede leer con la herramienta Read (una regla `allow` no puede exceptuar una `deny`; issue #1, PR #12) y el detalle de cobertura y rondas TDD de `guardia.sh` (los límites y falsos positivos aceptados también están en el ADR 0002).
 - [2026-09-29](bitacora/2026-09-29.md): E0 y elección de la aplicación (issue #15), modelo de amenazas (issue #18) y ADR 0004 (issue #20).
+- [2026-09-30](bitacora/2026-09-30.md): límite de instrucciones (issue #23), esqueleto del gateway (issue #25), mantenimiento (issue #27), registro de usuarios (issue #29) y OpenBao (issue #31, ADR 0005). Decisiones que conviene conocer: `uv` sin acción de terceros en CI, el manejador 422 propio (el de FastAPI devuelve la contraseña), `hide_parameters` y SQLSTATE sin `DETAIL`, y el cliente de OpenBao que ignora `VAULT_TOKEN`.
 
-## 2026-09-30 · Issue #23: contexto de instrucciones por debajo de 150k
+## 2026-10-03 · Issue #33: inicio de sesión del gateway (A2a)
 
-Rama `docs/23-contexto-instrucciones`.
+Rama `feat/33-login-gateway`. A2 se divide en dos partes: **A2a** (este issue: login, JWT de acceso, CSRF y bloqueo) y **A2b** (refresh con rotación, logout, denylist de `jti` y `tokens_valid_since`). Hasta A2b, el login emite solo el JWT de acceso de 15 min.
 
-- **Problema.** Claude Code avisó al iniciar: los 5 archivos de instrucciones sumaban 170 380 bytes según `wc -c` (el aviso hablaba de 166,3k caracteres: las tildes ocupan 2 bytes), por encima del límite de 150 000. Los más grandes: `~/.claude/CLAUDE.md` (69 479), `docs/PROJECT_CONTEXT.md` (43 576) y esta bitácora (43 556).
-- **Decisión: mover, no borrar.** El enunciado del curso (unos 28 800 bytes dentro de `PROJECT_CONTEXT.md`) pasa a `docs/enunciado.md`, y las entradas del 27 y 28 de septiembre, a `docs/bitacora/2026-09-27_28.md`. Ninguno de los dos se importa, así que se leen bajo demanda. `PROJECT_CONTEXT.md` conserva la ficha con un enlace al enunciado; esta bitácora conserva las entradas recientes, los pendientes y un índice de historial.
-- **Sin cambios en `~/.claude/CLAUDE.md`.** Es global y lo gestiona gentle-ai: una sincronización sobrescribiría cualquier recorte.
-- **Regla de rotación** añadida a `CLAUDE.md`: si la bitácora supera unos 20 000 bytes (`wc -c`), las entradas de issues cerrados se mueven a `docs/bitacora/`; los pendientes nunca se mueven.
-- **Revisión de seguridad (revisor-seguridad):** listo para PR, sin críticos, altos ni medios. Se corrigieron sus 3 observaciones bajas: las cifras eran bytes de `wc -c` y no caracteres, el tamaño del enunciado estaba mal redondeado, y la decisión de `.env.example` solo quedaba en el historial (ahora el índice de Historial la señala).
-- **Verificación.** Tras el cambio, los archivos cargados suman 115 109 bytes (`wc -c`), algo menos en caracteres. Al reconstruir cada archivo original con el texto movido, `diff` contra `main` no muestra diferencias. Las referencias a los dos archivos siguen siendo válidas: no cambian de nombre y ningún enlace con ancla apuntaba a las secciones movidas.
-
-## 2026-09-30 · Issue #25: E2, esqueleto del gateway
-
-Rama `feat/25-esqueleto-gateway`. Primer código de la aplicación: `services/gateway/` con `GET /healthz`.
-
-- **Gestor de dependencias: `uv`** con `uv.lock`, que guarda el hash de cada paquete; `uv sync --locked` falla si el lockfile no coincide con `pyproject.toml`. El proyecto no se construye como paquete (`package = false`): no necesita un backend de construcción, una dependencia menos.
-- **Versiones verificadas (2026-09-30)** con `gh api` sobre las publicaciones de GitHub; los datos de PyPI vienen de un resumen automático (segunda mano): CPython 3.14.7, uv 0.12.21, fastapi 0.142.2, pytest 9.1.1, ruff 0.16.9 (MIT) y httpx 0.28.1 (BSD-3, sin publicaciones desde 2024-12: solo se usa en pruebas).
-- **CI sin acción de terceros para `uv`:** se descarga el binario oficial y se verifica su sha256 (el digest de GitHub coincide con el `.sha256` publicado), igual que gitleaks y actionlint. Se descartó `astral-sh/setup-uv`.
-- **Ruff con las reglas `S` (flake8-bandit).** La única excepción es S101 en `tests/**`: pytest comprueba con `assert`, y la regla va dirigida al código de producción, donde `python -O` elimina los `assert`.
-- **TDD:** RED observado (`ModuleNotFoundError: gateway.main`) y luego GREEN (1 prueba pasa).
-- **Vulnerabilidades:** `uv audit --locked` no encontró vulnerabilidades conocidas en 22 paquetes. El comando es experimental: evidencia PARCIAL hasta que E4 añada SCA en CI.
-- **NO VERIFICADO:** el soporte de Dependabot para `uv` solo consta en la referencia de opciones de GitHub, no en la página de ecosistemas; se confirmará cuando Dependabot se ejecute en el repositorio.
-- **`httpx2`:** Starlette 1.7 recomienda `httpx2` para `TestClient`. Es de la organización `pydantic` (BSD-3, v2.13.1). El cambio quedó sin hacer porque el permiso automático bloqueó añadir el paquete: lo decide la persona.
-- **Revisiones:** `revisor-seguridad`, listo para PR sin críticos, altos ni medios; la revisión de Gentle AI (4 lentes), aprobada sin bloqueantes. Se corrigieron los hallazgos bajos: `uv` va a un directorio propio del PATH (no a todo `RUNNER_TEMP`), `curl` reintenta, las reglas `allow` son exactas y sin comodín (con comodín, `pytest` aceptaba argumentos como `-p`), y el intérprete queda fijado en `.python-version` (3.14.7; en CI lo descarga `uv`).
-
-- **Cierre:** PR #26 fusionado con squash como `da5a9e7`; issue #25 cerrado. El push lo hizo la persona por SSH, porque el token de `gh` no tiene el scope `workflow` (quitado a propósito, B1 del PR #5); así no hubo que ampliarlo.
-
-## 2026-09-30 · Issue #27: mantenimiento del gateway
-
-Rama `chore/27-mantenimiento-gateway`. Cierra los pendientes del #25.
-
-- **Check obligatorio:** `.github/rulesets/main.json` exige `gateway` además de `secretos`, `workflows` y `pruebas`; la prueba del ruleset falló primero y luego pasó. Aplicarlo en GitHub es una operación remota tras la fusión. El ADR 0001 enumera los tres checks originales: no se edita (fuera de alcance); el JSON del ruleset es la fuente de verdad.
-- **Documentación de la API desactivada por defecto:** `/docs`, `/redoc` y `/openapi.json` responden 404 salvo que `GATEWAY_DOCS_ENABLED` valga exactamente `true` (solo desarrollo). `create_app()` construye la aplicación; pruebas de ambos casos (22 en total tras la revisión).
-- **`httpx2` en lugar de `httpx`:** verificado en PyPI (2.13.1, BSD-3-Clause, mantenedor Pydantic Services Inc., enlaza a `pydantic/httpx2`, sin vulnerabilidades registradas). Trae `httpcore2` (mismo repositorio) y `truststore` 0.10.4 (MIT, `sethmlarson/truststore`, activo). El aviso de obsoleto desaparece; `uv audit`: 23 paquetes sin vulnerabilidades conocidas.
-- **Dependencia condicional `httpx2-jsfetch` 1.0** (en `uv.lock`, solo con `sys_platform == 'emscripten'`): transporte de `httpx2` para Pyodide; BSD-3-Clause, autor Hood Chatham, sin vulnerabilidades en PyPI. PyPI no publica su repositorio: verificación PARCIAL. No se instala en Linux ni en CI.
-- **Revisiones:** `revisor-seguridad`, listo para PR sin críticos, altos ni medios; revisión de Gentle AI (4 lentes) aprobada. Corregidos: la prueba de valores no exactos cubre las tres rutas (22 pruebas) y un comentario aclara que la variable se lee al importar (cambiarla exige reiniciar).
-
-- **Cierre:** PR #28 fusionado con squash como `8ea3b1b`; issue #27 cerrado. Con autorización de la persona, el ruleset se aplicó con `gh api -X PUT` sobre `protege` (id 24097824): exige `secretos`, `workflows`, `pruebas` y `gateway` (app 15368). La única diferencia entre la regla anterior y la nueva es `gateway`; los campos `require_extra_approval_for_unattributed_changes` y `required_reviewers` los añade GitHub por defecto y ya estaban.
-
-## 2026-09-30 · Issue #29: E3, registro de usuarios (autenticación A1)
-
-Rama `feat/29-registro-usuarios`. Primera parte de la autenticación del ADR 0004; el inicio de sesión y las sesiones van en A2.
-
-- **Decisiones de la persona:** SQLAlchemy 2 con Alembic (síncrono, psycopg 3); PostgreSQL con Docker Compose en local y un contenedor de servicio en CI, ambos con `postgres:18.6-alpine` fijado por digest (`sha256:77f5851…a1873`, igual en la API de Docker Hub y en el registro).
-- **Dependencias verificadas (2026-09-30):** SQLAlchemy 2.1.1 y Alembic 1.20.0 (MIT), psycopg 3.3.6 con `binary` (LGPL-3.0-only: se usa como biblioteca importada, compatible con distribuir bajo Apache-2.0), argon2-cffi 25.1.0 (MIT). `uv audit`: 34 paquetes sin vulnerabilidades conocidas.
-- **Registro:** `POST /api/auth/register` con nombre de usuario (3 a 32, `[a-z0-9_.-]`) y sin correo (minimización de datos; recuperación asistida, decisión 10). Contraseña de 15 a 128 caracteres, cualquier carácter, sin reglas de composición; Argon2id con m=19456, t=2, p=1. Responde 201 con `id`, `username` y `role`; 409 genérico si el nombre existe (se apoya en la restricción `UNIQUE`, sin carrera).
-- **Fuga evitada:** el manejador 422 por defecto de FastAPI devuelve el valor rechazado, incluida la contraseña; se comprobó con las pruebas y se sustituyó por uno que solo dice qué campo falló y por qué.
-- **Enumeración de usuarios:** el 409 revela si un nombre existe; es inherente a un alta abierta. Se mitiga con el límite por IP del Ingress (E5).
-- **Sin valores por defecto:** la URL de la base de datos sale solo de `GATEWAY_DATABASE_URL`; sin ella, las rutas de datos fallan de forma explícita. En CI se usan credenciales desechables y marcadas como tales (base efímera del runner).
-- **TDD:** RED de migraciones (`CommandError` de Alembic) y de registro (`ModuleNotFoundError: gateway.passwords`), luego GREEN: 53 pruebas contra PostgreSQL real; sin la variable, las pruebas de datos fallan con un mensaje claro (no se omiten).
-- **Revisiones:** `revisor-seguridad` y Gentle AI (4 lentes) aprobaron sin críticos ni altos. Corregido antes del PR: `hide_parameters=True` y además ningún error de inserción distinto del duplicado lleva el `DETAIL` de PostgreSQL (la fila con el hash), solo el SQLSTATE; `connect_timeout` de 5 s; como mucho 4 hashes Argon2id a la vez por proceso (19 MiB cada uno en una ruta sin autenticar); las pruebas se niegan a correr contra una base cuyo nombre no termine en `_test` o `_ci` (vacían tablas); la restricción de roles sale de `ROLES`; Alembic funciona desde la terminal. Resultado: 67 pruebas.
-
-- **Cierre:** PR #30 fusionado con squash como `e87b521`; issue #29 cerrado. Push por SSH (la rama cambiaba el workflow); en CI corrieron las 67 pruebas contra el contenedor de PostgreSQL.
-
-## 2026-09-30 · Issue #31: OpenBao para los secretos del gateway
-
-Rama `feat/31-openbao-secretos`. Paso previo al inicio de sesión (A2): las claves de JWT y CSRF salen de un gestor de secretos. Decisión registrada en el [ADR 0005](adr/0005-openbao-gestor-secretos.md).
-
-- **Decisiones de la persona:**
-  - Gestor de secretos ya, sin pasar por archivos ni por variables de entorno.
-  - **OpenBao** en lugar de HashiCorp Vault: el `LICENSE` de Vault es la BSL 1.1 desde la versión 1.15, y el enunciado espera MPL 2.0.
-  - **Modo servidor**, nunca dev (amenaza 42).
-- **Verificado (2026-09-30):**
-  - OpenBao 2.7.0 (MPL-2.0); la imagen tiene el mismo digest en ghcr.io, quay.io y Docker Hub.
-  - `hvac` 2.4.0 (Apache-2.0), que trae `requests`. OpenBao no está en su matriz de pruebas: la compatibilidad se demuestra con pruebas de integración contra OpenBao real.
-- **Almacenamiento `raft` de un nodo:** OpenBao 2.7 ya no tiene `file`.
-- **Script `scripts/openbao-dev-init.sh` (solo desarrollo e idempotente):**
-  - Inicializa con una parte de la clave de desbloqueo y desbloquea.
-  - Habilita KV v2 y AppRole.
-  - Política de solo lectura sobre `secret/data/gateway/*`.
-  - Claves aleatorias de 32 bytes, creadas solo si faltan.
-  - Credenciales en `.local/openbao/` (ignorado por git, 0700/0600).
-  - El token root solo vive en una variable del script.
-  - La revocación del root era «best effort» (`|| true`); ahora solo cuenta como revocado un `403 permission denied` explícito; cualquier otro fallo (contenedor caído, red) hace terminar el script con error.
-  - Marcador `setup-complete`: una configuración interrumpida ya no se da por buena. Espera a que el nodo `raft` sea líder antes de configurar.
-- **Cliente:** `gateway.secrets` entra con AppRole, valida que las claves tengan al menos 32 bytes y un `kid`, y falla cerrado con mensajes fijos que nunca incluyen material secreto. Aún no lo usa ninguna ruta (A2). Tras la revisión:
-  - HTTP sin cifrar solo hacia loopback.
-  - Las excepciones no arrastran el error original (`__cause__` y `__context__` vacíos).
-  - El token se revoca tras leer las claves.
-  - Ignora `VAULT_TOKEN`: se comprobó que `hvac` lo copia aunque se pase `token=None`.
-- **Pruebas (TDD):** RED `ModuleNotFoundError: gateway.secrets` y luego GREEN; tras las correcciones, 103 pruebas.
-  - Lectura correcta.
-  - Escritura denegada, y lectura de otra ruta denegada, con el token del gateway.
-  - `secret_id` incorrecto y OpenBao inalcanzable fallan cerrado.
-  - Comprobado de punta a punta por el orquestador sobre una pila nueva: tres ejecuciones del script (la tercera tras reiniciar OpenBao) y 103 pruebas.
-- **Revisiones:** `revisor-seguridad` (3 medios, 5 bajos) y Gentle AI (4 lentes) aprobaron sin críticos ni altos; corregidos todos los medios y los bajos de código. Dependencias transitivas comprobadas en GitHub: `requests` (Apache-2.0), `urllib3` y `charset-normalizer` (MIT), `idna` (BSD-3); la licencia de `certifi` aparece como NOASSERTION en GitHub (NO VERIFICADO).
-- **CI:** el job `gateway` levanta OpenBao con docker compose (los contenedores de servicio no permiten cambiar el comando) y ejecuta el script.
-- **Riesgos de desarrollo aceptados (ADR 0005):** una sola parte de la clave de desbloqueo, `secret_id` sin caducidad y listener sin TLS publicado solo en 127.0.0.1.
+- **Normalización NFC, no NFKC.** El issue decía NFKC, recordado de la revisión 3 de NIST SP 800-63B. La revisión 4 (2025-08-26), leída en la fuente, recomienda NFC antes del hash; la persona eligió NFC. Se aplica dentro de `hash_password` y `verify_password`, así que la usan el registro, el login y el hash ficticio. No hay datos reales, así que no se migra ningún hash.
+- **PyJWT 2.15.1** (MIT, jpadilla, publicada el 2026-09-28, sin dependencias en Python ≥ 3.11), verificada en PyPI. `uv audit`: 40 paquetes sin vulnerabilidades conocidas.
+- **Endpoints:**
+  - `GET /api/auth/csrf`: emite un CSRF previo a la sesión de 10 min, con `no-store`.
+  - `POST /api/auth/login`: exige ese CSRF y el mismo origen.
+  - `GET /api/auth/me`: recarga al usuario de la base de datos.
+- **JWT y cookies:**
+  - JWT HS256 con `kid`, `algorithms=["HS256"]`, `iss` y `aud` fijos y 30 s de margen.
+  - Cookie `__Host-access` (`HttpOnly`, `Secure`, `SameSite=Strict`, 15 min).
+  - Tras el login, el `__Host-csrf` queda ligado al `sid`.
+- **Origen:** `Sec-Fetch-Site: same-origin`, o `Origin` igual a `GATEWAY_ALLOWED_ORIGIN` cuando el navegador no envía `Sec-Fetch-Site`. Sin ninguno, 403. El registro también lo exige.
+- **Bloqueo progresivo** en la tabla `login_attempts` (migración `0002`):
+  - Los 3 primeros fallos no bloquean; luego 1, 5, 15 y 30 min.
+  - Cuenta también los nombres inexistentes, con `SELECT ... FOR UPDATE` para que los intentos en paralelo no escapen al contador.
+  - Contraseña errónea, usuario inexistente y cuenta bloqueada dan el mismo 401 y el mismo cuerpo, y gastan el mismo tiempo (hash ficticio).
+- **Semáforo de Argon2id:** como mucho 5 s de espera; si se agota, 503 sin calcular el hash. Cierra el pendiente del #29.
+- **Settings nuevos sin valores por defecto:** `GATEWAY_JWT_ISSUER`, `GATEWAY_JWT_AUDIENCE` y `GATEWAY_ALLOWED_ORIGIN`. En CI tienen valores ficticios.
+- **TDD:** RED observado en cada tarea (por ejemplo, `ImportError: cannot import name 'HashingBusy'`), luego GREEN. Pruebas: de 105 a 220. Los tiempos del bloqueo se prueban con un reloj inyectado, sin `sleep`.
+- **Bitácora rotada:** las entradas del 30-09 se movieron a `docs/bitacora/2026-09-30.md` (este archivo pasaba de 20 000 bytes). Se comprobó que no se perdió ninguna línea.
 
 ## Pendientes
 
@@ -111,10 +47,13 @@ Rama `feat/31-openbao-secretos`. Paso previo al inicio de sesión (A2): las clav
 - [ ] **E3:** antes de añadir `pysentimiento`, verificar nombre, mantenedor, licencia y actividad (AGENTS.md §3) y fijar el modelo de Hugging Face por hash de commit (riesgo de deserialización con `torch`) (hallazgo B5 del #15).
 
 ### E3: pendientes del registro (issue #29)
-- [ ] Decidir la normalización Unicode de las contraseñas (NFKC u otra) antes del inicio de sesión (A2); sin ella, la misma contraseña escrita desde otro teclado puede no coincidir.
 - [ ] Límite de tasa en `POST /api/auth/register` y tope de tamaño del cuerpo (Ingress, E5); hoy solo hay el límite de 4 hashes simultáneos.
 - [ ] `readyz` que compruebe la base de datos (E5): sin `GATEWAY_DATABASE_URL`, `/healthz` responde pero la API falla.
-- [ ] **A2:** tiempo máximo de espera en el semáforo de Argon2id (hoy espera sin límite) y respuesta 503 al agotarlo, antes de que el login comparta el semáforo con el registro (aviso de la revisión del #29).
+
+### Inicio de sesión (issue #33)
+- [ ] **A2b:** refresh opaco con rotación y detección de reutilización, logout, denylist de `jti` y `tokens_valid_since` en `current_user`.
+- [ ] Caducidad (TTL) de las filas de `login_attempts`, que el ADR 0004 pide para los nombres inexistentes; hoy un contador viejo nunca decae.
+- [ ] Exigir el CSRF ligado al `sid` en las rutas que cambien estado después del login (aún no hay ninguna).
 
 ### OpenBao (issue #31)
 - [ ] Llevar a OpenBao las credenciales de PostgreSQL (hoy en variables de entorno).
@@ -161,4 +100,6 @@ Rama `feat/31-openbao-secretos`. Paso previo al inicio de sesión (A2): las clav
 - [x] **E1 (issue #18, PR #19):** DFD de nivel 0 y 1 en Threat Dragon, 42 amenazas iniciales, PNG exportados y revisión de seguridad.
 - [x] **ADR 0004 (issue #20, PR #21):** autenticación y autorización; modelo ampliado a 47 amenazas.
 - [x] **E2 (issue #25, PR #26):** esqueleto del `gateway` con `uv.lock`, lint y pruebas en CI.
+- [x] **Issue #29 (PR #30)** y **#31 (PR #32):** registro de usuarios y OpenBao.
+- [x] Normalización Unicode de contraseñas (NFC) y tiempo máximo del semáforo de Argon2id (pendientes del #29, cerrados en el #33).
 - [x] **Issue #27 (PR #28):** `gateway` obligatorio en el ruleset (aplicado en GitHub el 2026-09-30 y verificado desde la API), documentación de la API desactivada por defecto y `httpx2`. ADR 0001 actualizado en el issue #29.

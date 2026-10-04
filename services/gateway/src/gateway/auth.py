@@ -6,13 +6,19 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import select, text
+from sqlalchemy import exists, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from gateway.db import get_session
-from gateway.models import LoginAttempt, RefreshFamily, RefreshToken, User
+from gateway.models import (
+    LoginAttempt,
+    RefreshFamily,
+    RefreshToken,
+    RevokedJti,
+    User,
+)
 from gateway.passwords import (
     hash_password,
     normalize_password,
@@ -27,6 +33,7 @@ from gateway.tokens import (
     InvalidToken,
     check_csrf,
     decode_access_token,
+    decode_access_token_allow_expired,
     hash_refresh_token,
     issue_access_token,
     login_attempt_key,
@@ -516,6 +523,75 @@ def refresh(
     return UserOut(id=user.id, username=user.username, role=user.role)
 
 
+def _clear_session_cookies(response: Response) -> None:
+    """Delete the three cookies with the attributes they were set with."""
+    for name, path, httponly in (
+        (ACCESS_COOKIE, "/", True),
+        (CSRF_COOKIE, "/", False),
+        (REFRESH_COOKIE, REFRESH_PATH, True),
+    ):
+        response.delete_cookie(
+            name, path=path, secure=True, httponly=httponly, samesite="strict"
+        )
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_same_origin)],
+)
+def logout(
+    request: Request,
+    response: Response,
+    session: Annotated[Session, Depends(get_session)],
+    keys: Annotated[GatewayKeys, Depends(get_keys)],
+    now: Annotated[datetime, Depends(get_now)],
+) -> None:
+    """End the session of the access token: revoke its family, deny its jti.
+
+    An expired access token is fine (the session may outlive the 15 minutes) but
+    its signature, issuer and audience must be valid, and the session CSRF token
+    must match its `sid`. The call is idempotent.
+    """
+    try:
+        claims = decode_access_token_allow_expired(
+            request.cookies.get(ACCESS_COOKIE) or "", keys
+        )
+        user_id = uuid.UUID(claims["sub"])
+        family_id = uuid.UUID(claims["sid"])
+    except InvalidToken, ValueError:
+        raise _session_denied() from None
+    if not check_csrf(
+        request.cookies.get(CSRF_COOKIE),
+        request.headers.get(CSRF_HEADER),
+        claims["sid"],
+        keys.csrf_key,
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+    session.execute(
+        update(RefreshFamily)
+        .where(
+            RefreshFamily.id == family_id,
+            RefreshFamily.user_id == user_id,
+            RefreshFamily.revoked_at.is_(None),
+        )
+        .values(revoked_at=now)
+    )
+    expires_at = datetime.fromtimestamp(claims["exp"], UTC)
+    if expires_at > now:
+        # Idempotent: a repeated logout finds the jti already there.
+        session.execute(
+            insert(RevokedJti)
+            .values(jti=claims["jti"], expires_at=expires_at)
+            .on_conflict_do_nothing(index_elements=["jti"])
+        )
+    session.commit()
+    _clear_session_cookies(response)
+    response.headers.update(NO_STORE)
+    _log_event("logout", str(user_id), now)
+
+
 @dataclass(frozen=True)
 class CurrentUser:
     user: User
@@ -529,6 +605,11 @@ def current_user(
 ) -> CurrentUser:
     """Authenticate from the access cookie and reload the user from the database.
 
+    One query loads the user only if the token's `jti` is not denied (logout)
+    and the token was issued no earlier than `tokens_valid_since`. `iat` is whole
+    seconds while the column has microseconds, so the column is truncated to the
+    second: a token issued in the same second as the cut-off still passes.
+
     Every failure is the same 401: callers learn nothing about why.
     """
     user = None
@@ -537,15 +618,18 @@ def current_user(
     if token:
         try:
             claims = decode_access_token(token, keys)
-            user = session.get(User, uuid.UUID(claims["sub"]))
+            user = session.scalar(
+                select(User).where(
+                    User.id == uuid.UUID(claims["sub"]),
+                    ~exists().where(RevokedJti.jti == claims["jti"]),
+                    func.date_trunc("second", User.tokens_valid_since)
+                    <= func.to_timestamp(claims["iat"]),
+                )
+            )
         except InvalidToken, ValueError:
             user = None
     if user is None or claims is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers=NO_STORE,
-        )
+        raise _session_denied()
     return CurrentUser(user=user, claims=claims)
 
 

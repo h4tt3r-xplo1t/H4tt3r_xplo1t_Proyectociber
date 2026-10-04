@@ -71,8 +71,7 @@ def hash_refresh_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def decode_access_token(token: str, keys: GatewayKeys) -> dict:
-    """Verify signature, algorithm, kid, iss, aud, times and required claims."""
+def _decode(token: str, keys: GatewayKeys, *, verify_exp: bool) -> dict:
     # Settings are read outside the try: a missing issuer or audience is a
     # server misconfiguration (500), not a client authentication failure (401).
     issuer = get_jwt_issuer()
@@ -83,6 +82,9 @@ def decode_access_token(token: str, keys: GatewayKeys) -> dict:
         if header.get("kid") == keys.jwt_kid:
             # `options` is built on every call and never reused or shared
             # (GHSA-gvp8-978c-rx2q); the signature is always verified.
+            options: dict = {"require": list(REQUIRED_CLAIMS)}
+            if not verify_exp:
+                options["verify_exp"] = False
             claims = jwt.decode(
                 token,
                 keys.jwt_key,
@@ -90,13 +92,28 @@ def decode_access_token(token: str, keys: GatewayKeys) -> dict:
                 audience=audience,
                 issuer=issuer,
                 leeway=LEEWAY_SECONDS,
-                options={"require": list(REQUIRED_CLAIMS)},
+                options=options,
             )
     except jwt.PyJWTError:
         claims = None
     if claims is None:
         raise InvalidToken
     return claims
+
+
+def decode_access_token(token: str, keys: GatewayKeys) -> dict:
+    """Verify signature, algorithm, kid, iss, aud, times and required claims."""
+    return _decode(token, keys, verify_exp=True)
+
+
+def decode_access_token_allow_expired(token: str, keys: GatewayKeys) -> dict:
+    """Like decode_access_token, but an expired token is accepted.
+
+    Only for ending a session (logout), which must work after the 15 minutes.
+    The signature, algorithm, kid, issuer, audience, `nbf` and the presence of
+    every claim (`exp` included) are still checked.
+    """
+    return _decode(token, keys, verify_exp=False)
 
 
 CSRF_FUTURE_LEEWAY_SECONDS = 30

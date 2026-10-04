@@ -10,6 +10,7 @@ dependencies = [
     "fastapi>=0.142.2",
     "hvac>=2.4.0",
     "psycopg[binary]>=3.3.6",
+    "pyjwt>=2.15.1",
     "sqlalchemy>=2.1.1",
 ]
 

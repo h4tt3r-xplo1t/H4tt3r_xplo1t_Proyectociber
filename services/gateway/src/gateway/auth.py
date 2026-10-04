@@ -539,6 +539,11 @@ def refresh(
     if family.revoked_at is not None:
         _refresh_failed("revoked", subject, now)
         raise _session_denied()
+    # A password or role change moves `tokens_valid_since` forward and must end
+    # the live sessions too. Truncated to the second, like current_user does.
+    if family.created_at < user.tokens_valid_since.replace(microsecond=0):
+        _refresh_failed("invalidated", subject, now)
+        raise _session_denied()
     limits = session_limits(user.role)
     if now - family.last_used_at > limits.idle:
         _refresh_failed("idle_expired", subject, now)

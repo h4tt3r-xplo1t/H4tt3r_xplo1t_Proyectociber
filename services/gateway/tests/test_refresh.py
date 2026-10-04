@@ -274,6 +274,10 @@ def test_absolute_limit_by_role(client, db_engine, role, absolute):
                 ),
                 {"s": age.total_seconds()},
             )
+            # An old session also predates the user's own tokens_valid_since.
+            conn.execute(
+                text("UPDATE users SET tokens_valid_since = now() - interval '30 days'")
+            )
 
     age_family(absolute - timedelta(minutes=1))
     ok = refresh(client, session.refresh, session.csrf)
@@ -455,6 +459,9 @@ def test_every_failed_refresh_is_logged_with_a_short_reason(
         conn.execute(
             text("UPDATE refresh_families SET created_at = now() - interval '8 days'")
         )
+        conn.execute(
+            text("UPDATE users SET tokens_valid_since = now() - interval '30 days'")
+        )
     refresh(client, session.refresh, session.csrf)
     (absolute,) = failure_logs(caplog)
     assert "reason=absolute_expired" in absolute
@@ -615,3 +622,40 @@ def test_lock_timeout_deadlock_and_serialization_failure_are_busy(sqlstate):
 def test_other_database_errors_are_not_swallowed_as_busy():
     with pytest.raises(OperationalError):
         auth._lock_refresh_token(FailingSession("08006"), "hash")
+
+
+# --- tokens_valid_since ends live sessions --------------------------------------
+
+
+def test_bumping_tokens_valid_since_after_login_ends_the_refresh_family(
+    client, db_engine, caplog
+):
+    caplog.set_level(logging.INFO, logger="gateway.auth")
+    session = start(client)
+    user_id = decode_access_token(session.access, KEYS)["sub"]
+    with db_engine.begin() as conn:
+        conn.execute(
+            text("UPDATE users SET tokens_valid_since = now() + interval '1 minute'")
+        )
+
+    response = refresh(client, session.refresh, session.csrf)
+
+    assert response.status_code == 401
+    assert response.json() == NOT_AUTHENTICATED
+    (line,) = failure_logs(caplog)
+    assert "reason=invalidated" in line
+    assert f"subject={user_id}" in line
+    assert session.refresh not in caplog.text
+
+
+def test_a_session_created_after_tokens_valid_since_is_not_invalidated(
+    client, db_engine
+):
+    register(client)
+    with db_engine.begin() as conn:
+        conn.execute(
+            text("UPDATE users SET tokens_valid_since = now() - interval '1 hour'")
+        )
+    session = Session(client, login(client))
+
+    assert refresh(client, session.refresh, session.csrf).status_code == 200

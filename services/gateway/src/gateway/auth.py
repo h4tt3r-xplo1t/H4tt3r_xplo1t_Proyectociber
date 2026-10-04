@@ -412,6 +412,110 @@ def login(
     return UserOut(id=user.id, username=user.username, role=user.role)
 
 
+def _session_denied() -> HTTPException:
+    """The one 401 for every way a session credential can be refused."""
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated",
+        headers=NO_STORE,
+    )
+
+
+def _lock_refresh_token(
+    session: Session, token_hash: str
+) -> tuple[RefreshToken, RefreshFamily] | None:
+    """Lock the token row and its family; None when the token is unknown.
+
+    The locks serialize two requests carrying the same token: the second one
+    wakes up to a used token and is treated as reuse. Locking the family too
+    keeps a concurrent logout from racing the rotation.
+    """
+    # Same bounded wait as the login counter; SET LOCAL lasts for this transaction.
+    session.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
+    lock_failed = False
+    row = None
+    try:
+        row = session.execute(
+            select(RefreshToken, RefreshFamily)
+            .join(RefreshFamily, RefreshFamily.id == RefreshToken.family_id)
+            .where(RefreshToken.token_hash == token_hash)
+            .with_for_update()
+        ).first()
+    except OperationalError as exc:
+        if getattr(exc.orig, "sqlstate", None) != LOCK_NOT_AVAILABLE:
+            raise
+        lock_failed = True
+    if lock_failed:
+        raise LoginBusy("refresh token row is locked")
+    return None if row is None else (row[0], row[1])
+
+
+@router.post("/refresh", dependencies=[Depends(require_same_origin)])
+def refresh(
+    request: Request,
+    response: Response,
+    session: Annotated[Session, Depends(get_session)],
+    keys: Annotated[GatewayKeys, Depends(get_keys)],
+    now: Annotated[datetime, Depends(get_now)],
+) -> UserOut:
+    """Swap the refresh token for a new one plus a new access token.
+
+    Every refusal is the same 401. The session CSRF token is checked against the
+    family's `sid` and before anything is changed, so a request without it can
+    neither rotate a token nor trigger a revocation.
+    """
+    presented = request.cookies.get(REFRESH_COOKIE)
+    if not presented:
+        raise _session_denied()
+    found = _lock_refresh_token(session, hash_refresh_token(presented))
+    if found is None:
+        raise _session_denied()
+    token, family = found
+    if not check_csrf(
+        request.cookies.get(CSRF_COOKIE),
+        request.headers.get(CSRF_HEADER),
+        str(family.id),
+        keys.csrf_key,
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+    if token.used_at is not None:
+        # A rotated token came back: someone copied it. No grace period.
+        if family.revoked_at is None:
+            family.revoked_at = now
+        session.commit()
+        _log_event("refresh_reuse", str(family.user_id), now, logging.WARNING)
+        raise _session_denied()
+
+    # The role comes from the database, not from any token.
+    user = session.get(User, family.user_id)
+    if user is None or family.revoked_at is not None:
+        raise _session_denied()
+    limits = session_limits(user.role)
+    if now - family.last_used_at > limits.idle:
+        raise _session_denied()
+    if now - family.created_at > limits.absolute:
+        raise _session_denied()
+
+    token.used_at = now
+    new_refresh = new_refresh_token()
+    session.add(
+        RefreshToken(
+            family_id=family.id,
+            token_hash=hash_refresh_token(new_refresh),
+            created_at=now,
+        )
+    )
+    family.last_used_at = now
+    access, claims = issue_access_token(user.id, user.role, str(family.id), keys, now)
+    session.commit()
+    _set_session_cookies(
+        response, access, new_refresh, claims["sid"], user.role, keys, now
+    )
+    response.headers.update(NO_STORE)
+    return UserOut(id=user.id, username=user.username, role=user.role)
+
+
 @dataclass(frozen=True)
 class CurrentUser:
     user: User

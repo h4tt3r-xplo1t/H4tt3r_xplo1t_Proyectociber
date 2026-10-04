@@ -22,6 +22,7 @@ from gateway.passwords import (
 from gateway.secrets import GatewayKeys, get_gateway_keys
 from gateway.settings import get_allowed_origin
 from gateway.tokens import (
+    ACCESS_TOKEN_TTL,
     PRE_SESSION_BINDING,
     InvalidToken,
     check_csrf,
@@ -39,7 +40,8 @@ UNIQUE_VIOLATION = "23505"
 ACCESS_COOKIE = "__Host-access"
 CSRF_COOKIE = "__Host-csrf"
 CSRF_HEADER = "X-CSRF-Token"
-ACCESS_COOKIE_MAX_AGE = 15 * 60
+# The cookie lives exactly as long as the JWT inside it.
+ACCESS_COOKIE_MAX_AGE = int(ACCESS_TOKEN_TTL.total_seconds())
 PRE_SESSION_CSRF_MAX_AGE = 10 * 60
 
 # ADR 0004 decision 4: the first FREE_FAILURES failures cost nothing; every

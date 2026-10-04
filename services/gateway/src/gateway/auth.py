@@ -607,7 +607,7 @@ def logout(
         )
         user_id = uuid.UUID(claims["sub"])
         family_id = uuid.UUID(claims["sid"])
-    except InvalidToken, ValueError:
+    except InvalidToken, ValueError, TypeError, AttributeError:
         raise _session_denied() from None
     if not check_csrf(
         request.cookies.get(CSRF_COOKIE),
@@ -690,7 +690,7 @@ def current_user(
                     <= func.to_timestamp(claims["iat"]),
                 )
             )
-        except InvalidToken, ValueError:
+        except InvalidToken, ValueError, TypeError, AttributeError:
             user = None
     if user is None or claims is None:
         raise _session_denied()

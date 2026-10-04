@@ -440,3 +440,42 @@ def test_logout_answers_503_when_the_family_row_stays_locked(
     assert denied_jtis(db_engine) == []
     # Nothing was half done: logging out works once the lock is gone.
     assert logout(client, session.access, session.csrf).status_code == 204
+
+
+# Validly signed, so they get past the decoder; their claims have the wrong types.
+WRONG_TYPES = {
+    "int sid": {"sid": 12345},
+    "list sid": {"sid": ["a"]},
+    "null sid": {"sid": None},
+    "int sub": {"sub": 12345},
+    "int jti": {"jti": 12345},
+}
+
+
+@pytest.mark.parametrize("claims", WRONG_TYPES.values(), ids=WRONG_TYPES.keys())
+def test_a_signed_token_with_wrongly_typed_claims_is_401_on_me(client, claims):
+    user = register(client)
+    sid = str(uuid.uuid4())
+    token = forged_access(claims.get("sub", user["id"]), **{"sid": sid, **claims})
+    raising = TestClient(client.app, base_url="https://testserver")
+    raising.cookies.set("__Host-access", token)
+
+    response = raising.get("/api/auth/me")
+
+    assert response.status_code == 401
+    assert response.json() == NOT_AUTHENTICATED
+
+
+@pytest.mark.parametrize("claims", WRONG_TYPES.values(), ids=WRONG_TYPES.keys())
+def test_a_signed_token_with_wrongly_typed_claims_is_401_on_logout(
+    client, db_engine, claims
+):
+    user = register(client)
+    sid = str(uuid.uuid4())
+    token = forged_access(claims.get("sub", user["id"]), **{"sid": sid, **claims})
+    csrf = make_csrf(sid, KEYS.csrf_key)
+
+    response = logout(client, token, csrf)
+
+    assert response.status_code == 401
+    assert response.json() == NOT_AUTHENTICATED

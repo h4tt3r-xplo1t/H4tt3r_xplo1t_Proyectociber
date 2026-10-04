@@ -612,24 +612,35 @@ def logout(
     ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
-    session.execute(
-        update(RefreshFamily)
-        .where(
-            RefreshFamily.id == family_id,
-            RefreshFamily.user_id == user_id,
-            RefreshFamily.revoked_at.is_(None),
-        )
-        .values(revoked_at=now)
-    )
+    # Same bounded wait as refresh and login; SET LOCAL lasts for this transaction.
+    session.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
     expires_at = datetime.fromtimestamp(claims["exp"], UTC)
-    if expires_at > now:
-        # Idempotent: a repeated logout finds the jti already there.
+    busy = False
+    try:
         session.execute(
-            insert(RevokedJti)
-            .values(jti=claims["jti"], expires_at=expires_at)
-            .on_conflict_do_nothing(index_elements=["jti"])
+            update(RefreshFamily)
+            .where(
+                RefreshFamily.id == family_id,
+                RefreshFamily.user_id == user_id,
+                RefreshFamily.revoked_at.is_(None),
+            )
+            .values(revoked_at=now)
         )
-    session.commit()
+        if expires_at > now:
+            # Idempotent: a repeated logout finds the jti already there.
+            session.execute(
+                insert(RevokedJti)
+                .values(jti=claims["jti"], expires_at=expires_at)
+                .on_conflict_do_nothing(index_elements=["jti"])
+            )
+        session.commit()
+    except OperationalError as exc:
+        session.rollback()
+        if getattr(exc.orig, "sqlstate", None) not in BUSY_SQLSTATES:
+            raise
+        busy = True
+    if busy:
+        raise LoginBusy("logout family row is locked", "logout_row_locked")
     _clear_session_cookies(response)
     response.headers.update(NO_STORE)
     _log_event("logout", str(user_id), now)

@@ -1,4 +1,6 @@
 import logging
+import threading
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -402,3 +404,39 @@ def test_a_token_with_a_non_uuid_sid_is_401_not_500(client, sid):
     response = client.get("/api/auth/me")
     assert response.status_code == 401
     assert response.json() == NOT_AUTHENTICATED
+
+
+def test_logout_answers_503_when_the_family_row_stays_locked(
+    client, db_engine, monkeypatch, caplog
+):
+    session = start(client)
+    caplog.set_level(logging.INFO, logger="gateway.auth")
+    monkeypatch.setattr(auth, "LOCK_TIMEOUT", "100ms")
+    holder = db_engine.connect()
+    results = []
+    # In a thread, so that a logout that never gives up fails the test instead
+    # of hanging it.
+    worker = threading.Thread(
+        target=lambda: results.append(logout(client, session.access, session.csrf))
+    )
+    try:
+        holder.execute(text("SELECT 1 FROM refresh_families FOR UPDATE"))
+        started = time.monotonic()
+        worker.start()
+        worker.join(timeout=5)
+        elapsed = time.monotonic() - started
+    finally:
+        holder.rollback()
+        holder.close()
+    worker.join(timeout=10)
+
+    assert results, "logout never answered while the row was locked"
+    (response,) = results
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Service busy; try again later"}
+    assert elapsed < 2
+    assert "event=service_busy cause=logout_row_locked" in caplog.text
+    assert revoked_at(db_engine) is None
+    assert denied_jtis(db_engine) == []
+    # Nothing was half done: logging out works once the lock is gone.
+    assert logout(client, session.access, session.csrf).status_code == 204

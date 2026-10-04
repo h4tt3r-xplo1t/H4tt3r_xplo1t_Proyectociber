@@ -311,8 +311,13 @@ def test_every_login_starts_a_new_session(client):
 
 
 def test_login_matches_the_same_password_in_nfc_and_nfd(client):
-    decomposed = "contraséa-muy-larga-123"
-    precomposed = decomposed.replace("é", "é")
+    # Explicit escapes: an editor that normalizes this file cannot merge them.
+    decomposed = "contrase\u0301a-muy-larga-123"  # "e" + combining acute accent
+    precomposed = "contrase\u0301a-muy-larga-123".replace("e\u0301", "\u00e9")
+    assert decomposed != precomposed
+    assert len(decomposed) == len(precomposed) + 1
+    assert "\u0301" in decomposed
+    assert "\u0301" not in precomposed
     register(client, password=decomposed)
 
     assert login(client, password=precomposed).status_code == 200

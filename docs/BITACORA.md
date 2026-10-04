@@ -33,6 +33,14 @@ Rama `feat/33-login-gateway`. A2 se divide en dos partes: **A2a** (este issue: l
 - **Semáforo de Argon2id:** como mucho 5 s de espera; si se agota, 503 sin calcular el hash. Cierra el pendiente del #29.
 - **Settings nuevos sin valores por defecto:** `GATEWAY_JWT_ISSUER`, `GATEWAY_JWT_AUDIENCE` y `GATEWAY_ALLOWED_ORIGIN`. En CI tienen valores ficticios.
 - **TDD:** RED observado en cada tarea (por ejemplo, `ImportError: cannot import name 'HashingBusy'`), luego GREEN. Pruebas: de 105 a 220. Los tiempos del bloqueo se prueban con un reloj inyectado, sin `sleep`.
+- **Revisión de seguridad (`revisor-seguridad`):** lista para PR, sin críticos ni altos; 1 medio y 5 bajos. Corregidos con TDD (242 pruebas, comprobadas sobre una base de datos nueva):
+  - Un login correcto pone el contador a cero en vez de borrar la fila. Antes, un intento simultáneo daba 500.
+  - `lock_timeout` de 2 s sobre la fila del contador; si se agota, responde 503 sin contar un fallo.
+  - `login_attempts` se indexa con un HMAC del nombre, con una subclave derivada de la clave CSRF: una contraseña escrita en el campo de usuario ya no se guarda ni se registra. Rotar la clave CSRF reinicia los contadores.
+  - El CSRF previo a la sesión lleva una fecha de emisión firmada y caduca en el servidor a los 10 min.
+  - `Cache-Control: no-store` en `/login`, `/me` y `/csrf`.
+
+  Quedan pendientes la purga de `login_attempts` y la saturación de hilos por el semáforo (depende del límite de tasa del Ingress).
 - **Bitácora rotada:** las entradas del 30-09 se movieron a `docs/bitacora/2026-09-30.md` (este archivo pasaba de 20 000 bytes). Se comprobó que no se perdió ninguna línea.
 
 ## Pendientes
@@ -53,6 +61,7 @@ Rama `feat/33-login-gateway`. A2 se divide en dos partes: **A2a** (este issue: l
 ### Inicio de sesión (issue #33)
 - [ ] **A2b:** refresh opaco con rotación y detección de reutilización, logout, denylist de `jti` y `tokens_valid_since` en `current_user`.
 - [ ] Caducidad (TTL) de las filas de `login_attempts`, que el ADR 0004 pide para los nombres inexistentes; hoy un contador viejo nunca decae.
+- [ ] Saturación del threadpool: hasta 5 s de espera por el semáforo bloquean hilos de las rutas síncronas; depende del límite de tasa (E5) (L6 de la revisión del #33).
 - [ ] Exigir el CSRF ligado al `sid` en las rutas que cambien estado después del login (aún no hay ninguna).
 
 ### OpenBao (issue #31)

@@ -39,6 +39,14 @@ Forecast ~1500 authored changed lines (about half tests). Strategy: `single-pr` 
 - [x] **T1c** (`e29120a`): `POST /api/auth/refresh` with rotation, reuse detection and role limits. RED: 26 failed (`404 == 200`, route absent); GREEN: 286 passed.
 - [x] **T1d** (`1c09412`): `POST /api/auth/logout`, `jti` denylist, `current_user` checks (`tokens_valid_since`, denylist). RED: `AttributeError: ... no attribute 'decode_access_token_allow_expired'`, `404 == 204`; GREEN: 304 passed.
 - [x] **T1e** (`2677af5`): `current_user` also requires the `sid` family to exist and not be revoked (same single query; non-UUID sid is 401); failed refreshes log `event=refresh_failed reason=...`. Two existing tests that forged tokens with random sids now create a family first. RED: 9 failed (`assert 200 == 401` for revoked/missing/non-UUID sid; `ValueError: not enough values to unpack` for the missing failure logs); GREEN: 314 passed.
+- [x] **T3a review fixes** (revisor-seguridad), one commit each:
+  - M2 (`d66df45`): two threads, same refresh token, held family-row lock + `pg_stat_activity` poll; exactly one 200 and one 401, family revoked, winner's new token dead. Characterization test (passes on the existing code, so no RED); 20/20 runs passed.
+  - L2 (`271c8a9`): `LoginBusy.cause`; refresh logs `refresh_row_locked`, login keeps `attempt_row_locked`. RED: log said `cause=attempt_row_locked`.
+  - L1 (`886f284`): lookup without lock, then family `FOR UPDATE`, then token `FOR UPDATE`; 55P03/40P01/40001 map to busy 503. RED: token-first single joined `FOR UPDATE`, 40P01 and 40001 re-raised.
+  - L3 (`0a10259`): logout does `SET LOCAL lock_timeout`, busy 503 with `cause=logout_row_locked`. RED: `assert 204 == 503` (logout waited on the lock).
+  - L4 (`e4216c8`): refresh rejects `family.created_at < date_trunc('second', tokens_valid_since)` with `reason=invalidated`. RED: `assert 200 == 401`. Two absolute-limit tests now also move `tokens_valid_since` back.
+  - L6 (`472fe82`): `current_user` and logout also catch `TypeError`/`AttributeError`. RED: `AttributeError: 'int' object has no attribute 'replace'` (int and list `sid`).
+  - Final run from an empty test DB: ruff check, ruff format --check, 333 passed.
 - [ ] **T2**: BITACORA entry and threat evidence (1, 35).
 - [ ] **T3**: reviews and fixes.
 - [ ] **T4**: push and PR (person request only).

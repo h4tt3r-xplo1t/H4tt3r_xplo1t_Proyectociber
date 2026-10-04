@@ -492,22 +492,42 @@ def test_lock_is_per_username(client):
 # --- concurrency ----------------------------------------------------------
 
 
+def wait_until_a_backend_waits_on_a_lock(db_engine, timeout=10):
+    """Poll PostgreSQL until some backend is blocked on a lock (no fixed sleep)."""
+    deadline = time.monotonic() + timeout
+    query = text(
+        "SELECT count(*) FROM pg_stat_activity "
+        "WHERE datname = current_database() AND wait_event_type = 'Lock'"
+    )
+    while time.monotonic() < deadline:
+        with db_engine.connect() as conn:
+            if conn.execute(query).scalar_one() > 0:
+                return True
+        threading.Event().wait(0.02)
+    return False
+
+
 def test_a_login_waiting_on_the_row_lock_survives_a_successful_login(
     client, app, db_engine, monkeypatch
 ):
-    # A holds the row lock while it verifies the right password (slowed down);
-    # B, a wrong password for the same user, queues on the lock. When A
-    # succeeds the row must still be there for B: no 500, a consistent counter.
+    # A holds the row lock while it verifies the right password; B, a wrong
+    # password for the same user, queues on that lock. Events, not sleeps,
+    # order the steps: A signals when it holds the lock and stays inside the
+    # verification until B is seen waiting. When A then succeeds, the row must
+    # still be there for B: no 500, a consistent counter.
     register(client)
     login(client, password=OTHER)  # the counter row already exists, committed
     real_verify = auth.verify_password
+    a_holds_the_lock = threading.Event()
+    b_is_waiting = threading.Event()
 
-    def slow_for_the_right_password(password_hash, password):
+    def pause_inside_the_right_password(password_hash, password):
         if password == GOOD:
-            time.sleep(0.6)
+            a_holds_the_lock.set()
+            assert b_is_waiting.wait(10)
         return real_verify(password_hash, password)
 
-    monkeypatch.setattr(auth, "verify_password", slow_for_the_right_password)
+    monkeypatch.setattr(auth, "verify_password", pause_inside_the_right_password)
     clients = [
         TestClient(app, base_url="https://testserver", raise_server_exceptions=False)
         for _ in range(2)
@@ -515,18 +535,18 @@ def test_a_login_waiting_on_the_row_lock_survives_a_successful_login(
     tokens = [get_csrf(c) for c in clients]
     results = {}
 
-    def run(index, password, delay):
-        time.sleep(delay)
+    def run(index, password):
         results[index] = login(clients[index], password=password, token=tokens[index])
 
-    threads = [
-        threading.Thread(target=run, args=(0, GOOD, 0)),
-        threading.Thread(target=run, args=(1, OTHER, 0.2)),
-    ]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
+    thread_a = threading.Thread(target=run, args=(0, GOOD))
+    thread_b = threading.Thread(target=run, args=(1, OTHER))
+    thread_a.start()
+    assert a_holds_the_lock.wait(10)
+    thread_b.start()
+    assert wait_until_a_backend_waits_on_a_lock(db_engine)
+    b_is_waiting.set()
+    thread_a.join()
+    thread_b.join()
 
     assert results[0].status_code == 200
     assert results[1].status_code == 401

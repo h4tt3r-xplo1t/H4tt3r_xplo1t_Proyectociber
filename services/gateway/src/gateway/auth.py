@@ -114,8 +114,9 @@ def require_presession_csrf(
 def _log_event(
     event: str, subject: str, now: datetime, level: int = logging.INFO
 ) -> None:
-    # Only the event, who (user id, or the normalized username when there is no
-    # user) and the UTC time. Never a password, token, CSRF value or hash.
+    # Only the event, who and the UTC time. Who is the user id, or for an unknown
+    # user "unknown:<first 16 hex of the keyed hash of the username>", never the
+    # typed name. Never a password, token, CSRF value or password hash.
     logger.log(
         level,
         "security_event event=%s subject=%s at=%s",

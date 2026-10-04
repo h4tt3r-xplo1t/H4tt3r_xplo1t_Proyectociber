@@ -31,17 +31,19 @@ class InvalidToken(Exception):
 
 
 def issue_access_token(
-    user_id: uuid.UUID, role: str, keys: GatewayKeys, now: datetime
+    user_id: uuid.UUID, role: str, sid: str, keys: GatewayKeys, now: datetime
 ) -> tuple[str, dict]:
     """Return a signed access token and its claims.
 
-    A fresh `sid` per call: every login starts a new session (ASVS 7.2.4).
+    `sid` is the id of the session (refresh family) the token belongs to; a
+    refresh keeps it, a new login creates a new one (ASVS 7.2.4). The `jti` is
+    new on every call.
     """
     issued_at = int(now.timestamp())
     claims = {
         "sub": str(user_id),
         "role": role,
-        "sid": secrets.token_urlsafe(16),
+        "sid": sid,
         "jti": secrets.token_urlsafe(16),
         "iat": issued_at,
         "nbf": issued_at,
@@ -53,6 +55,20 @@ def issue_access_token(
         claims, keys.jwt_key, algorithm=ALGORITHM, headers={"kid": keys.jwt_kid}
     )
     return token, claims
+
+
+def new_refresh_token() -> str:
+    """An opaque refresh token: 256 bits from the CSPRNG."""
+    return secrets.token_urlsafe(32)
+
+
+def hash_refresh_token(token: str) -> str:
+    """Hex SHA-256 of a refresh token: the only form that is stored.
+
+    A fast hash is enough because the token is high-entropy random, so there is
+    nothing to brute-force (unlike a password).
+    """
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 def decode_access_token(token: str, keys: GatewayKeys) -> dict:

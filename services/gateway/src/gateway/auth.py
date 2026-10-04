@@ -5,16 +5,17 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from gateway.db import get_session
-from gateway.models import LoginAttempt, User
+from gateway.models import LoginAttempt, RefreshFamily, RefreshToken, User
 from gateway.passwords import (
     hash_password,
+    normalize_password,
     verify_dummy,
     verify_password,
 )
@@ -26,9 +27,11 @@ from gateway.tokens import (
     InvalidToken,
     check_csrf,
     decode_access_token,
+    hash_refresh_token,
     issue_access_token,
     login_attempt_key,
     make_csrf,
+    new_refresh_token,
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -38,6 +41,8 @@ UNIQUE_VIOLATION = "23505"
 
 ACCESS_COOKIE = "__Host-access"
 CSRF_COOKIE = "__Host-csrf"
+REFRESH_COOKIE = "__Secure-refresh"
+REFRESH_PATH = "/api/auth/refresh"
 CSRF_HEADER = "X-CSRF-Token"
 # The cookie lives exactly as long as the JWT inside it.
 ACCESS_COOKIE_MAX_AGE = int(ACCESS_TOKEN_TTL.total_seconds())
@@ -53,6 +58,27 @@ LOCKOUT_MINUTES = (1, 5, 15, 30)
 # Module-level so tests can shorten it; it is a fixed literal, never user input.
 LOCK_TIMEOUT = "2s"
 LOCK_NOT_AVAILABLE = "55P03"
+
+
+@dataclass(frozen=True)
+class SessionLimits:
+    """How long a session may sit idle and how long it may live in total."""
+
+    idle: timedelta
+    absolute: timedelta
+
+
+# ADR 0004: readers get long sessions, every privileged role a short one.
+READER_LIMITS = SessionLimits(idle=timedelta(hours=24), absolute=timedelta(days=7))
+PRIVILEGED_LIMITS = SessionLimits(
+    idle=timedelta(minutes=30), absolute=timedelta(hours=8)
+)
+
+
+def session_limits(role: str) -> SessionLimits:
+    """Limits for `role`; anything but a reader gets the strict ones."""
+    return READER_LIMITS if role == "lector" else PRIVILEGED_LIMITS
+
 
 # Responses that carry or depend on a session must never sit in a cache.
 NO_STORE = {"Cache-Control": "no-store"}
@@ -149,6 +175,16 @@ class RegisterRequest(BaseModel):
     # ADR 0004 decision 4: at least 15 characters and no composition rules.
     # The upper bound only limits the cost of hashing.
     password: Annotated[str, Field(min_length=15, max_length=128)]
+
+    @field_validator("password")
+    @classmethod
+    def long_enough_after_normalization(cls, value: str) -> str:
+        # The hash is taken over the NFC form, so the minimum applies to it: a
+        # decomposed string can be longer raw than the password it stands for.
+        # The message is fixed; the value never goes into it.
+        if len(normalize_password(value)) < 15:
+            raise ValueError("password must have at least 15 characters")
+        return value
 
 
 class UserOut(BaseModel):
@@ -259,6 +295,50 @@ def _login_failed() -> HTTPException:
     )
 
 
+def _set_session_cookies(
+    response: Response,
+    access_token: str,
+    refresh_token: str,
+    sid: str,
+    role: str,
+    keys: GatewayKeys,
+    now: datetime,
+) -> None:
+    """Set the access, session CSRF and refresh cookies of one session step."""
+    absolute = int(session_limits(role).absolute.total_seconds())
+    response.set_cookie(
+        ACCESS_COOKIE,
+        access_token,
+        max_age=ACCESS_COOKIE_MAX_AGE,
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="strict",
+    )
+    # The CSRF token is bound to the session's `sid` and, unlike the access
+    # cookie, must outlive the JWT: the refresh call that replaces an expired
+    # access token has to present it.
+    response.set_cookie(
+        CSRF_COOKIE,
+        make_csrf(sid, keys.csrf_key, now),
+        max_age=absolute,
+        path="/",
+        secure=True,
+        httponly=False,
+        samesite="strict",
+    )
+    # `__Secure-` (not `__Host-`) because the cookie is scoped to one path.
+    response.set_cookie(
+        REFRESH_COOKIE,
+        refresh_token,
+        max_age=absolute,
+        path=REFRESH_PATH,
+        secure=True,
+        httponly=True,
+        samesite="strict",
+    )
+
+
 @router.post(
     "/login",
     dependencies=[Depends(require_same_origin), Depends(require_presession_csrf)],
@@ -302,31 +382,30 @@ def login(
             _log_event("account_locked", subject, now, logging.WARNING)
         raise _login_failed()
 
+    # Issue everything first and commit once: the counter is only reset if the
+    # session exists. A failure while issuing (signing, database) rolls back
+    # the family, the token and the reset together, so the counter still counts.
+    family = RefreshFamily(
+        id=uuid.uuid4(), user_id=user.id, created_at=now, last_used_at=now
+    )
+    session.add(family)
+    token, claims = issue_access_token(user.id, user.role, str(family.id), keys, now)
+    refresh_token = new_refresh_token()
+    session.add(
+        RefreshToken(
+            family_id=family.id,
+            token_hash=hash_refresh_token(refresh_token),
+            created_at=now,
+        )
+    )
     # Reset in place instead of deleting: a request queued on this row's lock
     # would otherwise wake up to a missing row.
     attempt.failures = 0
     attempt.locked_until = None
     attempt.updated_at = now
     session.commit()
-    token, claims = issue_access_token(user.id, user.role, keys, now)
-    response.set_cookie(
-        ACCESS_COOKIE,
-        token,
-        max_age=ACCESS_COOKIE_MAX_AGE,
-        path="/",
-        secure=True,
-        httponly=True,
-        samesite="strict",
-    )
-    # From here on the CSRF token is bound to this session's `sid`.
-    response.set_cookie(
-        CSRF_COOKIE,
-        make_csrf(claims["sid"], keys.csrf_key, now),
-        max_age=ACCESS_COOKIE_MAX_AGE,
-        path="/",
-        secure=True,
-        httponly=False,
-        samesite="strict",
+    _set_session_cookies(
+        response, token, refresh_token, claims["sid"], user.role, keys, now
     )
     response.headers.update(NO_STORE)
     _log_event("login_success", subject, now)

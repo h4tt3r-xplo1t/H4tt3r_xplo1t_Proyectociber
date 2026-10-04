@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -12,9 +13,11 @@ from gateway.tokens import (
     InvalidToken,
     check_csrf,
     decode_access_token,
+    hash_refresh_token,
     issue_access_token,
     login_attempt_key,
     make_csrf,
+    new_refresh_token,
 )
 
 # Fake keys: random-looking but fixed, never used outside the tests.
@@ -54,7 +57,7 @@ def forge(claims=None, *, key=None, algorithm="HS256", headers=None, drop=()):
 
 def test_issued_token_has_the_expected_header_and_claims():
     issued_at = now()
-    token, claims = issue_access_token(USER_ID, "editor", KEYS, issued_at)
+    token, claims = issue_access_token(USER_ID, "editor", "sid-1", KEYS, issued_at)
 
     header = jwt.get_unverified_header(token)
     assert header["alg"] == "HS256"
@@ -78,17 +81,28 @@ def test_issued_token_has_the_expected_header_and_claims():
     assert claims["exp"] - claims["iat"] == 15 * 60
 
 
-def test_each_token_gets_a_new_sid_and_jti():
-    _, first = issue_access_token(USER_ID, "lector", KEYS, now())
-    _, second = issue_access_token(USER_ID, "lector", KEYS, now())
+def test_the_token_carries_the_given_sid_and_a_new_jti_each_time():
+    _, first = issue_access_token(USER_ID, "lector", "sid-1", KEYS, now())
+    _, second = issue_access_token(USER_ID, "lector", "sid-1", KEYS, now())
 
-    assert first["sid"] != second["sid"]
+    assert first["sid"] == second["sid"] == "sid-1"
     assert first["jti"] != second["jti"]
-    assert len(first["sid"]) >= 22  # at least 128 bits, base64url
+    assert len(first["jti"]) >= 22  # at least 128 bits, base64url
+
+
+def test_refresh_tokens_are_random_and_only_their_sha256_is_kept():
+    first = new_refresh_token()
+    second = new_refresh_token()
+
+    assert first != second
+    assert len(first) >= 43  # 32 random bytes, base64url
+    digest = hash_refresh_token(first)
+    assert digest == hashlib.sha256(first.encode()).hexdigest()
+    assert first not in digest
 
 
 def test_decode_returns_the_claims_of_a_valid_token():
-    token, claims = issue_access_token(USER_ID, "lector", KEYS, now())
+    token, claims = issue_access_token(USER_ID, "lector", "sid-1", KEYS, now())
 
     assert decode_access_token(token, KEYS) == claims
 
@@ -210,7 +224,7 @@ def test_decode_never_asks_pyjwt_to_skip_the_signature(monkeypatch):
         return real(*args, **kwargs)
 
     monkeypatch.setattr(tokens.jwt, "decode", spy)
-    token, _ = issue_access_token(USER_ID, "lector", KEYS, now())
+    token, _ = issue_access_token(USER_ID, "lector", "sid-1", KEYS, now())
     decode_access_token(token, KEYS)
     decode_access_token(token, KEYS)
 
@@ -377,7 +391,7 @@ def test_csrf_with_a_malformed_issued_at_is_rejected(stamp):
 def test_missing_claim_settings_raise_a_server_error_not_invalid_token(
     name, monkeypatch
 ):
-    token, _ = issue_access_token(USER_ID, "lector", KEYS, now())
+    token, _ = issue_access_token(USER_ID, "lector", "sid-1", KEYS, now())
     monkeypatch.delenv(name)
 
     with pytest.raises(RuntimeError, match=f"^{name} is not set$"):

@@ -65,6 +65,9 @@ LOCKOUT_MINUTES = (1, 5, 15, 30)
 # Module-level so tests can shorten it; it is a fixed literal, never user input.
 LOCK_TIMEOUT = "2s"
 LOCK_NOT_AVAILABLE = "55P03"
+# Lock timeout, deadlock detected, serialization failure: the database gave up
+# on a lock, and the client is told to try again.
+BUSY_SQLSTATES = (LOCK_NOT_AVAILABLE, "40P01", "40001")
 
 
 @dataclass(frozen=True)
@@ -449,30 +452,43 @@ def _refresh_failed(reason: str, subject: str, now: datetime) -> None:
 def _lock_refresh_token(
     session: Session, token_hash: str
 ) -> tuple[RefreshToken, RefreshFamily] | None:
-    """Lock the token row and its family; None when the token is unknown.
+    """Lock the family, then the token; None when the token is unknown.
 
-    The locks serialize two requests carrying the same token: the second one
-    wakes up to a used token and is treated as reuse. Locking the family too
-    keeps a concurrent logout from racing the rotation.
+    The order is fixed on purpose: find the family without a lock, lock the
+    family, then lock the token. Logout locks only the family, so a single order
+    (family first) rules out a deadlock whatever plan PostgreSQL picks. Two
+    requests carrying the same token queue on the family; the second one then
+    sees a used token and is treated as reuse.
     """
     # Same bounded wait as the login counter; SET LOCAL lasts for this transaction.
     session.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
     lock_failed = False
-    row = None
+    found = None
     try:
-        row = session.execute(
-            select(RefreshToken, RefreshFamily)
-            .join(RefreshFamily, RefreshFamily.id == RefreshToken.family_id)
-            .where(RefreshToken.token_hash == token_hash)
-            .with_for_update()
-        ).first()
+        family_id = session.execute(
+            select(RefreshToken.family_id).where(RefreshToken.token_hash == token_hash)
+        ).scalar_one_or_none()
+        if family_id is not None:
+            family = session.execute(
+                select(RefreshFamily)
+                .where(RefreshFamily.id == family_id)
+                .with_for_update()
+            ).scalar_one_or_none()
+            # Read under the lock: this is the current state of the token.
+            token = session.execute(
+                select(RefreshToken)
+                .where(RefreshToken.token_hash == token_hash)
+                .with_for_update()
+            ).scalar_one_or_none()
+            if family is not None and token is not None:
+                found = (token, family)
     except OperationalError as exc:
-        if getattr(exc.orig, "sqlstate", None) != LOCK_NOT_AVAILABLE:
+        if getattr(exc.orig, "sqlstate", None) not in BUSY_SQLSTATES:
             raise
         lock_failed = True
     if lock_failed:
         raise LoginBusy("refresh token row is locked", "refresh_row_locked")
-    return None if row is None else (row[0], row[1])
+    return found
 
 
 @router.post("/refresh", dependencies=[Depends(require_same_origin)])

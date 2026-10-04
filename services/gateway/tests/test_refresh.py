@@ -5,7 +5,8 @@ from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import event, text
+from sqlalchemy.exc import OperationalError
 
 from gateway import auth
 from gateway.db import get_engine
@@ -553,3 +554,64 @@ def test_two_simultaneous_refreshes_with_the_same_token_end_in_reuse(client, db_
     assert (
         refresh(client, refresh_cookie_value(winner), session.csrf).status_code == 401
     )
+
+
+# --- lock order and database-side giving up ------------------------------------------
+
+
+def test_refresh_locks_the_family_before_the_token(client, db_engine):
+    session = start(client)
+    statements = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(" ".join(statement.split()))
+
+    engine = get_engine()
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        assert refresh(client, session.refresh, session.csrf).status_code == 200
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+
+    selects = [s for s in statements if s.startswith("SELECT")]
+    locks = [s for s in selects if s.endswith("FOR UPDATE")]
+    first_token_lookup = next(i for i, s in enumerate(selects) if "refresh_tokens" in s)
+    # The lookup that finds the family takes no lock...
+    assert not selects[first_token_lookup].endswith("FOR UPDATE")
+    # ...then the family is locked, then the token, one statement each.
+    assert "FROM refresh_families" in locks[0]
+    assert "refresh_tokens" not in locks[0]
+    assert "FROM refresh_tokens" in locks[1]
+    assert "refresh_families" not in locks[1]
+
+
+class FakeDbError(Exception):
+    def __init__(self, sqlstate):
+        self.sqlstate = sqlstate
+
+
+class FailingSession:
+    """Accepts SET LOCAL, then fails every statement with `sqlstate`."""
+
+    def __init__(self, sqlstate):
+        self.sqlstate = sqlstate
+        self.calls = 0
+
+    def execute(self, statement, *args, **kwargs):
+        self.calls += 1
+        if self.calls == 1:
+            return None
+        raise OperationalError("SELECT", {}, FakeDbError(self.sqlstate))
+
+
+@pytest.mark.parametrize("sqlstate", ["55P03", "40P01", "40001"])
+def test_lock_timeout_deadlock_and_serialization_failure_are_busy(sqlstate):
+    with pytest.raises(auth.LoginBusy) as raised:
+        auth._lock_refresh_token(FailingSession(sqlstate), "hash")
+
+    assert raised.value.cause == "refresh_row_locked"
+
+
+def test_other_database_errors_are_not_swallowed_as_busy():
+    with pytest.raises(OperationalError):
+        auth._lock_refresh_token(FailingSession("08006"), "hash")

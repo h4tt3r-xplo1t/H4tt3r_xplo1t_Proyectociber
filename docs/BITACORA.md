@@ -80,6 +80,15 @@ Rama `feat/35-sesion-gateway`. Completa la gestión de sesión del ADR 0004.
   - El contador de fallos se reinicia en el mismo commit que emite los tokens; si la emisión falla, no cambia.
   - La longitud mínima de la contraseña se comprueba después de NFC.
 - **TDD:** RED observado en cada tarea y luego GREEN, sobre una base de datos nueva; detalle en `odd/tasks/sesion-gateway.md`.
+- **Revisión de seguridad (`revisor-seguridad`):** lista para PR, sin críticos ni altos; 2 medios y 6 bajos. Corregidos:
+  - Prueba de concurrencia real con el mismo refresh.
+  - Orden fijo de bloqueos (familia y luego token); un deadlock o un error de serialización da 503.
+  - Causa correcta del 503 en los logs.
+  - `lock_timeout` también en el logout.
+  - El refresh respeta `tokens_valid_since`.
+  - Un claim de tipo inesperado da 401, nunca 500.
+- **Riesgo aceptado (M1):** si se pierde la respuesta de un refresh y el cliente reintenta con el token ya usado, se revoca la familia y la persona debe volver a iniciar sesión. Lo decide el ADR 0004 («sin periodo de gracia»). Una ventana de gracia requeriría un ADR nuevo.
+- **Riesgo anotado (L5):** `__Secure-refresh` no puede ser `__Host-` porque lleva `Path`; un subdominio hermano podría sobrescribirlo con `Domain=`. Queda mitigado por `SameSite=Strict` y porque el valor no se puede adivinar. Anotado en la amenaza 35.
 
 ## Pendientes
 

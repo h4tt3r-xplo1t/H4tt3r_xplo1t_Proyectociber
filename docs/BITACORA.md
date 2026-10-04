@@ -55,6 +55,32 @@ Rama `feat/33-login-gateway`. A2 se divide en dos partes: **A2a** (este issue: l
 
 - **Cierre:** PR #34 fusionado con squash como `51aa0e4`; issue #33 cerrado. Push por SSH (la rama cambiaba el workflow); en CI corrieron las 246 pruebas.
 
+## 2026-10-03 · Issue #35: sesión del gateway (A2b)
+
+Rama `feat/35-sesion-gateway`. Completa la gestión de sesión del ADR 0004.
+
+- **`sid` igual al `id` de la familia de refresh:** el login crea la familia, y el `sid` del JWT y el CSRF de sesión usan su `id`; no hace falta una columna nueva.
+- **Migración `0003`:**
+  - `refresh_tokens`: solo el SHA-256 del token. Argon2 no hace falta: el token es aleatorio de 256 bits.
+  - `revoked_jtis`: denylist con `expires_at`.
+- **Login:** emite además `__Secure-refresh` (`HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/api/auth/refresh`), con vida igual al límite absoluto del rol. El CSRF de sesión vive lo mismo, porque el refresh lo necesita cuando el JWT ya venció.
+- **`POST /api/auth/refresh`:**
+  - Bloqueo de fila del token y de su familia, con `lock_timeout`.
+  - El CSRF se comprueba contra el `sid` de la familia, antes de cambiar nada: un CSRF inválido no consume el token ni dispara la revocación.
+  - Rotación en cada uso. La reutilización revoca la familia sin periodo de gracia.
+  - Límites por rol leídos de la base de datos: lector 24 h de inactividad y 7 d absoluto; el resto, 30 min y 8 h.
+- **`POST /api/auth/logout`:**
+  - Acepta un JWT vencido si la firma, `iss`, `aud` y `kid` son válidos.
+  - Revoca la familia y añade el `jti` a la denylist hasta su `exp`.
+  - Borra las tres cookies. Es idempotente.
+- **`current_user`:** en una sola consulta rechaza un `jti` revocado, un `iat` anterior a `tokens_valid_since` y una familia revocada o inexistente.
+  - `tokens_valid_since` se trunca al segundo, porque el `iat` es entero; un token del mismo segundo que el registro sigue valiendo.
+  - Revisar la familia cierra la ventana de 15 min en que el JWT de una sesión robada seguía valiendo tras detectarse la reutilización.
+- **Pendientes del #33 cerrados:**
+  - El contador de fallos se reinicia en el mismo commit que emite los tokens; si la emisión falla, no cambia.
+  - La longitud mínima de la contraseña se comprueba después de NFC.
+- **TDD:** RED observado en cada tarea y luego GREEN, sobre una base de datos nueva; detalle en `odd/tasks/sesion-gateway.md`.
+
 ## Pendientes
 
 ### E3: primer flujo (búsqueda por tema) y autenticación
@@ -71,14 +97,12 @@ Rama `feat/33-login-gateway`. A2 se divide en dos partes: **A2a** (este issue: l
 - [ ] `readyz` que compruebe la base de datos (E5): sin `GATEWAY_DATABASE_URL`, `/healthz` responde pero la API falla.
 
 ### Inicio de sesión (issue #33)
-- [ ] **A2b:** refresh opaco con rotación y detección de reutilización, logout, denylist de `jti` y `tokens_valid_since` en `current_user`.
 - [ ] Caducidad (TTL) de las filas de `login_attempts`, que el ADR 0004 pide para los nombres inexistentes; hoy un contador viejo nunca decae.
 - [ ] Bloqueo dirigido: cualquiera puede mantener bloqueada una cuenta ajena (4 fallos y luego uno cada 30 min). Lo acepta el ADR 0004 hasta que existan el límite por IP (E5) y la recuperación asistida (revisión de Gentle AI del #33).
 - [ ] El login mantiene la conexión a la base de datos y el bloqueo de fila durante la espera del hash (hasta 5 s más el hash). Valorar leer y bloquear el contador en una transacción corta separada del hash (revisión de Gentle AI del #33).
-- [ ] Un login correcto confirma el reinicio del contador antes de emitir el token; si la emisión falla, el contador ya está a cero. Valorar emitir antes de confirmar (segunda revisión de Gentle AI del #33).
-- [ ] La longitud mínima (15) se comprueba antes de la normalización NFC; una contraseña descompuesta de 15 caracteres puede quedar en 14 tras normalizar. Valorar comprobar la longitud después de NFC (segunda revisión de Gentle AI del #33).
 - [ ] Saturación del threadpool: hasta 5 s de espera por el semáforo bloquean hilos de las rutas síncronas; depende del límite de tasa (E5) (L6 de la revisión del #33).
-- [ ] Exigir el CSRF ligado al `sid` en las rutas que cambien estado después del login (aún no hay ninguna).
+- [ ] Exigir el CSRF ligado al `sid` en las rutas que cambien estado después del login; `refresh` y `logout` ya lo exigen (#35).
+- [ ] Purga de las filas vencidas de `revoked_jtis` (`expires_at` ya está indexado) (#35).
 
 ### OpenBao (issue #31)
 - [ ] Llevar a OpenBao las credenciales de PostgreSQL (hoy en variables de entorno).
@@ -126,5 +150,6 @@ Rama `feat/33-login-gateway`. A2 se divide en dos partes: **A2a** (este issue: l
 - [x] **ADR 0004 (issue #20, PR #21):** autenticación y autorización; modelo ampliado a 47 amenazas.
 - [x] **E2 (issue #25, PR #26):** esqueleto del `gateway` con `uv.lock`, lint y pruebas en CI.
 - [x] **Issue #29 (PR #30)** y **#31 (PR #32):** registro de usuarios y OpenBao.
+- [x] **A2b (issue #35):** refresh con rotación y detección de reutilización, logout, denylist y `tokens_valid_since`; reinicio del contador tras emitir los tokens y longitud después de NFC.
 - [x] Normalización Unicode de contraseñas (NFC) y tiempo máximo del semáforo de Argon2id (pendientes del #29, cerrados en el #33).
 - [x] **Issue #27 (PR #28):** `gateway` obligatorio en el ruleset (aplicado en GitHub el 2026-09-30 y verificado desde la API), documentación de la API desactivada por defecto y `httpx2`. ADR 0001 actualizado en el issue #29.

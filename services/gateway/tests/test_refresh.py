@@ -1,4 +1,5 @@
 import logging
+import threading
 import time
 from datetime import timedelta
 
@@ -489,3 +490,62 @@ def test_a_successful_refresh_logs_no_failure(client, caplog):
     refresh(client, session.refresh, session.csrf)
 
     assert failure_logs(caplog) == []
+
+
+# --- concurrency ---------------------------------------------------------------------
+
+
+def wait_for_waiting_backends(db_engine, count, timeout=10):
+    """Poll PostgreSQL until `count` backends are blocked on a lock."""
+    deadline = time.monotonic() + timeout
+    query = text(
+        "SELECT count(*) FROM pg_stat_activity "
+        "WHERE datname = current_database() AND wait_event_type = 'Lock'"
+    )
+    while time.monotonic() < deadline:
+        with db_engine.connect() as conn:
+            if conn.execute(query).scalar_one() >= count:
+                return True
+        threading.Event().wait(0.02)
+    return False
+
+
+def test_two_simultaneous_refreshes_with_the_same_token_end_in_reuse(client, db_engine):
+    session = start(client)
+    clients = [
+        TestClient(
+            client.app, base_url="https://testserver", raise_server_exceptions=False
+        )
+        for _ in range(2)
+    ]
+    results = {}
+
+    def run(index):
+        results[index] = refresh(clients[index], session.refresh, session.csrf)
+
+    # Hold the family row so that both requests are provably queued on it at the
+    # same moment; releasing it lets them race for the rotation.
+    holder = db_engine.connect()
+    threads = [threading.Thread(target=run, args=(i,)) for i in range(2)]
+    try:
+        holder.execute(text("SELECT 1 FROM refresh_families FOR UPDATE"))
+        for thread in threads:
+            thread.start()
+        assert wait_for_waiting_backends(db_engine, 2)
+    finally:
+        holder.rollback()
+        holder.close()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    statuses = sorted(r.status_code for r in results.values())
+    assert statuses == [200, 401]
+    winner = next(r for r in results.values() if r.status_code == 200)
+    loser = next(r for r in results.values() if r.status_code == 401)
+    assert loser.json() == NOT_AUTHENTICATED
+    # The loser found the token already used: reuse, so the family is revoked
+    # and the winner's brand-new token is dead as well.
+    assert family_row(db_engine).revoked_at is not None
+    assert (
+        refresh(client, refresh_cookie_value(winner), session.csrf).status_code == 401
+    )

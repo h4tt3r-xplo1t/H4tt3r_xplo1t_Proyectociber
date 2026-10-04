@@ -57,6 +57,6 @@ def db_engine(migrated_db):
     ensure_disposable_database(migrated_db)
     engine = create_engine(migrated_db)
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE users, refresh_families CASCADE"))
+        conn.execute(text("TRUNCATE users, refresh_families, login_attempts CASCADE"))
     yield engine
     engine.dispose()

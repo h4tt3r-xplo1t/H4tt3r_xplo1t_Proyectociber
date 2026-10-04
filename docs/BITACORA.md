@@ -41,6 +41,16 @@ Rama `feat/33-login-gateway`. A2 se divide en dos partes: **A2a** (este issue: l
   - `Cache-Control: no-store` en `/login`, `/me` y `/csrf`.
 
   Quedan pendientes la purga de `login_attempts` y la saturación de hilos por el semáforo (depende del límite de tasa del Ingress).
+- **Revisión de Gentle AI (4 lentes):** aprobada sin bloqueantes y confirmada. De sus 12 observaciones se corrigieron 7, con un commit cada una (246 pruebas sobre una base de datos nueva):
+  - La prueba de concurrencia se sincroniza con eventos, sin `sleep`; pasó 20 de 20 veces seguidas.
+  - Si faltan `GATEWAY_JWT_ISSUER` o `GATEWAY_JWT_AUDIENCE`, el gateway da un error de servidor y no un 401.
+  - La columna se renombra a `attempt_key`, porque guarda un HMAC.
+  - La espera del bloqueo de fila lanza `LoginBusy`, distinta de `HashingBusy`; las dos dan el mismo 503 y cada 503 registra su causa.
+  - La prueba NFC usa escapes `\u`.
+  - El TTL de la cookie sale del TTL del JWT.
+  - Se corrigió un comentario desactualizado.
+
+  Las otras observaciones están en Pendientes.
 - **Bitácora rotada:** las entradas del 30-09 se movieron a `docs/bitacora/2026-09-30.md` (este archivo pasaba de 20 000 bytes). Se comprobó que no se perdió ninguna línea.
 
 ## Pendientes
@@ -61,6 +71,8 @@ Rama `feat/33-login-gateway`. A2 se divide en dos partes: **A2a** (este issue: l
 ### Inicio de sesión (issue #33)
 - [ ] **A2b:** refresh opaco con rotación y detección de reutilización, logout, denylist de `jti` y `tokens_valid_since` en `current_user`.
 - [ ] Caducidad (TTL) de las filas de `login_attempts`, que el ADR 0004 pide para los nombres inexistentes; hoy un contador viejo nunca decae.
+- [ ] Bloqueo dirigido: cualquiera puede mantener bloqueada una cuenta ajena (4 fallos y luego uno cada 30 min). Lo acepta el ADR 0004 hasta que existan el límite por IP (E5) y la recuperación asistida (revisión de Gentle AI del #33).
+- [ ] El login mantiene la conexión a la base de datos y el bloqueo de fila durante la espera del hash (hasta 5 s más el hash). Valorar leer y bloquear el contador en una transacción corta separada del hash (revisión de Gentle AI del #33).
 - [ ] Saturación del threadpool: hasta 5 s de espera por el semáforo bloquean hilos de las rutas síncronas; depende del límite de tasa (E5) (L6 de la revisión del #33).
 - [ ] Exigir el CSRF ligado al `sid` en las rutas que cambien estado después del login (aún no hay ninguna).
 

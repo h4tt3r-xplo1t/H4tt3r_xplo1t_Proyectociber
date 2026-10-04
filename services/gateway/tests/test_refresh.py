@@ -413,3 +413,79 @@ def test_refresh_answers_503_when_the_token_row_stays_locked(
     assert elapsed < 2
     # Nothing was consumed: the same token still works.
     assert refresh(client, session.refresh, session.csrf).status_code == 200
+
+
+# --- failed refreshes are logged -----------------------------------------------------
+
+
+def failure_logs(caplog):
+    return [
+        r.getMessage() for r in caplog.records if "refresh_failed" in r.getMessage()
+    ]
+
+
+def test_every_failed_refresh_is_logged_with_a_short_reason(
+    client, db_engine, clock, caplog
+):
+    caplog.set_level(logging.INFO, logger="gateway.auth")
+    session = start(client)
+    user_id = decode_access_token(session.access, KEYS)["sub"]
+
+    refresh(client, "not-a-real-token", session.csrf)
+    (unknown,) = failure_logs(caplog)
+    assert "reason=unknown" in unknown
+    assert "subject=unknown" in unknown
+    caplog.clear()
+
+    clock.offset = timedelta(hours=25)
+    refresh(client, session.refresh, session.csrf)
+    (idle,) = failure_logs(caplog)
+    assert "reason=idle_expired" in idle
+    assert f"subject={user_id}" in idle
+    caplog.clear()
+
+    clock.offset = timedelta(0)
+    with db_engine.begin() as conn:
+        conn.execute(
+            text("UPDATE refresh_families SET created_at = now() - interval '8 days'")
+        )
+    refresh(client, session.refresh, session.csrf)
+    (absolute,) = failure_logs(caplog)
+    assert "reason=absolute_expired" in absolute
+    caplog.clear()
+
+    with db_engine.begin() as conn:
+        conn.execute(text("UPDATE refresh_families SET revoked_at = now()"))
+    refresh(client, session.refresh, session.csrf)
+    (revoked,) = failure_logs(caplog)
+    assert "reason=revoked" in revoked
+    assert f"subject={user_id}" in revoked
+    assert session.refresh not in caplog.text
+    assert session.csrf not in caplog.text
+    assert hash_refresh_token(session.refresh) not in caplog.text
+
+
+def test_a_refresh_for_a_missing_user_is_logged_as_user_missing(
+    client, db_engine, caplog, monkeypatch
+):
+    caplog.set_level(logging.INFO, logger="gateway.auth")
+    session = start(client)
+    # The FK cascade removes the family with the user, so a missing user is only
+    # reachable through a race; simulate the lookup coming back empty.
+    monkeypatch.setattr(auth.Session, "get", lambda self, *a, **k: None, raising=False)
+
+    response = refresh(client, session.refresh, session.csrf)
+
+    assert response.status_code == 401
+    (line,) = failure_logs(caplog)
+    assert "reason=user_missing" in line
+    assert session.refresh not in caplog.text
+
+
+def test_a_successful_refresh_logs_no_failure(client, caplog):
+    caplog.set_level(logging.INFO, logger="gateway.auth")
+    session = start(client)
+
+    refresh(client, session.refresh, session.csrf)
+
+    assert failure_logs(caplog) == []

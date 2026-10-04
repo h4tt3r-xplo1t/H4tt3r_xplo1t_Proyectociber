@@ -1,4 +1,5 @@
 import logging
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -317,10 +318,14 @@ def test_a_token_issued_in_the_same_second_as_tokens_valid_since_still_works(
         valid_since = conn.execute(
             text("SELECT tokens_valid_since FROM users")
         ).scalar()
+        sid = conn.execute(
+            text("INSERT INTO refresh_families (user_id) VALUES (:u) RETURNING id"),
+            {"u": user["id"]},
+        ).scalar_one()
     iat = int(valid_since.timestamp())
 
-    same_second = forged_access(user["id"], iat=iat, nbf=iat)
-    earlier = forged_access(user["id"], iat=iat - 1, nbf=iat - 1)
+    same_second = forged_access(user["id"], iat=iat, nbf=iat, sid=str(sid))
+    earlier = forged_access(user["id"], iat=iat - 1, nbf=iat - 1, sid=str(sid))
 
     client.cookies.set("__Host-access", same_second)
     assert client.get("/api/auth/me").status_code == 200
@@ -341,3 +346,59 @@ def test_a_denied_jti_does_not_affect_other_tokens_of_the_user(client, db_engine
     login(client)
 
     assert client.get("/api/auth/me").status_code == 200
+
+
+# --- current_user rejects tokens of a revoked or missing session -----------------
+
+
+def test_after_refresh_reuse_the_access_token_of_that_family_is_401(client):
+    session = start(client)
+    old = session.refresh
+    refresh(client, old, session.csrf)
+    client.cookies.set("__Host-access", session.access)
+    assert client.get("/api/auth/me").status_code == 200
+
+    assert refresh(client, old, session.csrf).status_code == 401  # reuse
+
+    client.cookies.set("__Host-access", session.access)
+    response = client.get("/api/auth/me")
+    assert response.status_code == 401
+    assert response.json() == NOT_AUTHENTICATED
+
+
+def test_after_logout_another_access_token_of_the_family_is_401(client):
+    session = start(client)
+    first_access = session.access
+    session.take(refresh(client, session.refresh, session.csrf))
+    assert session.access != first_access
+
+    logout(client, session.access, session.csrf)
+
+    # first_access was never denied by jti; its family is what died.
+    client.cookies.set("__Host-access", first_access)
+    response = client.get("/api/auth/me")
+    assert response.status_code == 401
+    assert response.json() == NOT_AUTHENTICATED
+
+
+def test_a_validly_signed_token_of_a_nonexistent_family_is_401(client):
+    user = register(client)
+
+    client.cookies.set(
+        "__Host-access", forged_access(user["id"], sid=str(uuid.uuid4()))
+    )
+
+    response = client.get("/api/auth/me")
+    assert response.status_code == 401
+    assert response.json() == NOT_AUTHENTICATED
+
+
+@pytest.mark.parametrize("sid", ["sid-1", "", "not-a-uuid", "1" * 200])
+def test_a_token_with_a_non_uuid_sid_is_401_not_500(client, sid):
+    user = register(client)
+
+    client.cookies.set("__Host-access", forged_access(user["id"], sid=sid))
+
+    response = client.get("/api/auth/me")
+    assert response.status_code == 401
+    assert response.json() == NOT_AUTHENTICATED

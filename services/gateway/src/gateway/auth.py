@@ -428,6 +428,17 @@ def _session_denied() -> HTTPException:
     )
 
 
+def _refresh_failed(reason: str, subject: str, now: datetime) -> None:
+    # The clients all see the same 401; the reason is for the security log only.
+    # `subject` is a user id or "unknown", never the token.
+    logger.warning(
+        "security_event event=refresh_failed reason=%s subject=%s at=%s",
+        reason,
+        subject,
+        now.astimezone(UTC).isoformat(),
+    )
+
+
 def _lock_refresh_token(
     session: Session, token_hash: str
 ) -> tuple[RefreshToken, RefreshFamily] | None:
@@ -476,6 +487,8 @@ def refresh(
         raise _session_denied()
     found = _lock_refresh_token(session, hash_refresh_token(presented))
     if found is None:
+        # The subject is unknown: the token matched nothing, and it is never logged.
+        _refresh_failed("unknown", "unknown", now)
         raise _session_denied()
     token, family = found
     if not check_csrf(
@@ -495,13 +508,20 @@ def refresh(
         raise _session_denied()
 
     # The role comes from the database, not from any token.
+    subject = str(family.user_id)
     user = session.get(User, family.user_id)
-    if user is None or family.revoked_at is not None:
+    if user is None:
+        _refresh_failed("user_missing", subject, now)
+        raise _session_denied()
+    if family.revoked_at is not None:
+        _refresh_failed("revoked", subject, now)
         raise _session_denied()
     limits = session_limits(user.role)
     if now - family.last_used_at > limits.idle:
+        _refresh_failed("idle_expired", subject, now)
         raise _session_denied()
     if now - family.created_at > limits.absolute:
+        _refresh_failed("absolute_expired", subject, now)
         raise _session_denied()
 
     token.used_at = now
@@ -605,7 +625,8 @@ def current_user(
 ) -> CurrentUser:
     """Authenticate from the access cookie and reload the user from the database.
 
-    One query loads the user only if the token's `jti` is not denied (logout)
+    One query loads the user only if the token's `jti` is not denied (logout),
+    its `sid` names a session (refresh family) that exists and is not revoked,
     and the token was issued no earlier than `tokens_valid_since`. `iat` is whole
     seconds while the column has microseconds, so the column is truncated to the
     second: a token issued in the same second as the cut-off still passes.
@@ -622,6 +643,10 @@ def current_user(
                 select(User).where(
                     User.id == uuid.UUID(claims["sub"]),
                     ~exists().where(RevokedJti.jti == claims["jti"]),
+                    exists().where(
+                        RefreshFamily.id == uuid.UUID(claims["sid"]),
+                        RefreshFamily.revoked_at.is_(None),
+                    ),
                     func.date_trunc("second", User.tokens_valid_since)
                     <= func.to_timestamp(claims["iat"]),
                 )

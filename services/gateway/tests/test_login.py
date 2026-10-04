@@ -800,7 +800,14 @@ def test_me_returns_the_logged_in_user(client):
 
 def test_me_reads_the_role_from_the_database_not_from_the_token(client, db_engine):
     user = register(client)
-    client.cookies.set("__Host-access", forged_access(user["id"], role="administrador"))
+    with db_engine.begin() as conn:
+        sid = conn.execute(
+            text("INSERT INTO refresh_families (user_id) VALUES (:u) RETURNING id"),
+            {"u": user["id"]},
+        ).scalar_one()
+    client.cookies.set(
+        "__Host-access", forged_access(user["id"], role="administrador", sid=str(sid))
+    )
 
     response = client.get("/api/auth/me")
 

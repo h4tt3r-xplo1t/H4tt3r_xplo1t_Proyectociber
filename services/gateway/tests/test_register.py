@@ -2,8 +2,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
+from gateway import passwords
 from gateway.db import get_engine
 from gateway.main import create_app
+from gateway.passwords import verify_password
 
 URL = "/api/auth/register"
 # Fake passphrases used only by these tests.
@@ -156,3 +158,29 @@ def test_non_unique_db_error_does_not_carry_the_hash(client, monkeypatch):
     logged = "".join(traceback.format_exception(excinfo.value))
     assert "$argon2id$" not in logged
     assert "Failing row" not in logged
+
+
+def test_register_hashes_the_nfc_form_of_the_password(client, db_engine):
+    decomposed = "contrase\u0301a-muy-larga-123"  # "e" + combining acute
+    precomposed = "contrase\u0301a-muy-larga-123".replace("e\u0301", "\u00e9")
+    assert decomposed != precomposed
+    register(client, password=decomposed)
+
+    with db_engine.connect() as conn:
+        stored = conn.execute(text("SELECT password_hash FROM users")).scalar_one()
+    assert verify_password(stored, precomposed) is True
+
+
+def test_register_answers_503_when_hashing_is_saturated(client, monkeypatch):
+    monkeypatch.setattr(passwords, "HASH_WAIT_SECONDS", 0.05)
+    for _ in range(passwords.MAX_CONCURRENT_HASHES):
+        passwords._slots.acquire()
+    try:
+        response = register(client)
+    finally:
+        for _ in range(passwords.MAX_CONCURRENT_HASHES):
+            passwords._slots.release()
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Service busy; try again later"}
+    assert GOOD not in response.text

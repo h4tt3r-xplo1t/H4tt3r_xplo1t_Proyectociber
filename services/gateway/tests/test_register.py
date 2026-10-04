@@ -174,7 +174,7 @@ def test_register_hashes_the_nfc_form_of_the_password(client, db_engine):
     assert verify_password(stored, precomposed) is True
 
 
-def test_register_answers_503_when_hashing_is_saturated(client, monkeypatch):
+def test_register_answers_503_when_hashing_is_saturated(client, monkeypatch, caplog):
     monkeypatch.setattr(passwords, "HASH_WAIT_SECONDS", 0.05)
     for _ in range(passwords.MAX_CONCURRENT_HASHES):
         passwords._slots.acquire()
@@ -187,6 +187,7 @@ def test_register_answers_503_when_hashing_is_saturated(client, monkeypatch):
     assert response.status_code == 503
     assert response.json() == {"detail": "Service busy; try again later"}
     assert GOOD not in response.text
+    assert "event=service_busy cause=hash_saturated" in caplog.text
 
 
 @pytest.mark.parametrize(

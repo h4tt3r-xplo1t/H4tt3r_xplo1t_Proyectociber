@@ -586,6 +586,54 @@ def test_login_answers_503_when_the_row_lock_is_not_obtained_in_time(
     assert attempt_row(db_engine) == (1, None)  # no failure was counted
 
 
+def test_row_lock_timeout_is_a_distinct_error_from_hash_saturation():
+    assert not issubclass(auth.LoginBusy, passwords.HashingBusy)
+    assert not issubclass(passwords.HashingBusy, auth.LoginBusy)
+
+
+def test_both_503_causes_are_logged_and_look_the_same_to_the_client(
+    client, db_engine, monkeypatch, caplog
+):
+    register(client)
+    login(client, password=OTHER)  # creates the counter row
+    caplog.set_level(logging.INFO, logger="gateway.auth")
+
+    # Cause 1: no hashing slot.
+    token = get_csrf(client)
+    monkeypatch.setattr(passwords, "HASH_WAIT_SECONDS", 0.05)
+    for _ in range(passwords.MAX_CONCURRENT_HASHES):
+        passwords._slots.acquire()
+    try:
+        saturated = login(client, token=token)
+    finally:
+        for _ in range(passwords.MAX_CONCURRENT_HASHES):
+            passwords._slots.release()
+
+    # Cause 2: the counter row stays locked.
+    token = get_csrf(client)
+    monkeypatch.setattr(auth, "LOCK_TIMEOUT", "100ms")
+    holder = db_engine.connect()
+    try:
+        holder.execute(
+            text("SELECT 1 FROM login_attempts WHERE attempt_key = :u FOR UPDATE"),
+            {"u": attempt_key()},
+        )
+        locked = login(client, token=token)
+    finally:
+        holder.rollback()
+        holder.close()
+
+    assert saturated.status_code == locked.status_code == 503
+    assert saturated.json() == locked.json()
+    assert saturated.headers["content-type"] == locked.headers["content-type"]
+    messages = [r.getMessage() for r in events(caplog)]
+    busy = [m for m in messages if "event=service_busy" in m]
+    assert len(busy) == 2
+    assert "cause=hash_saturated" in busy[0]
+    assert "cause=attempt_row_locked" in busy[1]
+    assert GOOD not in caplog.text
+
+
 def test_lock_timeout_is_two_seconds_by_default():
     assert auth.LOCK_TIMEOUT == "2s"
 

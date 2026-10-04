@@ -14,7 +14,6 @@ from sqlalchemy.orm import Session
 from gateway.db import get_session
 from gateway.models import LoginAttempt, User
 from gateway.passwords import (
-    HashingBusy,
     hash_password,
     verify_dummy,
     verify_password,
@@ -128,6 +127,19 @@ def _log_event(
     )
 
 
+class LoginBusy(RuntimeError):
+    """The login counter row stayed locked past LOCK_TIMEOUT; answered with 503."""
+
+
+def log_service_busy(cause: str) -> None:
+    """Record why a 503 happened. The client sees the same body for every cause."""
+    logger.warning(
+        "security_event event=service_busy cause=%s at=%s",
+        cause,
+        datetime.now(UTC).isoformat(),
+    )
+
+
 class RegisterRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -234,8 +246,8 @@ def _lock_attempt(session: Session, attempt_key: str) -> LoginAttempt:
             raise
         lock_failed = True
     if lock_failed:
-        # Same answer as a saturated hasher; nothing is counted.
-        raise HashingBusy("login attempt row is locked")
+        # Answered like a saturated hasher (same 503); nothing is counted.
+        raise LoginBusy("login attempt row is locked")
     return attempt
 
 

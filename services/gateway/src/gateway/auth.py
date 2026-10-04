@@ -27,6 +27,7 @@ from gateway.tokens import (
     check_csrf,
     decode_access_token,
     issue_access_token,
+    login_attempt_key,
     make_csrf,
 )
 
@@ -193,7 +194,7 @@ def csrf(
 
 
 def _lock_attempt(session: Session, username: str) -> LoginAttempt:
-    """Get the counter row for `username` locked, creating it if needed.
+    """Get the counter row for `username` (a keyed hash) locked, creating it if needed.
 
     The row lock serializes concurrent attempts on the same name, so parallel
     guesses cannot slip past the counter.
@@ -241,8 +242,11 @@ def login(
 ) -> UserOut:
     username = body.username
     user = session.scalar(select(User).where(User.username == username))
-    attempt = _lock_attempt(session, username)
-    subject = str(user.id) if user else username
+    attempt_key = login_attempt_key(username, keys.csrf_key)
+    attempt = _lock_attempt(session, attempt_key)
+    # Never log the typed name of an unknown user (it may be a password): only
+    # a short prefix of its keyed hash, enough to correlate repeated attempts.
+    subject = str(user.id) if user else f"unknown:{attempt_key[:16]}"
 
     if attempt.locked_until is not None and attempt.locked_until > now:
         # Locked: do not even look at the password, but spend the same time.

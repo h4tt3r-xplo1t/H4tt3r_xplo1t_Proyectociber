@@ -75,7 +75,11 @@ class RefreshFamily(Base):
 
 
 class LoginAttempt(Base):
-    """Failed-login counter per normalized username (also for unknown ones)."""
+    """Failed-login counter per keyed hash of the username (also for unknown ones).
+
+    `username` holds hex HMAC-SHA256(subkey of the CSRF key, normalized
+    username), see tokens.login_attempt_key; never the raw name.
+    """
 
     __tablename__ = "login_attempts"
 

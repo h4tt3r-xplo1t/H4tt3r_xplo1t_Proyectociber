@@ -104,3 +104,16 @@ def check_csrf(
         return False
     expected = _mac(random_part, binding, key)
     return hmac.compare_digest(mac.encode(), expected.encode())
+
+
+def login_attempt_key(username: str, csrf_key: bytes) -> str:
+    """Key of the login_attempts row: a keyed hash, never the typed username.
+
+    A password typed into the username box must not end up in the table or in
+    the logs. The HMAC key is a subkey derived from the CSRF key with domain
+    separation, so no CSRF MAC can collide with a counter key. Rotating the
+    CSRF key therefore resets every login counter (accepted: counters are
+    short-lived state, and rotation is rare).
+    """
+    subkey = hmac.new(csrf_key, b"login-attempts-v1", hashlib.sha256).digest()
+    return hmac.new(subkey, username.encode(), hashlib.sha256).hexdigest()

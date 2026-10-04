@@ -13,6 +13,7 @@ from gateway.tokens import (
     check_csrf,
     decode_access_token,
     issue_access_token,
+    login_attempt_key,
     make_csrf,
 )
 
@@ -280,3 +281,35 @@ def test_csrf_with_a_forged_mac_is_rejected():
 @pytest.mark.parametrize("junk", ["nodot", "a.b", ".", "é.é", "a." + "0" * 64])
 def test_malformed_csrf_values_are_rejected(junk):
     assert check_csrf(junk, junk, "sid-1", KEYS.csrf_key) is False
+
+
+# --- login_attempts key ---------------------------------------------------
+
+
+def test_login_attempt_key_is_a_stable_hex_digest_not_the_name():
+    key = login_attempt_key("alice", KEYS.csrf_key)
+
+    assert key == login_attempt_key("alice", KEYS.csrf_key)
+    assert len(key) == 64
+    assert int(key, 16) >= 0
+    assert "alice" not in key
+
+
+def test_login_attempt_key_depends_on_the_name_and_on_the_secret():
+    base = login_attempt_key("alice", KEYS.csrf_key)
+
+    assert login_attempt_key("bob", KEYS.csrf_key) != base
+    assert login_attempt_key("alice", b"z" * 32) != base
+
+
+def test_login_attempt_key_uses_a_domain_separated_subkey():
+    import hashlib
+    import hmac
+
+    subkey = hmac.new(KEYS.csrf_key, b"login-attempts-v1", hashlib.sha256).digest()
+    expected = hmac.new(subkey, b"alice", hashlib.sha256).hexdigest()
+
+    assert login_attempt_key("alice", KEYS.csrf_key) == expected
+    # Not the raw CSRF key: a CSRF MAC can never double as a counter key.
+    raw = hmac.new(KEYS.csrf_key, b"alice", hashlib.sha256).hexdigest()
+    assert login_attempt_key("alice", KEYS.csrf_key) != raw

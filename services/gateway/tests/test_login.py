@@ -13,7 +13,12 @@ from gateway import auth, passwords
 from gateway.db import get_engine
 from gateway.main import create_app
 from gateway.secrets import GatewayKeys
-from gateway.tokens import PRE_SESSION_BINDING, check_csrf, decode_access_token
+from gateway.tokens import (
+    PRE_SESSION_BINDING,
+    check_csrf,
+    decode_access_token,
+    login_attempt_key,
+)
 
 # Fake keys and passphrases used only by these tests.
 KEYS = GatewayKeys(jwt_kid="kid-1", jwt_key=b"j" * 32, csrf_key=b"c" * 32)
@@ -78,13 +83,17 @@ def login(client, username="alice", password=GOOD, *, token=None, headers=SAME_O
     )
 
 
+def attempt_key(username="alice"):
+    return login_attempt_key(username, KEYS.csrf_key)
+
+
 def attempt_row(db_engine, username="alice"):
     with db_engine.connect() as conn:
         return conn.execute(
             text(
                 "SELECT failures, locked_until FROM login_attempts WHERE username = :u"
             ),
-            {"u": username},
+            {"u": attempt_key(username)},
         ).first()
 
 
@@ -503,7 +512,8 @@ def test_login_answers_503_when_the_row_lock_is_not_obtained_in_time(
     holder = db_engine.connect()
     try:
         holder.execute(
-            text("SELECT 1 FROM login_attempts WHERE username = 'alice' FOR UPDATE")
+            text("SELECT 1 FROM login_attempts WHERE username = :u FOR UPDATE"),
+            {"u": attempt_key()},
         )
         started = time.monotonic()
         response = login(client, token=token)
@@ -625,6 +635,39 @@ def test_me_is_401_after_the_user_is_deleted(client, db_engine):
     assert client.get("/api/auth/me").status_code == 401
 
 
+# --- keyed login_attempts keys --------------------------------------------
+
+TYPED_BY_MISTAKE = "hunter2-my.real.pass"  # a password typed in the username box
+
+
+def test_unknown_username_is_neither_stored_nor_logged(client, db_engine, caplog):
+    caplog.set_level(logging.INFO, logger="gateway.auth")
+
+    for _ in range(4):
+        login(client, username=TYPED_BY_MISTAKE, password=OTHER)
+
+    with db_engine.connect() as conn:
+        keys = conn.execute(text("SELECT username FROM login_attempts")).scalars().all()
+    assert keys == [attempt_key(TYPED_BY_MISTAKE)]
+    assert TYPED_BY_MISTAKE not in keys[0]
+    assert TYPED_BY_MISTAKE not in caplog.text
+    digest = attempt_key(TYPED_BY_MISTAKE)[:16]
+    assert f"subject=unknown:{digest} " in caplog.text
+
+
+def test_known_users_are_also_stored_by_key_and_logged_by_id(client, db_engine, caplog):
+    user = register(client)
+    caplog.set_level(logging.INFO, logger="gateway.auth")
+
+    login(client, password=OTHER)
+
+    with db_engine.connect() as conn:
+        keys = conn.execute(text("SELECT username FROM login_attempts")).scalars().all()
+    assert keys == [attempt_key("alice")]
+    assert f"subject={user['id']} " in caplog.text
+    assert "unknown:" not in caplog.text
+
+
 # --- security-event logging -----------------------------------------------
 
 
@@ -645,7 +688,9 @@ def test_login_events_are_logged_without_secrets(client, caplog):
     assert "login_failure" in text_logged
     assert "login_success" in text_logged
     assert user["id"] in text_logged  # who: the user id when it is known
-    assert "nobody" in text_logged  # the normalized name when it is not
+    # No user id for an unknown name: a keyed digest of it, never the name.
+    assert "subject=unknown:" in text_logged
+    assert "nobody" not in text_logged
     assert "+00:00" in text_logged or "Z" in text_logged  # UTC time
     secrets_seen = [
         GOOD,

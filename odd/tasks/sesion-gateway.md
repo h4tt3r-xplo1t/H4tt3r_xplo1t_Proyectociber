@@ -34,13 +34,14 @@ Forecast ~1500 authored changed lines (about half tests). Strategy: `single-pr` 
 
 ## Tasks
 - [x] **T0**: issue #35 created (person authorized), branch, design, #33 closure in BITACORA.
-- [ ] **T1a**: migration `0003` + models `RefreshToken`, `RevokedJti`; conftest TRUNCATE.
-- [ ] **T1b**: login issues the refresh token and family (`sid` = family id); counter reset only after tokens are issued; length check after NFC in register.
-- [ ] **T1c**: `POST /api/auth/refresh` with rotation, reuse detection and role limits.
-- [ ] **T1d**: `POST /api/auth/logout`, `jti` denylist, `current_user` checks (`tokens_valid_since`, denylist).
+- [x] **T1a** (`e292670`): migration `0003` + models `RefreshToken`, `RevokedJti`; conftest TRUNCATE. RED: `NoSuchTableError: refresh_tokens` / `UndefinedTable`; GREEN: 250 passed.
+- [x] **T1b** (`272c1e3`): login issues the refresh token and family (`sid` = family id); counter reset only after tokens are issued; length check after NFC in register. RED: `ImportError: cannot import name 'hash_refresh_token'`, `AttributeError` on `auth.session_limits`, counter reset before issuing; GREEN: 259 passed.
+- [x] **T1c** (`e29120a`): `POST /api/auth/refresh` with rotation, reuse detection and role limits. RED: 26 failed (`404 == 200`, route absent); GREEN: 286 passed.
+- [x] **T1d** (`1c09412`): `POST /api/auth/logout`, `jti` denylist, `current_user` checks (`tokens_valid_since`, denylist). RED: `AttributeError: ... no attribute 'decode_access_token_allow_expired'`, `404 == 204`; GREEN: 304 passed.
 - [ ] **T2**: BITACORA entry and threat evidence (1, 35).
 - [ ] **T3**: reviews and fixes.
 - [ ] **T4**: push and PR (person request only).
 
 ## Progress
 - 2026-10-03: T0 done.
+- 2026-10-03: T1a-T1d done (writer). Final run from an empty test DB: ruff check, ruff format --check and 304 tests pass. Open gap: an access JWT of a revoked family (reuse) stays valid until its own `exp` (15 min); only logout denies the presented `jti`.

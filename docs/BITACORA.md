@@ -73,6 +73,8 @@ Rama `feat/33-login-gateway`. A2 se divide en dos partes: **A2a** (este issue: l
 - [ ] Caducidad (TTL) de las filas de `login_attempts`, que el ADR 0004 pide para los nombres inexistentes; hoy un contador viejo nunca decae.
 - [ ] Bloqueo dirigido: cualquiera puede mantener bloqueada una cuenta ajena (4 fallos y luego uno cada 30 min). Lo acepta el ADR 0004 hasta que existan el límite por IP (E5) y la recuperación asistida (revisión de Gentle AI del #33).
 - [ ] El login mantiene la conexión a la base de datos y el bloqueo de fila durante la espera del hash (hasta 5 s más el hash). Valorar leer y bloquear el contador en una transacción corta separada del hash (revisión de Gentle AI del #33).
+- [ ] Un login correcto confirma el reinicio del contador antes de emitir el token; si la emisión falla, el contador ya está a cero. Valorar emitir antes de confirmar (segunda revisión de Gentle AI del #33).
+- [ ] La longitud mínima (15) se comprueba antes de la normalización NFC; una contraseña descompuesta de 15 caracteres puede quedar en 14 tras normalizar. Valorar comprobar la longitud después de NFC (segunda revisión de Gentle AI del #33).
 - [ ] Saturación del threadpool: hasta 5 s de espera por el semáforo bloquean hilos de las rutas síncronas; depende del límite de tasa (E5) (L6 de la revisión del #33).
 - [ ] Exigir el CSRF ligado al `sid` en las rutas que cambien estado después del login (aún no hay ninguna).
 

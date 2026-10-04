@@ -7,7 +7,7 @@ Issue #33 (E3, auth A2a, ADR 0004): `POST /api/auth/login` with an HS256 access 
 Registration (#29) and OpenBao keys (#31) exist; login is the next step of ADR 0004. A2 is split: A2a (this) and A2b (refresh rotation/reuse detection, logout, `jti` denylist, `tokens_valid_since`). Until A2b, login issues only the 15-minute access JWT (accepted interim state).
 
 ## Scope
-- Allowed: `services/gateway/**`; `.github/workflows/seguridad.yml` (`env` of the `gateway` job only); `docs/BITACORA.md`; `docs/threat-model.md` (status of threats 1, 8, 36); this file.
+- Allowed: `services/gateway/**`; `.github/workflows/seguridad.yml` (`env` of the `gateway` job only); `docs/BITACORA.md` and `docs/bitacora/2026-09-30.md` (rotation); `docs/threat-model.md` and `docs/architecture/threat-model.json` (evidence for threats 1, 8, 36); this file.
 - Forbidden: `.claude/**`, `docs/adr/**`, other `.github/**`, real secrets.
 - Out of scope: refresh/logout/denylist (A2b), MFA/TOTP and `enroll-mfa` scope (A3), first admin, per-IP rate limit (Ingress, E5).
 
@@ -56,7 +56,7 @@ Forecast ~900 authored changed lines; actual after T1: ~1690 (tests are about ha
   - 79cf32b: `LoginBusy` distinct from `HashingBusy`, both 503 with one fixed body, `security_event event=service_busy cause=hash_saturated|attempt_row_locked`. RED: `AttributeError: ... no attribute 'LoginBusy'` and empty caplog; GREEN 246 passed.
   - db59388: NFC/NFD test strings written with `\u` escapes and asserted different (test-only, suite green).
   - d894752: `ACCESS_COOKIE_MAX_AGE` derived from `ACCESS_TOKEN_TTL` (refactor, suite green).
-- [ ] **T3**: `revisor-seguridad` and Gentle AI review; fixes.
+- [x] **T3**: `revisor-seguridad` (ready, 1M/5L fixed in T3a); Gentle AI review-469b8b4116d119d5 approved+acknowledged (7 advisory fixes in T3b); second Gentle AI review-07ba0fa42beba837 over the whole branch approved+acknowledged, only non-blocking suggestions (recorded as BITACORA pendings). Parent spot check: 246 passed, ruff clean.
 - [ ] **T4**: push and PR (person request only).
 
 ## Progress

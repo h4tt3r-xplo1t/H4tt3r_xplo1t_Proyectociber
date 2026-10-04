@@ -72,8 +72,8 @@ def test_upgrade_creates_login_attempts(migrated_db):
     finally:
         engine.dispose()
 
-    assert set(columns) == {"username", "failures", "locked_until", "updated_at"}
-    assert primary_key["constrained_columns"] == ["username"]
+    assert set(columns) == {"attempt_key", "failures", "locked_until", "updated_at"}
+    assert primary_key["constrained_columns"] == ["attempt_key"]
     assert columns["locked_until"]["nullable"] is True
     assert columns["failures"]["nullable"] is False
 
@@ -82,7 +82,7 @@ def test_login_attempts_failures_default_to_zero(db_engine):
     with db_engine.begin() as conn:
         failures = conn.execute(
             text(
-                "INSERT INTO login_attempts (username) VALUES ('ghost') "
+                "INSERT INTO login_attempts (attempt_key) VALUES ('ghost') "
                 "RETURNING failures"
             )
         ).scalar_one()

@@ -22,7 +22,7 @@ def upgrade() -> None:
     op.create_table(
         "login_attempts",
         sa.Column(
-            "username",
+            "attempt_key",
             sa.Text(),
             nullable=False,
             comment="hex HMAC-SHA256 of the normalized username, not the name",
@@ -35,7 +35,7 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
-        sa.PrimaryKeyConstraint("username"),
+        sa.PrimaryKeyConstraint("attempt_key"),
     )
 
 

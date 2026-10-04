@@ -91,7 +91,8 @@ def attempt_row(db_engine, username="alice"):
     with db_engine.connect() as conn:
         return conn.execute(
             text(
-                "SELECT failures, locked_until FROM login_attempts WHERE username = :u"
+                "SELECT failures, locked_until FROM login_attempts "
+                "WHERE attempt_key = :u"
             ),
             {"u": attempt_key(username)},
         ).first()
@@ -564,7 +565,7 @@ def test_login_answers_503_when_the_row_lock_is_not_obtained_in_time(
     holder = db_engine.connect()
     try:
         holder.execute(
-            text("SELECT 1 FROM login_attempts WHERE username = :u FOR UPDATE"),
+            text("SELECT 1 FROM login_attempts WHERE attempt_key = :u FOR UPDATE"),
             {"u": attempt_key()},
         )
         started = time.monotonic()
@@ -716,7 +717,9 @@ def test_unknown_username_is_neither_stored_nor_logged(client, db_engine, caplog
         login(client, username=TYPED_BY_MISTAKE, password=OTHER)
 
     with db_engine.connect() as conn:
-        keys = conn.execute(text("SELECT username FROM login_attempts")).scalars().all()
+        keys = (
+            conn.execute(text("SELECT attempt_key FROM login_attempts")).scalars().all()
+        )
     assert keys == [attempt_key(TYPED_BY_MISTAKE)]
     assert TYPED_BY_MISTAKE not in keys[0]
     assert TYPED_BY_MISTAKE not in caplog.text
@@ -731,7 +734,9 @@ def test_known_users_are_also_stored_by_key_and_logged_by_id(client, db_engine, 
     login(client, password=OTHER)
 
     with db_engine.connect() as conn:
-        keys = conn.execute(text("SELECT username FROM login_attempts")).scalars().all()
+        keys = (
+            conn.execute(text("SELECT attempt_key FROM login_attempts")).scalars().all()
+        )
     assert keys == [attempt_key("alice")]
     assert f"subject={user['id']} " in caplog.text
     assert "unknown:" not in caplog.text

@@ -202,8 +202,10 @@ def csrf(
     return {"csrf_token": token}
 
 
-def _lock_attempt(session: Session, username: str) -> LoginAttempt:
-    """Get the counter row for `username` (a keyed hash) locked, creating it if needed.
+def _lock_attempt(session: Session, attempt_key: str) -> LoginAttempt:
+    """Get the counter row for `attempt_key` locked, creating it if needed.
+
+    `attempt_key` is the keyed hash of the username, never the name itself.
 
     The row lock serializes concurrent attempts on the same name, so parallel
     guesses cannot slip past the counter.
@@ -216,12 +218,12 @@ def _lock_attempt(session: Session, username: str) -> LoginAttempt:
     try:
         session.execute(
             insert(LoginAttempt)
-            .values(username=username)
-            .on_conflict_do_nothing(index_elements=["username"])
+            .values(attempt_key=attempt_key)
+            .on_conflict_do_nothing(index_elements=["attempt_key"])
         )
         attempt = session.execute(
             select(LoginAttempt)
-            .where(LoginAttempt.username == username)
+            .where(LoginAttempt.attempt_key == attempt_key)
             .with_for_update()
         ).scalar_one()
     except OperationalError as exc:

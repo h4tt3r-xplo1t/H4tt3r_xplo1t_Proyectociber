@@ -77,13 +77,13 @@ class RefreshFamily(Base):
 class LoginAttempt(Base):
     """Failed-login counter per keyed hash of the username (also for unknown ones).
 
-    `username` holds hex HMAC-SHA256(subkey of the CSRF key, normalized
+    `attempt_key` holds hex HMAC-SHA256(subkey of the CSRF key, normalized
     username), see tokens.login_attempt_key; never the raw name.
     """
 
     __tablename__ = "login_attempts"
 
-    username: Mapped[str] = mapped_column(Text, primary_key=True)
+    attempt_key: Mapped[str] = mapped_column(Text, primary_key=True)
     failures: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     locked_until: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

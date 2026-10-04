@@ -48,6 +48,14 @@ Forecast ~900 authored changed lines; actual after T1: ~1690 (tests are about ha
   - L3 e640d79: `login_attempts` keyed by HMAC-SHA256 with a `login-attempts-v1` subkey of the CSRF key; unknown users log `unknown:<16 hex>`; migration 0002 edited (no 0003). RED: `ImportError: cannot import name 'login_attempt_key'`; GREEN 228 passed.
   - L4 d51c4cb: pre-session CSRF token `<random>.<issued-at>.<hmac>`, 600 s max age via injected clock (session tokens keep the same format, aged only through the JWT). RED: `TypeError` (make_csrf signature) in 12 tests; GREEN 241 passed.
   - L5 26f587e: `Cache-Control: no-store` on `/login` (200, 401), `/me` (200, 401) and `/csrf`. RED: `KeyError: 'cache-control'`; GREEN 242 passed.
+- [x] **T3b**: advisory fixes from the Gentle AI review (unbounded `login_attempts` growth, targeted lockout DoS and the DB connection held during the hash wait stay pending by decision).
+  - 21360fb: row-lock concurrency test ordered with events plus a `pg_stat_activity` poll, no sleeps. Test-only; 20 consecutive runs of `uv run --locked pytest tests/test_login.py -q -k row_lock_survives` all `1 passed`.
+  - 6512b5c: `decode_access_token` reads issuer/audience outside the try and catches only `jwt.PyJWTError`. RED: `InvalidToken` raised instead of `RuntimeError` (2 failed); GREEN 244 passed.
+  - 9ea41f0: column `login_attempts.username` renamed to `attempt_key` in 0002 (no 0003), model, `_lock_attempt`, tests. RED: `UndefinedColumn: attempt_key` (5 failed); GREEN 244 passed on a recreated empty test DB.
+  - 6a65255: `_log_event` comment corrected (no test needed).
+  - 79cf32b: `LoginBusy` distinct from `HashingBusy`, both 503 with one fixed body, `security_event event=service_busy cause=hash_saturated|attempt_row_locked`. RED: `AttributeError: ... no attribute 'LoginBusy'` and empty caplog; GREEN 246 passed.
+  - db59388: NFC/NFD test strings written with `\u` escapes and asserted different (test-only, suite green).
+  - d894752: `ACCESS_COOKIE_MAX_AGE` derived from `ACCESS_TOKEN_TTL` (refactor, suite green).
 - [ ] **T3**: `revisor-seguridad` and Gentle AI review; fixes.
 - [ ] **T4**: push and PR (person request only).
 

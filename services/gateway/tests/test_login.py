@@ -1,0 +1,598 @@
+import logging
+import uuid
+from datetime import UTC, datetime, timedelta
+
+import jwt
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import text
+
+from gateway import auth, passwords
+from gateway.db import get_engine
+from gateway.main import create_app
+from gateway.secrets import GatewayKeys
+from gateway.tokens import PRE_SESSION_BINDING, check_csrf, decode_access_token
+
+# Fake keys and passphrases used only by these tests.
+KEYS = GatewayKeys(jwt_kid="kid-1", jwt_key=b"j" * 32, csrf_key=b"c" * 32)
+GOOD = "correct horse battery staple"  # noqa: S105
+OTHER = "a completely different phrase"  # noqa: S105
+SAME_ORIGIN = {"Sec-Fetch-Site": "same-origin"}
+LOGIN_FAILED = {"detail": "Login failed; Invalid user ID or password"}
+
+
+class Clock:
+    """Movable 'now' for the lockout tests: no sleeping."""
+
+    def __init__(self):
+        self.offset = timedelta(0)
+
+    def __call__(self):
+        return datetime.now(UTC) + self.offset
+
+
+@pytest.fixture
+def clock():
+    return Clock()
+
+
+@pytest.fixture
+def app(db_engine, clock):
+    app = create_app()
+    app.dependency_overrides[auth.get_keys] = lambda: KEYS
+    app.dependency_overrides[auth.get_now] = clock
+    return app
+
+
+@pytest.fixture
+def client(app):
+    # No default headers: each test says what the browser would send.
+    yield TestClient(app, base_url="https://testserver")
+    get_engine().dispose()
+
+
+def register(client, username="alice", password=GOOD):
+    response = client.post(
+        "/api/auth/register",
+        json={"username": username, "password": password},
+        headers=SAME_ORIGIN,
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+def get_csrf(client):
+    response = client.get("/api/auth/csrf")
+    assert response.status_code == 200
+    return response.json()["csrf_token"]
+
+
+def login(client, username="alice", password=GOOD, *, token=None, headers=SAME_ORIGIN):
+    token = get_csrf(client) if token is None else token
+    return client.post(
+        "/api/auth/login",
+        json={"username": username, "password": password},
+        headers={**headers, "X-CSRF-Token": token},
+    )
+
+
+def attempt_row(db_engine, username="alice"):
+    with db_engine.connect() as conn:
+        return conn.execute(
+            text(
+                "SELECT failures, locked_until FROM login_attempts WHERE username = :u"
+            ),
+            {"u": username},
+        ).first()
+
+
+def set_cookie_lines(response, name):
+    return [
+        line
+        for line in response.headers.get_list("set-cookie")
+        if line.startswith(f"{name}=")
+    ]
+
+
+# --- pre-session CSRF endpoint -------------------------------------------
+
+
+def test_csrf_endpoint_sets_a_short_lived_readable_host_cookie(client):
+    response = client.get("/api/auth/csrf")
+
+    (line,) = set_cookie_lines(response, "__Host-csrf")
+    attributes = {part.strip().lower() for part in line.split(";")[1:]}
+    assert "secure" in attributes
+    assert "samesite=strict" in attributes
+    assert "path=/" in attributes
+    assert "max-age=600" in attributes
+    assert "httponly" not in attributes  # the SPA must read it
+    assert not any(a.startswith("domain") for a in attributes)
+    token = response.json()["csrf_token"]
+    assert line.split(";")[0] == f"__Host-csrf={token}"
+    assert check_csrf(token, token, PRE_SESSION_BINDING, KEYS.csrf_key)
+    assert response.headers["cache-control"] == "no-store"
+
+
+# --- origin check ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {},
+        {"Origin": "https://evil.example"},
+        {"Origin": "https://testserver.evil.example"},
+        {"Sec-Fetch-Site": "cross-site"},
+        {"Sec-Fetch-Site": "same-site"},
+        {"Sec-Fetch-Site": "none"},
+        # A present Sec-Fetch-Site other than same-origin wins over Origin.
+        {"Sec-Fetch-Site": "cross-site", "Origin": "https://testserver"},
+    ],
+)
+def test_login_fails_closed_without_a_same_origin_signal(client, headers):
+    register(client)
+
+    response = login(client, headers=headers)
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Forbidden"}
+    assert not set_cookie_lines(response, "__Host-access")
+
+
+def test_login_accepts_the_allowed_origin_when_sec_fetch_site_is_missing(client):
+    register(client)
+
+    response = login(client, headers={"Origin": "https://testserver"})
+
+    assert response.status_code == 200
+
+
+# --- CSRF on login --------------------------------------------------------
+
+
+def test_login_requires_the_csrf_header(client):
+    register(client)
+    get_csrf(client)
+
+    response = client.post(
+        "/api/auth/login",
+        json={"username": "alice", "password": GOOD},
+        headers=SAME_ORIGIN,
+    )
+
+    assert response.status_code == 403
+
+
+def test_login_requires_the_csrf_cookie(client, app):
+    register(client)
+    token = get_csrf(client)
+    client.cookies.clear()
+
+    response = login(client, token=token)
+
+    assert response.status_code == 403
+
+
+def test_login_rejects_a_header_that_differs_from_the_cookie(client):
+    register(client)
+    get_csrf(client)
+    other = TestClient(client.app, base_url="https://testserver")
+    foreign = get_csrf(other)
+
+    response = login(client, token=foreign)
+
+    assert response.status_code == 403
+
+
+def test_login_rejects_a_forged_csrf_token(client):
+    register(client)
+    forged = "AAAA.0000"
+    client.cookies.set("__Host-csrf", forged)
+
+    response = login(client, token=forged)
+
+    assert response.status_code == 403
+
+
+def test_a_session_bound_csrf_token_is_not_a_pre_session_token(client):
+    register(client)
+    assert login(client).status_code == 200
+    session_token = client.cookies.get("__Host-csrf")
+
+    response = login(client, token=session_token)
+
+    assert response.status_code == 403
+
+
+def test_csrf_failure_does_not_count_as_a_failed_login(client, db_engine):
+    register(client)
+    for _ in range(5):
+        client.post(
+            "/api/auth/login",
+            json={"username": "alice", "password": OTHER},
+            headers=SAME_ORIGIN,
+        )
+
+    assert attempt_row(db_engine) is None
+    assert login(client).status_code == 200
+
+
+# --- successful login -----------------------------------------------------
+
+
+def test_login_returns_public_fields_and_sets_the_cookies(client):
+    user = register(client)
+
+    response = login(client)
+
+    assert response.status_code == 200
+    assert response.json() == user
+    (access,) = set_cookie_lines(response, "__Host-access")
+    attributes = {part.strip().lower() for part in access.split(";")[1:]}
+    assert {"httponly", "secure", "samesite=strict", "path=/", "max-age=900"} <= (
+        attributes
+    )
+    assert not any(a.startswith("domain") for a in attributes)
+    claims = decode_access_token(client.cookies.get("__Host-access"), KEYS)
+    assert claims["sub"] == user["id"]
+    assert claims["role"] == "lector"
+    assert claims["exp"] - claims["iat"] == 900
+
+
+def test_login_sets_a_session_csrf_cookie_bound_to_the_sid(client):
+    register(client)
+
+    response = login(client)
+
+    (line,) = set_cookie_lines(response, "__Host-csrf")
+    attributes = {part.strip().lower() for part in line.split(";")[1:]}
+    assert {"secure", "samesite=strict", "path=/"} <= attributes
+    assert "httponly" not in attributes
+    token = client.cookies.get("__Host-csrf")
+    sid = decode_access_token(client.cookies.get("__Host-access"), KEYS)["sid"]
+    assert check_csrf(token, token, sid, KEYS.csrf_key)
+    assert not check_csrf(token, token, PRE_SESSION_BINDING, KEYS.csrf_key)
+
+
+def test_every_login_starts_a_new_session(client):
+    register(client)
+    login(client)
+    first = decode_access_token(client.cookies.get("__Host-access"), KEYS)
+    login(client)
+    second = decode_access_token(client.cookies.get("__Host-access"), KEYS)
+
+    assert first["sid"] != second["sid"]
+    assert first["jti"] != second["jti"]
+
+
+def test_login_matches_the_same_password_in_nfc_and_nfd(client):
+    decomposed = "contraséa-muy-larga-123"
+    precomposed = decomposed.replace("é", "é")
+    register(client, password=decomposed)
+
+    assert login(client, password=precomposed).status_code == 200
+
+
+def test_login_body_rejects_extra_fields(client):
+    register(client)
+    token = get_csrf(client)
+
+    response = client.post(
+        "/api/auth/login",
+        json={"username": "alice", "password": GOOD, "role": "administrador"},
+        headers={**SAME_ORIGIN, "X-CSRF-Token": token},
+    )
+
+    assert response.status_code == 422
+    assert GOOD not in response.text
+
+
+# --- identical failures ---------------------------------------------------
+
+
+def test_wrong_password_unknown_user_and_locked_account_look_the_same(client):
+    register(client)
+    register(client, username="bob")
+    wrong = login(client, password=OTHER)
+    unknown = login(client, username="nobody")
+    for _ in range(4):
+        login(client, username="bob", password=OTHER)
+    locked = login(client, username="bob", password=GOOD)
+
+    for response in (wrong, unknown, locked):
+        assert response.status_code == 401
+        assert response.json() == LOGIN_FAILED
+        assert not set_cookie_lines(response, "__Host-access")
+    assert wrong.headers["content-type"] == unknown.headers["content-type"]
+    assert wrong.headers["content-type"] == locked.headers["content-type"]
+
+
+def test_unknown_user_costs_a_dummy_verification(client, monkeypatch):
+    calls = []
+    real_dummy = auth.verify_dummy
+    monkeypatch.setattr(
+        auth,
+        "verify_dummy",
+        lambda password: calls.append("dummy") or real_dummy(password),
+    )
+
+    response = login(client, username="nobody")
+
+    assert response.status_code == 401
+    assert calls == ["dummy"]
+
+
+# --- lockout --------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("failures", "minutes"),
+    [(1, None), (2, None), (3, None), (4, 1), (5, 5), (6, 15), (7, 30), (50, 30)],
+)
+def test_lockout_schedule(failures, minutes):
+    expected = None if minutes is None else timedelta(minutes=minutes)
+
+    assert auth.lockout_duration(failures) == expected
+
+
+def test_three_failures_are_free_and_the_fourth_locks_for_a_minute(client, db_engine):
+    register(client)
+    for _ in range(3):
+        login(client, password=OTHER)
+    failures, locked_until = attempt_row(db_engine)
+    assert (failures, locked_until) == (3, None)
+
+    login(client, password=OTHER)
+
+    failures, locked_until = attempt_row(db_engine)
+    assert failures == 4
+    remaining = locked_until - datetime.now(UTC)
+    assert timedelta(seconds=50) < remaining <= timedelta(seconds=60)
+
+
+def test_locked_account_rejects_the_right_password_without_verifying_it(
+    client, monkeypatch
+):
+    register(client)
+    for _ in range(4):
+        login(client, password=OTHER)
+    calls = []
+    real_dummy = auth.verify_dummy
+    monkeypatch.setattr(
+        auth,
+        "verify_password",
+        lambda *a: pytest.fail("a locked account must not be verified"),
+    )
+    monkeypatch.setattr(
+        auth, "verify_dummy", lambda p: calls.append(1) or real_dummy(p)
+    )
+
+    response = login(client, password=GOOD)
+
+    assert response.status_code == 401
+    assert response.json() == LOGIN_FAILED
+    assert calls == [1]  # same cost as any other failure
+
+
+def test_attempts_while_locked_do_not_extend_the_lock(client, db_engine):
+    register(client)
+    for _ in range(4):
+        login(client, password=OTHER)
+    before = attempt_row(db_engine)
+
+    login(client, password=OTHER)
+
+    assert attempt_row(db_engine) == before
+
+
+def test_login_works_again_after_the_lock_expires_and_resets_the_counter(
+    client, db_engine, clock
+):
+    register(client)
+    for _ in range(4):
+        login(client, password=OTHER)
+    clock.offset = timedelta(seconds=61)
+
+    response = login(client, password=GOOD)
+
+    assert response.status_code == 200
+    assert attempt_row(db_engine) is None
+
+
+def test_failures_after_a_lock_escalate_to_five_minutes(client, db_engine, clock):
+    register(client)
+    for _ in range(4):
+        login(client, password=OTHER)
+    clock.offset = timedelta(seconds=61)
+
+    login(client, password=OTHER)
+
+    failures, locked_until = attempt_row(db_engine)
+    assert failures == 5
+    remaining = locked_until - (datetime.now(UTC) + clock.offset)
+    assert timedelta(minutes=4, seconds=50) < remaining <= timedelta(minutes=5)
+
+
+def test_success_resets_the_counter(client, db_engine):
+    register(client)
+    login(client, password=OTHER)
+    login(client, password=OTHER)
+    assert attempt_row(db_engine)[0] == 2
+
+    assert login(client).status_code == 200
+
+    assert attempt_row(db_engine) is None
+
+
+def test_unknown_usernames_are_counted_and_locked_too(client, db_engine):
+    for _ in range(4):
+        login(client, username="ghost")
+
+    failures, locked_until = attempt_row(db_engine, "ghost")
+    assert failures == 4
+    assert locked_until is not None
+    # A user registered afterwards under that name starts locked: same state.
+    register(client, username="ghost")
+    assert login(client, username="ghost").status_code == 401
+
+
+def test_lock_is_per_username(client):
+    register(client)
+    register(client, username="bob")
+    for _ in range(4):
+        login(client, password=OTHER)
+
+    assert login(client, username="bob").status_code == 200
+
+
+# --- hashing saturation ---------------------------------------------------
+
+
+def test_login_answers_503_when_hashing_is_saturated_and_does_not_count(
+    client, db_engine, monkeypatch
+):
+    register(client)
+    token = get_csrf(client)
+    monkeypatch.setattr(passwords, "HASH_WAIT_SECONDS", 0.05)
+    for _ in range(passwords.MAX_CONCURRENT_HASHES):
+        passwords._slots.acquire()
+    try:
+        response = login(client, token=token)
+    finally:
+        for _ in range(passwords.MAX_CONCURRENT_HASHES):
+            passwords._slots.release()
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Service busy; try again later"}
+    assert attempt_row(db_engine) is None
+
+
+# --- current user and /me -------------------------------------------------
+
+NOT_AUTHENTICATED = {"detail": "Not authenticated"}
+
+
+def forged_access(user_id, *, key=None, exp_delta=timedelta(minutes=15), **claims):
+    now = datetime.now(UTC)
+    payload = {
+        "sub": str(user_id),
+        "role": "lector",
+        "sid": "sid-1",
+        "jti": "jti-1",
+        "iat": int(now.timestamp()),
+        "nbf": int(now.timestamp()),
+        "exp": int((now + exp_delta).timestamp()),
+        "iss": "h4tt3r-gateway-test",
+        "aud": "h4tt3r-web-test",
+        **claims,
+    }
+    return jwt.encode(
+        payload, key or KEYS.jwt_key, algorithm="HS256", headers={"kid": "kid-1"}
+    )
+
+
+def test_me_returns_the_logged_in_user(client):
+    user = register(client)
+    login(client)
+
+    response = client.get("/api/auth/me")
+
+    assert response.status_code == 200
+    assert response.json() == user
+
+
+def test_me_reads_the_role_from_the_database_not_from_the_token(client, db_engine):
+    user = register(client)
+    client.cookies.set("__Host-access", forged_access(user["id"], role="administrador"))
+
+    response = client.get("/api/auth/me")
+
+    assert response.json()["role"] == "lector"
+
+
+def test_me_without_cookie_is_401_with_a_fixed_body(client):
+    response = client.get("/api/auth/me")
+
+    assert response.status_code == 401
+    assert response.json() == NOT_AUTHENTICATED
+
+
+def test_me_rejects_every_bad_token_with_the_same_response(client, db_engine):
+    user = register(client)
+    deleted = uuid.uuid4()
+    bad = {
+        "garbage": "not-a-jwt",
+        "bad signature": forged_access(user["id"], key=b"x" * 32),
+        "expired": forged_access(user["id"], exp_delta=timedelta(minutes=-5)),
+        "wrong audience": forged_access(user["id"], aud="other"),
+        "wrong issuer": forged_access(user["id"], iss="other"),
+        "sub not a uuid": forged_access("not-a-uuid"),
+        "user does not exist": forged_access(deleted),
+    }
+    for name, token in bad.items():
+        client.cookies.clear()
+        client.cookies.set("__Host-access", token)
+
+        response = client.get("/api/auth/me")
+
+        assert response.status_code == 401, name
+        assert response.json() == NOT_AUTHENTICATED, name
+
+
+def test_me_is_401_after_the_user_is_deleted(client, db_engine):
+    register(client)
+    login(client)
+    with db_engine.begin() as conn:
+        conn.execute(text("DELETE FROM users"))
+
+    assert client.get("/api/auth/me").status_code == 401
+
+
+# --- security-event logging -----------------------------------------------
+
+
+def events(caplog):
+    return [r for r in caplog.records if r.name == "gateway.auth"]
+
+
+def test_login_events_are_logged_without_secrets(client, caplog):
+    user = register(client)
+    caplog.set_level(logging.INFO, logger="gateway.auth")
+
+    login(client, password=OTHER)
+    login(client, username="nobody", password=OTHER)
+    ok = login(client)
+    client.get("/api/auth/me")
+
+    text_logged = caplog.text
+    assert "login_failure" in text_logged
+    assert "login_success" in text_logged
+    assert user["id"] in text_logged  # who: the user id when it is known
+    assert "nobody" in text_logged  # the normalized name when it is not
+    assert "+00:00" in text_logged or "Z" in text_logged  # UTC time
+    secrets_seen = [
+        GOOD,
+        OTHER,
+        client.cookies.get("__Host-access"),
+        client.cookies.get("__Host-csrf"),
+        ok.headers["set-cookie"],
+        "$argon2",
+    ]
+    for value in secrets_seen:
+        assert value not in text_logged
+
+
+def test_lockout_is_logged(client, caplog):
+    register(client)
+    caplog.set_level(logging.INFO, logger="gateway.auth")
+
+    for _ in range(4):
+        login(client, password=OTHER)
+    login(client, password=GOOD)
+
+    messages = [r.getMessage() for r in events(caplog)]
+    assert sum("account_locked" in m for m in messages) == 1
+    assert sum("login_blocked" in m for m in messages) == 1
+    assert OTHER not in caplog.text
+    assert GOOD not in caplog.text

@@ -8,6 +8,7 @@ from gateway.main import create_app
 from gateway.passwords import verify_password
 
 URL = "/api/auth/register"
+SAME_ORIGIN = {"Sec-Fetch-Site": "same-origin"}
 # Fake passphrases used only by these tests.
 GOOD = "correct horse battery staple"  # noqa: S105
 NON_ASCII = "contraseña-ñandú-密码-🔒🔒"  # noqa: S105
@@ -15,7 +16,7 @@ NON_ASCII = "contraseña-ñandú-密码-🔒🔒"  # noqa: S105
 
 @pytest.fixture
 def client(db_engine):
-    yield TestClient(create_app())
+    yield TestClient(create_app(), headers=SAME_ORIGIN)
     # The app's cached engine keeps pooled connections open; close them so
     # psycopg does not warn about connections left open at exit.
     get_engine().dispose()
@@ -129,7 +130,9 @@ def test_missing_database_url_fails_closed(monkeypatch):
     from gateway import db
 
     db.get_engine.cache_clear()
-    client = TestClient(create_app(), raise_server_exceptions=False)
+    client = TestClient(
+        create_app(), raise_server_exceptions=False, headers=SAME_ORIGIN
+    )
 
     response = register(client)
 
@@ -184,3 +187,39 @@ def test_register_answers_503_when_hashing_is_saturated(client, monkeypatch):
     assert response.status_code == 503
     assert response.json() == {"detail": "Service busy; try again later"}
     assert GOOD not in response.text
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {},
+        {"Origin": "https://evil.example"},
+        {"Sec-Fetch-Site": "cross-site"},
+        {"Sec-Fetch-Site": "cross-site", "Origin": "https://testserver"},
+        {"Sec-Fetch-Site": "same-site"},
+    ],
+)
+def test_register_fails_closed_without_a_same_origin_signal(db_engine, headers):
+    client = TestClient(create_app())
+
+    response = client.post(
+        URL, json={"username": "alice", "password": GOOD}, headers=headers
+    )
+
+    assert response.status_code == 403
+    with db_engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM users")).scalar_one() == 0
+    get_engine().dispose()
+
+
+def test_register_accepts_the_allowed_origin_when_sec_fetch_site_is_missing(db_engine):
+    client = TestClient(create_app())
+
+    response = client.post(
+        URL,
+        json={"username": "alice", "password": GOOD},
+        headers={"Origin": "https://testserver"},
+    )
+
+    assert response.status_code == 201
+    get_engine().dispose()

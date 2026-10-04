@@ -493,6 +493,35 @@ def test_a_login_waiting_on_the_row_lock_survives_a_successful_login(
     assert attempt_row(db_engine) == (1, None)
 
 
+def test_login_answers_503_when_the_row_lock_is_not_obtained_in_time(
+    client, db_engine, monkeypatch
+):
+    register(client)
+    login(client, password=OTHER)  # creates the counter row (failures = 1)
+    token = get_csrf(client)
+    monkeypatch.setattr(auth, "LOCK_TIMEOUT", "100ms")
+    holder = db_engine.connect()
+    try:
+        holder.execute(
+            text("SELECT 1 FROM login_attempts WHERE username = 'alice' FOR UPDATE")
+        )
+        started = time.monotonic()
+        response = login(client, token=token)
+        elapsed = time.monotonic() - started
+    finally:
+        holder.rollback()
+        holder.close()
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Service busy; try again later"}
+    assert elapsed < 2
+    assert attempt_row(db_engine) == (1, None)  # no failure was counted
+
+
+def test_lock_timeout_is_two_seconds_by_default():
+    assert auth.LOCK_TIMEOUT == "2s"
+
+
 # --- hashing saturation ---------------------------------------------------
 
 

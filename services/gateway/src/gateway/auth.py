@@ -6,14 +6,19 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from gateway.db import get_session
 from gateway.models import LoginAttempt, User
-from gateway.passwords import hash_password, verify_dummy, verify_password
+from gateway.passwords import (
+    HashingBusy,
+    hash_password,
+    verify_dummy,
+    verify_password,
+)
 from gateway.secrets import GatewayKeys, get_gateway_keys
 from gateway.settings import get_allowed_origin
 from gateway.tokens import (
@@ -41,6 +46,11 @@ PRE_SESSION_CSRF_MAX_AGE = 10 * 60
 # last value: 4th failure 1 min, 5th 5 min, 6th 15 min, 7th and later 30 min.
 FREE_FAILURES = 3
 LOCKOUT_MINUTES = (1, 5, 15, 30)
+
+# How long a login waits for the counter row's lock before giving up (503).
+# Module-level so tests can shorten it; it is a fixed literal, never user input.
+LOCK_TIMEOUT = "2s"
+LOCK_NOT_AVAILABLE = "55P03"
 
 # One fixed body for wrong password, unknown user and locked account.
 LOGIN_FAILED = "Login failed; Invalid user ID or password"
@@ -188,14 +198,30 @@ def _lock_attempt(session: Session, username: str) -> LoginAttempt:
     The row lock serializes concurrent attempts on the same name, so parallel
     guesses cannot slip past the counter.
     """
-    session.execute(
-        insert(LoginAttempt)
-        .values(username=username)
-        .on_conflict_do_nothing(index_elements=["username"])
-    )
-    return session.execute(
-        select(LoginAttempt).where(LoginAttempt.username == username).with_for_update()
-    ).scalar_one()
+    # The queue on the lock (held while Argon2id runs) must not wait forever.
+    # SET LOCAL lasts until this transaction ends.
+    session.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
+    lock_failed = False
+    attempt = None
+    try:
+        session.execute(
+            insert(LoginAttempt)
+            .values(username=username)
+            .on_conflict_do_nothing(index_elements=["username"])
+        )
+        attempt = session.execute(
+            select(LoginAttempt)
+            .where(LoginAttempt.username == username)
+            .with_for_update()
+        ).scalar_one()
+    except OperationalError as exc:
+        if getattr(exc.orig, "sqlstate", None) != LOCK_NOT_AVAILABLE:
+            raise
+        lock_failed = True
+    if lock_failed:
+        # Same answer as a saturated hasher; nothing is counted.
+        raise HashingBusy("login attempt row is locked")
+    return attempt
 
 
 def _login_failed() -> HTTPException:

@@ -392,9 +392,10 @@ def test_no_token_value_reaches_the_logs(client, caplog):
 
 
 def test_refresh_answers_503_when_the_token_row_stays_locked(
-    client, db_engine, monkeypatch
+    client, db_engine, monkeypatch, caplog
 ):
     session = start(client)
+    caplog.set_level(logging.INFO, logger="gateway.auth")
     monkeypatch.setattr(auth, "LOCK_TIMEOUT", "100ms")
     holder = db_engine.connect()
     try:
@@ -412,6 +413,9 @@ def test_refresh_answers_503_when_the_token_row_stays_locked(
     assert response.status_code == 503
     assert response.json() == {"detail": "Service busy; try again later"}
     assert elapsed < 2
+    # The client cannot tell the causes apart; the log can.
+    assert "event=service_busy cause=refresh_row_locked" in caplog.text
+    assert "attempt_row_locked" not in caplog.text
     # Nothing was consumed: the same token still works.
     assert refresh(client, session.refresh, session.csrf).status_code == 200
 

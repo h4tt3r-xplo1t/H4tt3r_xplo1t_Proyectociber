@@ -48,7 +48,7 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(LoginBusy)
     async def login_busy(request: Request, exc: LoginBusy) -> JSONResponse:
-        log_service_busy("attempt_row_locked")
+        log_service_busy(exc.cause)
         return JSONResponse(status_code=503, content=busy_body)
 
     @app.get("/healthz")

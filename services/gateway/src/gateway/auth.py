@@ -161,7 +161,14 @@ def _log_event(
 
 
 class LoginBusy(RuntimeError):
-    """The login counter row stayed locked past LOCK_TIMEOUT; answered with 503."""
+    """A row stayed locked (or the database gave up on a lock); answered with 503.
+
+    `cause` only goes to the security log; every cause gets the same 503 body.
+    """
+
+    def __init__(self, message: str, cause: str = "attempt_row_locked") -> None:
+        super().__init__(message)
+        self.cause = cause
 
 
 def log_service_busy(cause: str) -> None:
@@ -464,7 +471,7 @@ def _lock_refresh_token(
             raise
         lock_failed = True
     if lock_failed:
-        raise LoginBusy("refresh token row is locked")
+        raise LoginBusy("refresh token row is locked", "refresh_row_locked")
     return None if row is None else (row[0], row[1])
 
 

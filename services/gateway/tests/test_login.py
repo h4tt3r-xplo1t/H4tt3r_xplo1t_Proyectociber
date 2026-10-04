@@ -667,6 +667,23 @@ def test_me_is_401_after_the_user_is_deleted(client, db_engine):
     assert client.get("/api/auth/me").status_code == 401
 
 
+# --- Cache-Control --------------------------------------------------------
+
+
+def test_login_and_me_responses_are_not_cacheable(client):
+    register(client)
+    wrong = login(client, password=OTHER)
+    ok = login(client)
+    me_ok = client.get("/api/auth/me")
+    client.cookies.clear()
+    me_denied = client.get("/api/auth/me")
+
+    assert (wrong.status_code, ok.status_code) == (401, 200)
+    assert (me_ok.status_code, me_denied.status_code) == (200, 401)
+    for response in (wrong, ok, me_ok, me_denied):
+        assert response.headers["cache-control"] == "no-store"
+
+
 # --- keyed login_attempts keys --------------------------------------------
 
 TYPED_BY_MISTAKE = "hunter2-my.real.pass"  # a password typed in the username box

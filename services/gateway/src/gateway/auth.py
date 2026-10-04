@@ -53,6 +53,9 @@ LOCKOUT_MINUTES = (1, 5, 15, 30)
 LOCK_TIMEOUT = "2s"
 LOCK_NOT_AVAILABLE = "55P03"
 
+# Responses that carry or depend on a session must never sit in a cache.
+NO_STORE = {"Cache-Control": "no-store"}
+
 # One fixed body for wrong password, unknown user and locked account.
 LOGIN_FAILED = "Login failed; Invalid user ID or password"
 
@@ -195,7 +198,7 @@ def csrf(
         httponly=False,
         samesite="strict",
     )
-    response.headers["Cache-Control"] = "no-store"
+    response.headers.update(NO_STORE)
     return {"csrf_token": token}
 
 
@@ -232,7 +235,11 @@ def _lock_attempt(session: Session, username: str) -> LoginAttempt:
 
 
 def _login_failed() -> HTTPException:
-    return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=LOGIN_FAILED)
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=LOGIN_FAILED,
+        headers=NO_STORE,
+    )
 
 
 @router.post(
@@ -304,6 +311,7 @@ def login(
         httponly=False,
         samesite="strict",
     )
+    response.headers.update(NO_STORE)
     _log_event("login_success", subject, now)
     return UserOut(id=user.id, username=user.username, role=user.role)
 
@@ -334,12 +342,17 @@ def current_user(
             user = None
     if user is None or claims is None:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers=NO_STORE,
         )
     return CurrentUser(user=user, claims=claims)
 
 
 @router.get("/me")
-def me(current: Annotated[CurrentUser, Depends(current_user)]) -> UserOut:
+def me(
+    current: Annotated[CurrentUser, Depends(current_user)], response: Response
+) -> UserOut:
+    response.headers.update(NO_STORE)
     user = current.user
     return UserOut(id=user.id, username=user.username, role=user.role)

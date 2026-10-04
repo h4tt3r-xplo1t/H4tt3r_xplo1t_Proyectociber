@@ -313,3 +313,58 @@ def test_login_attempt_key_uses_a_domain_separated_subkey():
     # Not the raw CSRF key: a CSRF MAC can never double as a counter key.
     raw = hmac.new(KEYS.csrf_key, b"alice", hashlib.sha256).hexdigest()
     assert login_attempt_key("alice", KEYS.csrf_key) != raw
+
+
+# --- CSRF issued-at -------------------------------------------------------
+
+
+def test_csrf_token_carries_a_signed_issued_at():
+    issued = datetime(2026, 10, 3, 12, 0, tzinfo=UTC)
+
+    token = make_csrf("sid-1", KEYS.csrf_key, issued)
+
+    random_part, stamp, mac = token.split(".")
+    assert stamp == str(int(issued.timestamp()))
+    assert random_part and mac
+
+
+def test_csrf_max_age_is_enforced_only_when_asked_for():
+    issued = datetime(2026, 10, 3, 12, 0, tzinfo=UTC)
+    token = make_csrf("sid-1", KEYS.csrf_key, issued)
+    later = issued + timedelta(seconds=601)
+
+    assert check_csrf(token, token, "sid-1", KEYS.csrf_key)
+    assert not check_csrf(token, token, "sid-1", KEYS.csrf_key, later, 600)
+    inside = issued + timedelta(seconds=599)
+    assert check_csrf(token, token, "sid-1", KEYS.csrf_key, inside, 600)
+
+
+def test_csrf_issued_in_the_future_beyond_the_leeway_is_rejected():
+    issued = datetime(2026, 10, 3, 12, 0, tzinfo=UTC)
+    token = make_csrf("sid-1", KEYS.csrf_key, issued)
+
+    early = issued - timedelta(seconds=10)
+    assert check_csrf(token, token, "sid-1", KEYS.csrf_key, early, 600)
+    too_early = issued - timedelta(seconds=60)
+    assert not check_csrf(token, token, "sid-1", KEYS.csrf_key, too_early, 600)
+
+
+def test_csrf_with_a_tampered_issued_at_is_rejected():
+    issued = datetime(2026, 10, 3, 12, 0, tzinfo=UTC)
+    token = make_csrf("sid-1", KEYS.csrf_key, issued)
+    random_part, _, mac = token.split(".")
+    now_ = issued + timedelta(seconds=700)
+    refreshed = f"{random_part}.{int(now_.timestamp())}.{mac}"
+
+    # Without the age check the MAC alone must already catch the edit.
+    assert not check_csrf(refreshed, refreshed, "sid-1", KEYS.csrf_key)
+    assert not check_csrf(refreshed, refreshed, "sid-1", KEYS.csrf_key, now_, 600)
+
+
+@pytest.mark.parametrize("stamp", ["", "abc", "-1", "1.5", "١٢٣", "9" * 40])
+def test_csrf_with_a_malformed_issued_at_is_rejected(stamp):
+    token = make_csrf("sid-1", KEYS.csrf_key)
+    random_part, _, mac = token.split(".")
+    junk = f"{random_part}.{stamp}.{mac}"
+
+    assert not check_csrf(junk, junk, "sid-1", KEYS.csrf_key, now(), 600)

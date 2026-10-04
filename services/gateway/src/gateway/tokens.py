@@ -9,7 +9,7 @@ import hashlib
 import hmac
 import secrets
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import jwt
 
@@ -79,31 +79,55 @@ def decode_access_token(token: str, keys: GatewayKeys) -> dict:
     return claims
 
 
-def _mac(random_part: str, binding: str, key: bytes) -> str:
-    message = f"{random_part}.{binding}".encode()
+CSRF_FUTURE_LEEWAY_SECONDS = 30
+
+
+def _mac(random_part: str, stamp: str, binding: str, key: bytes) -> str:
+    message = f"{random_part}.{stamp}.{binding}".encode()
     return hmac.new(key, message, hashlib.sha256).hexdigest()
 
 
-def make_csrf(binding: str, key: bytes) -> str:
-    """Return `<random>.<hmac>`; the HMAC covers the random part and the binding."""
+def make_csrf(binding: str, key: bytes, now: datetime | None = None) -> str:
+    """Return `<random>.<issued-at>.<hmac>`; the HMAC covers all three inputs.
+
+    The issued-at (Unix seconds) lets the server expire a token without state.
+    Every token has it, but only the pre-session one is aged by the caller
+    (check_csrf's max_age): a session-bound token lives as long as the access
+    JWT that carries its `sid`, which already expires.
+    """
+    issued_at = int((now or datetime.now(UTC)).timestamp())
     random_part = secrets.token_urlsafe(32)
-    return f"{random_part}.{_mac(random_part, binding, key)}"
+    stamp = str(issued_at)
+    return f"{random_part}.{stamp}.{_mac(random_part, stamp, binding, key)}"
 
 
 def check_csrf(
-    cookie: str | None, header: str | None, binding: str, key: bytes
+    cookie: str | None,
+    header: str | None,
+    binding: str,
+    key: bytes,
+    now: datetime | None = None,
+    max_age: int | None = None,
 ) -> bool:
-    """Double submit: both present, equal, and signed for this binding."""
+    """Double submit: both present, equal, signed for this binding, not too old."""
     if not cookie or not header:
         return False
-    cookie_bytes, header_bytes = cookie.encode(), header.encode()
-    if not hmac.compare_digest(cookie_bytes, header_bytes):
+    if not hmac.compare_digest(cookie.encode(), header.encode()):
         return False
-    random_part, dot, mac = cookie.rpartition(".")
-    if not dot or not random_part:
+    parts = cookie.split(".")
+    if len(parts) != 3:
         return False
-    expected = _mac(random_part, binding, key)
-    return hmac.compare_digest(mac.encode(), expected.encode())
+    random_part, stamp, mac = parts
+    if not random_part or not (stamp.isascii() and stamp.isdigit()) or len(stamp) > 12:
+        return False
+    expected = _mac(random_part, stamp, binding, key)
+    if not hmac.compare_digest(mac.encode(), expected.encode()):
+        return False
+    if max_age is not None:
+        age = (now or datetime.now(UTC)).timestamp() - int(stamp)
+        if age > max_age or age < -CSRF_FUTURE_LEEWAY_SECONDS:
+            return False
+    return True
 
 
 def login_attempt_key(username: str, csrf_key: bytes) -> str:

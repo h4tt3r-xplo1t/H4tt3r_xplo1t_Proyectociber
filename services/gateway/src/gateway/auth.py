@@ -92,7 +92,9 @@ def require_same_origin(request: Request) -> None:
 
 
 def require_presession_csrf(
-    request: Request, keys: Annotated[GatewayKeys, Depends(get_keys)]
+    request: Request,
+    keys: Annotated[GatewayKeys, Depends(get_keys)],
+    now: Annotated[datetime, Depends(get_now)],
 ) -> None:
     """Double-submit check with the token issued by GET /api/auth/csrf."""
     if not check_csrf(
@@ -100,6 +102,8 @@ def require_presession_csrf(
         request.headers.get(CSRF_HEADER),
         PRE_SESSION_BINDING,
         keys.csrf_key,
+        now,
+        PRE_SESSION_CSRF_MAX_AGE,
     ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
@@ -175,10 +179,12 @@ def register(
 
 @router.get("/csrf")
 def csrf(
-    response: Response, keys: Annotated[GatewayKeys, Depends(get_keys)]
+    response: Response,
+    keys: Annotated[GatewayKeys, Depends(get_keys)],
+    now: Annotated[datetime, Depends(get_now)],
 ) -> dict[str, str]:
     """Issue the short-lived CSRF token the login form must send back."""
-    token = make_csrf(PRE_SESSION_BINDING, keys.csrf_key)
+    token = make_csrf(PRE_SESSION_BINDING, keys.csrf_key, now)
     # Readable by the SPA on purpose (not HttpOnly): it copies it into the header.
     response.set_cookie(
         CSRF_COOKIE,
@@ -291,7 +297,7 @@ def login(
     # From here on the CSRF token is bound to this session's `sid`.
     response.set_cookie(
         CSRF_COOKIE,
-        make_csrf(claims["sid"], keys.csrf_key),
+        make_csrf(claims["sid"], keys.csrf_key, now),
         max_age=ACCESS_COOKIE_MAX_AGE,
         path="/",
         secure=True,

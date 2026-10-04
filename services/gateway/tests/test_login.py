@@ -229,6 +229,38 @@ def test_csrf_failure_does_not_count_as_a_failed_login(client, db_engine):
     assert login(client).status_code == 200
 
 
+def test_pre_session_csrf_token_expires_after_ten_minutes(client, clock):
+    register(client)
+    token = get_csrf(client)
+    clock.offset = timedelta(seconds=601)
+
+    response = login(client, token=token)
+
+    assert response.status_code == 403
+
+
+def test_pre_session_csrf_token_still_works_just_before_it_expires(client, clock):
+    register(client)
+    token = get_csrf(client)
+    clock.offset = timedelta(seconds=590)
+
+    assert login(client, token=token).status_code == 200
+
+
+def test_login_rejects_a_pre_session_token_with_a_tampered_timestamp(client, clock):
+    register(client)
+    token = get_csrf(client)
+    random_part, _, mac = token.split(".")
+    clock.offset = timedelta(seconds=700)
+    fresh_stamp = int((datetime.now(UTC) + clock.offset).timestamp())
+    tampered = f"{random_part}.{fresh_stamp}.{mac}"
+    client.cookies.set("__Host-csrf", tampered)
+
+    response = login(client, token=tampered)
+
+    assert response.status_code == 403
+
+
 # --- successful login -----------------------------------------------------
 
 

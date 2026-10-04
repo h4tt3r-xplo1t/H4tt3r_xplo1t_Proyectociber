@@ -29,6 +29,14 @@ def alembic_config() -> Config:
     return Config(str(ALEMBIC_INI))
 
 
+@pytest.fixture(autouse=True)
+def app_settings(monkeypatch):
+    """Fake, fixed values so no test depends on the developer's shell."""
+    monkeypatch.setenv("GATEWAY_JWT_ISSUER", "h4tt3r-gateway-test")
+    monkeypatch.setenv("GATEWAY_JWT_AUDIENCE", "h4tt3r-web-test")
+    monkeypatch.setenv("GATEWAY_ALLOWED_ORIGIN", "https://testserver")
+
+
 @pytest.fixture(scope="session")
 def database_url() -> str:
     """URL of the PostgreSQL used by the DB tests.

@@ -36,14 +36,16 @@ Forecast ~900 authored changed lines. Strategy: `single-pr` (precedent: #29 and 
 
 ## Tasks
 - [x] **T0**: issue #33 created (person authorized), branch, PyJWT and NIST verified, NFC decided.
-- [ ] **T1a**: PyJWT dependency + migration `0002_login_attempts` + model + conftest TRUNCATE.
-- [ ] **T1b**: `passwords.py`: NFC normalization (also in register), semaphore timeout -> `HashingBusy` -> 503, dummy verify.
-- [ ] **T1c**: `tokens.py`: issue/decode access JWT, CSRF make/check.
-- [ ] **T1d**: `auth.py`: `GET /api/auth/csrf`, `POST /api/auth/login` with lockout, `current_user`, `GET /api/auth/me`, origin check; security-event logs without secrets.
-- [ ] **T1e**: settings + CI `env` for the new variables.
+- [x] **T1a**: PyJWT dependency (c5ca1cb) + migration `0002_login_attempts` + model + conftest TRUNCATE. Commit b2dddab. RED: `NoSuchTableError`/missing table (2 failed, 4 errors); GREEN: 108 passed.
+- [x] **T1b**: NFC normalization (inside `hash_password`/`verify_password`, so register and login both get it), semaphore timeout (`HASH_WAIT_SECONDS = 5`) -> `HashingBusy` -> 503 via app handler, `verify_dummy`. Commit 0fbb87f. RED: `ImportError: cannot import name 'HashingBusy'` and register 503 test failing with `HashingBusy`; GREEN: 116 passed.
+- [x] **T1c**: `tokens.py`: issue/decode access JWT, CSRF make/check. Commit a91216e. RED: `ImportError: cannot import name 'tokens' from 'gateway'`; GREEN: 168 passed. `decode_access_token` takes no `now` (PyJWT uses the real clock); tests forge times instead.
+- [x] **T1d**: `auth.py`: `GET /api/auth/csrf`, `POST /api/auth/login` with lockout, `current_user`, `GET /api/auth/me`, origin check; security-event logs without secrets. Commit 140152e. RED: `AttributeError: module 'gateway.auth' has no attribute 'get_keys'` (+13 register origin failures); GREEN: 220 passed. Register also gets the origin check (no CSRF token); register tests send `Sec-Fetch-Site: same-origin`. When `Sec-Fetch-Site` is present and not `same-origin` the request is refused even if `Origin` matches (ADR text).
+- [x] **T1e**: `settings.py` (`GATEWAY_JWT_ISSUER`, `GATEWAY_JWT_AUDIENCE`, `GATEWAY_ALLOWED_ORIGIN`, no defaults) + CI `env` of the `gateway` job. Commit aa2f977 (done before T1c because tokens need issuer/audience). RED: `AttributeError: ... no attribute 'get_jwt_issuer'`; GREEN: 126 passed.
 - [ ] **T2**: BITACORA entry and threat-model status (1, 8, 36).
 - [ ] **T3**: `revisor-seguridad` and Gentle AI review; fixes.
 - [ ] **T4**: push and PR (person request only).
 
 ## Progress
 - 2026-10-03: T0 done.
+- 2026-10-04: T1a-T1e done by the delegated writer.
+- Known gaps: `login_attempts` rows for unknown usernames have no TTL purge yet and a stale counter never decays; `tokens_valid_since` is not checked in `current_user` (A2b).

@@ -27,7 +27,7 @@ Registration (#29) and OpenBao keys (#31) exist; login is the next step of ADR 0
 Mode: strict, enabled (global user configuration). Runner: `uv run --locked pytest` in `services/gateway`, with PostgreSQL and OpenBao from `docker compose up -d --wait postgres openbao` and `scripts/openbao-dev-init.sh`.
 
 ## Delivery
-Forecast ~900 authored changed lines. Strategy: `single-pr` (precedent: #29 and #31 merged as single PRs of ~1100 lines; the issue itself is already the A2a slice). The person may switch to a chain.
+Forecast ~900 authored changed lines; actual after T1: ~1690 (tests are about half). Strategy: `single-pr` (precedent: #29 and #31 merged as single PRs of ~1100 lines; the issue itself is already the A2a slice). The person may switch to a chain.
 
 ## Route
 - T1 delegated writer (writer + preparation triggers: dependency, migration, passwords, tokens, endpoints, tests, CI env).
@@ -41,7 +41,7 @@ Forecast ~900 authored changed lines. Strategy: `single-pr` (precedent: #29 and 
 - [x] **T1c**: `tokens.py`: issue/decode access JWT, CSRF make/check. Commit a91216e. RED: `ImportError: cannot import name 'tokens' from 'gateway'`; GREEN: 168 passed. `decode_access_token` takes no `now` (PyJWT uses the real clock); tests forge times instead.
 - [x] **T1d**: `auth.py`: `GET /api/auth/csrf`, `POST /api/auth/login` with lockout, `current_user`, `GET /api/auth/me`, origin check; security-event logs without secrets. Commit 140152e. RED: `AttributeError: module 'gateway.auth' has no attribute 'get_keys'` (+13 register origin failures); GREEN: 220 passed. Register also gets the origin check (no CSRF token); register tests send `Sec-Fetch-Site: same-origin`. When `Sec-Fetch-Site` is present and not `same-origin` the request is refused even if `Origin` matches (ADR text).
 - [x] **T1e**: `settings.py` (`GATEWAY_JWT_ISSUER`, `GATEWAY_JWT_AUDIENCE`, `GATEWAY_ALLOWED_ORIGIN`, no defaults) + CI `env` of the `gateway` job. Commit aa2f977 (done before T1c because tokens need issuer/audience). RED: `AttributeError: ... no attribute 'get_jwt_issuer'`; GREEN: 126 passed.
-- [ ] **T2**: BITACORA entry and threat-model status (1, 8, 36).
+- [x] **T2**: threat evidence for 1, 8, 36 in md and Threat Dragon JSON (d7a4b0f, status stays Abierta: ZAP and A2b pending); BITACORA #33 entry, closed 2026-09-30 entries rotated to docs/bitacora/2026-09-30.md with #31 closure, no lines lost (d9f1921). Parent spot check: 220 passed, ruff clean.
 - [ ] **T3**: `revisor-seguridad` and Gentle AI review; fixes.
 - [ ] **T4**: push and PR (person request only).
 

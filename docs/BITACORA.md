@@ -53,6 +53,8 @@ Rama `feat/33-login-gateway`. A2 se divide en dos partes: **A2a** (este issue: l
   Las otras observaciones están en Pendientes.
 - **Bitácora rotada:** las entradas del 30-09 se movieron a `docs/bitacora/2026-09-30.md` (este archivo pasaba de 20 000 bytes). Se comprobó que no se perdió ninguna línea.
 
+- **Cierre:** PR #34 fusionado con squash como `51aa0e4`; issue #33 cerrado. Push por SSH (la rama cambiaba el workflow); en CI corrieron las 246 pruebas.
+
 ## Pendientes
 
 ### E3: primer flujo (búsqueda por tema) y autenticación

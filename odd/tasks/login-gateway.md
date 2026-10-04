@@ -42,10 +42,16 @@ Forecast ~900 authored changed lines; actual after T1: ~1690 (tests are about ha
 - [x] **T1d**: `auth.py`: `GET /api/auth/csrf`, `POST /api/auth/login` with lockout, `current_user`, `GET /api/auth/me`, origin check; security-event logs without secrets. Commit 140152e. RED: `AttributeError: module 'gateway.auth' has no attribute 'get_keys'` (+13 register origin failures); GREEN: 220 passed. Register also gets the origin check (no CSRF token); register tests send `Sec-Fetch-Site: same-origin`. When `Sec-Fetch-Site` is present and not `same-origin` the request is refused even if `Origin` matches (ADR text).
 - [x] **T1e**: `settings.py` (`GATEWAY_JWT_ISSUER`, `GATEWAY_JWT_AUDIENCE`, `GATEWAY_ALLOWED_ORIGIN`, no defaults) + CI `env` of the `gateway` job. Commit aa2f977 (done before T1c because tokens need issuer/audience). RED: `AttributeError: ... no attribute 'get_jwt_issuer'`; GREEN: 126 passed.
 - [x] **T2**: threat evidence for 1, 8, 36 in md and Threat Dragon JSON (d7a4b0f, status stays Abierta: ZAP and A2b pending); BITACORA #33 entry, closed 2026-09-30 entries rotated to docs/bitacora/2026-09-30.md with #31 closure, no lines lost (d9f1921). Parent spot check: 220 passed, ruff clean.
+- [x] **T3a**: review fixes from `revisor-seguridad` (L2 TTL purge and L6 threadpool stay pending by decision).
+  - M1 f9ac1c0: reset the counter row instead of deleting it. RED: queued login got `500` (`assert 500 == 401`); GREEN 221 passed.
+  - L1 ed5fccb: `SET LOCAL lock_timeout` (`LOCK_TIMEOUT = "2s"`), `55P03` -> 503 without counting. RED: `AttributeError: ... no attribute 'LOCK_TIMEOUT'` (the held-lock test also hung with no timeout); GREEN 223 passed.
+  - L3 e640d79: `login_attempts` keyed by HMAC-SHA256 with a `login-attempts-v1` subkey of the CSRF key; unknown users log `unknown:<16 hex>`; migration 0002 edited (no 0003). RED: `ImportError: cannot import name 'login_attempt_key'`; GREEN 228 passed.
+  - L4 d51c4cb: pre-session CSRF token `<random>.<issued-at>.<hmac>`, 600 s max age via injected clock (session tokens keep the same format, aged only through the JWT). RED: `TypeError` (make_csrf signature) in 12 tests; GREEN 241 passed.
+  - L5 26f587e: `Cache-Control: no-store` on `/login` (200, 401), `/me` (200, 401) and `/csrf`. RED: `KeyError: 'cache-control'`; GREEN 242 passed.
 - [ ] **T3**: `revisor-seguridad` and Gentle AI review; fixes.
 - [ ] **T4**: push and PR (person request only).
 
 ## Progress
 - 2026-10-03: T0 done.
 - 2026-10-04: T1a-T1e done by the delegated writer.
-- Known gaps: `login_attempts` rows for unknown usernames have no TTL purge yet and a stale counter never decays; `tokens_valid_since` is not checked in `current_user` (A2b).
+- Known gaps (L2, L6 deferred): `login_attempts` rows for unknown usernames have no TTL purge yet and a stale counter never decays; `tokens_valid_since` is not checked in `current_user` (A2b).

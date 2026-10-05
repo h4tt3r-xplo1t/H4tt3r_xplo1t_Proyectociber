@@ -93,6 +93,28 @@ Rama `feat/35-sesion-gateway`. Completa la gestión de sesión del ADR 0004.
   - Corregido también: un `exp` de tipo inválido en el logout daba 500; una prueba de rotación no comprobaba lo que decía su nombre; `LoginBusy` pasa a un nombre genérico; la longitud mínima queda en una sola constante.
 - **Riesgo anotado (L5):** `__Secure-refresh` no puede ser `__Host-` porque lleva `Path`; un subdominio hermano podría sobrescribirlo con `Domain=`. Queda mitigado por `SameSite=Strict` y porque el valor no se puede adivinar. Anotado en la amenaza 35.
 
+- **Cierre:** PR #36 fusionado con squash como `afc1372`; issue #35 cerrado. Push por HTTPS (la rama no cambiaba `.github/`); en CI corrieron las 336 pruebas.
+
+## 2026-10-04 · Issue #37: mantenimiento de la sesión
+
+Rama `chore/37-mantenimiento-sesion`. Cierra la deuda de sesión del #33 y del #35 antes de A3.
+
+- **Purga** con `python -m gateway.maintenance purge` (idempotente; solo imprime el nombre de cada tabla y cuántas filas borró). Borra:
+  - contadores de `login_attempts` sin bloqueo vigente y sin actividad en 24 h;
+  - `jti` vencidos de `revoked_jtis`;
+  - familias de refresh revocadas o que superan el límite absoluto del rol actual, con sus tokens en cascada.
+
+  Una familia purgada sigue dando 401, porque `current_user` exige que exista. Lanzarla de forma periódica (CronJob) queda para E5.
+- **Reloj único:** `tokens_valid_since` se fija con el reloj de la aplicación en el registro, igual que el `iat` y `family.created_at`; cualquier cambio futuro debe usar ese mismo reloj.
+- **Logout:** sin una cookie de acceso válida sigue respondiendo 401, pero borra las tres cookies. Los 403 por origen o CSRF no las borran, a propósito: una petición falsificada desde otro sitio no debe poder vaciar las cookies de la víctima.
+- **Revisión de seguridad (`revisor-seguridad`):** lista para PR, sin críticos, altos ni medios. Se corrigieron sus 4 bajos en una sola ronda:
+  - Un `jti` solo se purga cuando además pasa el margen de 30 s del decodificador.
+  - El número de `refresh_tokens` borrados sale de `DELETE ... RETURNING`.
+  - Si la purga borra el contador a mitad de un login, el login reintenta una vez y, si vuelve a fallar, responde 503, nunca 500.
+  - El comando falla con un mensaje fijo (sin URL, usuario ni traceback) y código de salida 1.
+- **Requisito de operación:** los relojes de las réplicas del gateway deben estar sincronizados (NTP). Con desfase, un token emitido en una réplica atrasada justo después de registrarse en otra adelantada se rechaza hasta que pase el desfase.
+- **Pruebas:** fixtures `clock` y `client` compartidos en `conftest.py`. TDD con RED observado en cada cambio de comportamiento; de 336 a 354 pruebas.
+
 ## Pendientes
 
 ### E3: primer flujo (búsqueda por tema) y autenticación
@@ -109,15 +131,11 @@ Rama `feat/35-sesion-gateway`. Completa la gestión de sesión del ADR 0004.
 - [ ] `readyz` que compruebe la base de datos (E5): sin `GATEWAY_DATABASE_URL`, `/healthz` responde pero la API falla.
 
 ### Inicio de sesión (issue #33)
-- [ ] Caducidad (TTL) de las filas de `login_attempts`, que el ADR 0004 pide para los nombres inexistentes; hoy un contador viejo nunca decae.
 - [ ] Bloqueo dirigido: cualquiera puede mantener bloqueada una cuenta ajena (4 fallos y luego uno cada 30 min). Lo acepta el ADR 0004 hasta que existan el límite por IP (E5) y la recuperación asistida (revisión de Gentle AI del #33).
 - [ ] El login mantiene la conexión a la base de datos y el bloqueo de fila durante la espera del hash (hasta 5 s más el hash). Valorar leer y bloquear el contador en una transacción corta separada del hash (revisión de Gentle AI del #33).
 - [ ] Saturación del threadpool: hasta 5 s de espera por el semáforo bloquean hilos de las rutas síncronas; depende del límite de tasa (E5) (L6 de la revisión del #33).
+- [ ] Programar la purga (`python -m gateway.maintenance purge`) como CronJob en E5 (#37).
 - [ ] Exigir el CSRF ligado al `sid` en las rutas que cambien estado después del login; `refresh` y `logout` ya lo exigen (#35).
-- [ ] Purga de las filas vencidas de `revoked_jtis` (`expires_at` ya está indexado) y de las filas de `refresh_tokens` de familias vencidas o revocadas, que crecen con cada refresh (#35).
-- [ ] Un logout sin cookie de acceso válida responde 401 sin borrar las cookies de refresh y CSRF; valorar borrarlas siempre (segunda revisión de Gentle AI del #35).
-- [ ] Limpieza de pruebas del #35: fixtures `clock` y `client` duplicados en `test_refresh.py` y `test_logout.py`, y un parámetro `absolute` sin usar en `test_idle_limit_by_role`.
-- [ ] `tokens_valid_since` se compara con dos relojes: `family.created_at` sale del reloj de la aplicación y `tokens_valid_since` del `now()` de PostgreSQL. Unificar el origen antes de que algo modifique ese campo (A3) (revisión de Gentle AI del #35).
 
 ### OpenBao (issue #31)
 - [ ] Llevar a OpenBao las credenciales de PostgreSQL (hoy en variables de entorno).
@@ -166,5 +184,6 @@ Rama `feat/35-sesion-gateway`. Completa la gestión de sesión del ADR 0004.
 - [x] **E2 (issue #25, PR #26):** esqueleto del `gateway` con `uv.lock`, lint y pruebas en CI.
 - [x] **Issue #29 (PR #30)** y **#31 (PR #32):** registro de usuarios y OpenBao.
 - [x] **A2b (issue #35):** refresh con rotación y detección de reutilización, logout, denylist y `tokens_valid_since`; reinicio del contador tras emitir los tokens y longitud después de NFC.
+- [x] **Issue #37:** purga de las tablas de sesión, reloj único para `tokens_valid_since` y logout que borra las cookies.
 - [x] Normalización Unicode de contraseñas (NFC) y tiempo máximo del semáforo de Argon2id (pendientes del #29, cerrados en el #33).
 - [x] **Issue #27 (PR #28):** `gateway` obligatorio en el ruleset (aplicado en GitHub el 2026-09-30 y verificado desde la API), documentación de la API desactivada por defecto y `httpx2`. ADR 0001 actualizado en el issue #29.

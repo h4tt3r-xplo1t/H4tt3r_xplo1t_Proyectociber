@@ -74,7 +74,7 @@ def db_engine(migrated_db):
         conn.execute(
             text(
                 "TRUNCATE users, refresh_families, refresh_tokens, revoked_jtis, "
-                "login_attempts CASCADE"
+                "login_attempts, recovery_codes CASCADE"
             )
         )
     yield engine

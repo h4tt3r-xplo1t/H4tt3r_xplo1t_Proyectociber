@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -46,6 +47,17 @@ class User(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+    # TOTP MFA (ADR 0004 decisions 8 and 11). Secrets exist only as OpenBao
+    # transit ciphertext. `mfa_enabled_at` is set when the user proved a code.
+    mfa_secret_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mfa_pending_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mfa_enabled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    mfa_last_step: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    mfa_enroll_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
 
@@ -132,3 +144,26 @@ class RevokedJti(Base):
 
     jti: Mapped[str] = mapped_column(Text, primary_key=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class RecoveryCode(Base):
+    """A single-use MFA recovery code; only its Argon2id hash is stored."""
+
+    __tablename__ = "recovery_codes"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    code_hash: Mapped[str] = mapped_column(Text)
+    used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

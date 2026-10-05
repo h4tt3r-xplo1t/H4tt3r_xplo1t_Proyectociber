@@ -510,3 +510,54 @@ def test_a_signed_token_with_a_non_numeric_exp_is_401_on_logout(client, db_engin
         response = logout(client, token, csrf)
         assert response.status_code == 401, exp
         assert response.json() == NOT_AUTHENTICATED
+
+
+# --- cookies are cleared even when the session cannot be identified -----------------
+
+CLEARED = (
+    ("__Host-access", "/"),
+    ("__Host-csrf", "/"),
+    ("__Secure-refresh", "/api/auth/refresh"),
+)
+
+
+def assert_cleared(response):
+    for name, path in CLEARED:
+        (line,) = set_cookie_lines(response, name)
+        attributes = {part.strip().lower() for part in line.split(";")[1:]}
+        assert "max-age=0" in attributes, name
+        assert f"path={path}" in attributes, name
+        assert {"secure", "samesite=strict"} <= attributes, name
+        assert not any(a.startswith("domain") for a in attributes), name
+    assert (
+        "httponly" in set_cookie_lines(response, "__Host-access")[0].lower()
+    ) is True
+    assert "httponly" not in set_cookie_lines(response, "__Host-csrf")[0].lower()
+    assert "httponly" in set_cookie_lines(response, "__Secure-refresh")[0].lower()
+
+
+@pytest.mark.parametrize(
+    "access", [None, "not-a-jwt", forged_access("x", key=b"x" * 32)]
+)
+def test_logout_with_a_missing_or_invalid_access_cookie_is_401_and_clears_cookies(
+    client, access
+):
+    response = logout(client, access, "some-csrf-value")
+
+    assert response.status_code == 401
+    assert response.json() == NOT_AUTHENTICATED
+    assert response.headers["cache-control"] == "no-store"
+    assert_cleared(response)
+
+
+def test_a_failed_origin_or_csrf_check_does_not_clear_cookies(client):
+    session = start(client)
+
+    no_origin = logout(client, session.access, session.csrf, headers={})
+    bad_csrf = logout(client, session.access, session.csrf, header="wrong")
+
+    # A forged cross-site request must not be able to wipe the victim's cookies:
+    # these two refuse before the session is identified or proven, and touch nothing.
+    for response in (no_origin, bad_csrf):
+        assert response.status_code == 403
+        assert response.headers.get_list("set-cookie") == []

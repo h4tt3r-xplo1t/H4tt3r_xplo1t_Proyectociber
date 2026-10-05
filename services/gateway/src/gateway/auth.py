@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import exists, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
@@ -601,6 +602,7 @@ def _clear_session_cookies(response: Response) -> None:
 @router.post(
     "/logout",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
     dependencies=[Depends(require_same_origin)],
 )
 def logout(
@@ -609,12 +611,17 @@ def logout(
     session: Annotated[Session, Depends(get_session)],
     keys: Annotated[GatewayKeys, Depends(get_keys)],
     now: Annotated[datetime, Depends(get_now)],
-) -> None:
+) -> Response | None:
     """End the session of the access token: revoke its family, deny its jti.
 
     An expired access token is fine (the session may outlive the 15 minutes) but
     its signature, issuer and audience must be valid, and the session CSRF token
     must match its `sid`. The call is idempotent.
+
+    An unidentifiable session (missing or invalid access cookie) answers 401 and
+    clears the cookies. A failed origin or CSRF check answers 403 and clears
+    nothing: those requests may be forged by another site, and a forgery must
+    not be able to wipe the victim's cookies.
     """
     try:
         claims = decode_access_token_allow_expired(
@@ -635,7 +642,18 @@ def logout(
         OverflowError,
         OSError,
     ):
-        raise _session_denied() from None
+        # Same 401 as everywhere, but the browser is also told to drop whatever
+        # it holds: a missing or broken access cookie must not leave the other
+        # two behind. HTTPException cannot carry several Set-Cookie headers, so
+        # the response is built here.
+        denied = _session_denied()
+        unauthenticated = JSONResponse(
+            status_code=denied.status_code,
+            content={"detail": denied.detail},
+            headers=denied.headers,
+        )
+        _clear_session_cookies(unauthenticated)
+        return unauthenticated
     if not check_csrf(
         request.cookies.get(CSRF_COOKIE),
         request.headers.get(CSRF_HEADER),

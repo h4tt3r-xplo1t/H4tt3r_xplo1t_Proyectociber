@@ -20,6 +20,7 @@ from gateway.db import get_engine
 from gateway.main import create_app
 from gateway.tokens import decode_access_token, issue_access_token, make_csrf
 from tests.test_login import (
+    GOOD,
     KEYS,
     LOGIN_FAILED,
     OTHER,
@@ -482,14 +483,94 @@ def test_lector_can_enroll_from_a_normal_session(client, db_engine, clock):
     register(client)
     assert login(client).json()["role"] == "lector"
 
-    secret = post(client, ENROLL).json()["secret"]
+    secret = post(client, ENROLL, {"current_password": GOOD}).json()["secret"]
     response = post(client, CONFIRM, {"code": totp(secret, clock)})
 
     assert response.status_code == 200
     assert len(response.json()["recovery_codes"]) == 10
+    assert response.json()["relogin_required"] is True
     assert user_row(db_engine)["mfa_enabled_at"] is not None
-    # The lector keeps the session it had.
-    assert client.get("/api/auth/me").status_code == 200
+
+
+def second_client(client):
+    """Another browser: same app, its own cookie jar."""
+    return TestClient(client.app, base_url="https://testserver")
+
+
+@pytest.mark.parametrize("body", [None, {}, {"current_password": OTHER}])
+def test_full_session_enroll_needs_the_current_password(client, db_engine, clock, body):
+    register(client)
+    login(client)
+
+    response = post(client, ENROLL, body)
+
+    assert response.status_code == 401
+    assert response.json() == LOGIN_FAILED
+    assert user_row(db_engine)["mfa_pending_ciphertext"] is None
+    assert attempt_row(db_engine).failures == 1
+
+
+def test_wrong_passwords_at_enroll_lock_the_account(client, db_engine, clock):
+    register(client)
+    login(client)
+
+    for _ in range(4):
+        post(client, ENROLL, {"current_password": OTHER})
+
+    assert attempt_row(db_engine).locked_until == clock() + timedelta(minutes=1)
+    # Locked: even the right password gets the generic 401.
+    assert post(client, ENROLL, {"current_password": GOOD}).status_code == 401
+
+
+def test_the_enroll_token_flow_does_not_ask_for_the_password(client, db_engine, clock):
+    make_user(client, db_engine, clock)
+    login(client)
+
+    assert post(client, ENROLL).status_code == 200
+
+
+@pytest.mark.parametrize("role", ["lector", "editor"])
+def test_confirm_ends_every_session_of_the_user(client, db_engine, clock, role):
+    make_user(client, db_engine, clock, role=role)
+    other = second_client(client)
+    if role == "lector":
+        login(other)  # a pre-existing full session in another browser
+        assert other.get("/api/auth/me").status_code == 200
+        login(client)
+        body = {"current_password": GOOD}
+    else:
+        login(client)
+        body = None
+    secret = post(client, ENROLL, body).json()["secret"]
+    access, csrf = (
+        client.cookies.get("__Host-access"),
+        client.cookies.get("__Host-csrf"),
+    )
+
+    response = post(client, CONFIRM, {"code": totp(secret, clock)})
+
+    assert response.status_code == 200
+    assert response.json()["relogin_required"] is True
+    assert user_row(db_engine)["tokens_valid_since"] == clock()
+    # The presented token is denied and the cookies are cleared.
+    cleared = [c for c in response.headers.get_list("set-cookie") if "Max-Age=0" in c]
+    assert any(c.startswith("__Host-access=") for c in cleared)
+    client.cookies.clear()
+    client.cookies.set("__Host-access", access)
+    client.cookies.set("__Host-csrf", csrf)
+    assert client.get("/api/auth/me").status_code == 401
+    if role == "lector":
+        assert other.get("/api/auth/me").status_code == 401
+        refreshed = other.post(
+            "/api/auth/refresh",
+            headers={**SAME_ORIGIN, "X-CSRF-Token": other.cookies.get("__Host-csrf")},
+        )
+        assert refreshed.status_code == 401
+        with db_engine.connect() as conn:
+            live = conn.execute(
+                text("SELECT count(*) FROM refresh_families WHERE revoked_at IS NULL")
+            ).scalar()
+        assert live == 0
 
 
 def test_other_roles_cannot_enroll_from_a_normal_session(client, db_engine, clock):
@@ -557,7 +638,7 @@ def test_login_with_mfa_only_gets_a_pending_token(client, db_engine, clock):
 def test_lector_with_mfa_is_asked_for_the_second_factor_too(client, db_engine, clock):
     register(client)
     login(client)
-    secret = post(client, ENROLL).json()["secret"]
+    secret = post(client, ENROLL, {"current_password": GOOD}).json()["secret"]
     post(client, CONFIRM, {"code": totp(secret, clock)})
 
     assert login(client).json() == {"status": "mfa_required"}

@@ -234,6 +234,14 @@ class StatusOut(BaseModel):
     status: Literal["mfa_enrollment_required", "mfa_required"]
 
 
+class EnrollRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Required from a full session (re-authentication); the enroll-mfa session
+    # has just checked the password and sends nothing.
+    current_password: Annotated[str, Field(min_length=1, max_length=128)] | None = None
+
+
 class EnrollOut(BaseModel):
     otpauth_uri: str
     secret: str
@@ -241,8 +249,8 @@ class EnrollOut(BaseModel):
 
 class RecoveryCodesOut(BaseModel):
     recovery_codes: list[str]
-    # True for a privileged user: the enroll session ends and a normal login,
-    # which now asks for the second factor, follows.
+    # Always True: every session of the user ends and a normal login, which
+    # now asks for the second factor, follows.
     relogin_required: bool
 
 
@@ -1013,15 +1021,31 @@ def mfa_enroll(
     actor: Annotated[CurrentUser, Depends(enrollment_actor)],
     response: Response,
     session: Annotated[Session, Depends(get_session)],
+    keys: Annotated[GatewayKeys, Depends(get_keys)],
     now: Annotated[datetime, Depends(get_now)],
+    body: EnrollRequest | None = None,
 ) -> EnrollOut:
     """Generate a TOTP secret, keep it (encrypted, pending) and show it once.
 
     It becomes the user's secret only when /mfa/confirm proves a valid code. A
     new call replaces a pending secret that was never confirmed.
+
+    From a full session (a reader) the current password is required again: a
+    stolen session must not be able to attach the attacker's authenticator. A
+    wrong or missing password is a counted failure in the login lockout.
     """
     _check_can_enroll(actor, now)
     user = actor.user
+    if "scope" not in actor.claims:
+        attempt = _lock_second_factor(session, user, keys, now)
+        password = body.current_password if body is not None else None
+        if password is None:
+            verified = verify_dummy("")
+        else:
+            verified = verify_password(user.password_hash, password)
+        if not verified:
+            _record_failure(session, attempt, str(user.id), now, "mfa_failure")
+            raise _login_failed()
     secret = new_totp_secret()
     # A transit failure raises TransitError (fixed 503) before anything is saved.
     user.mfa_pending_ciphertext = encrypt_totp_secret(secret.encode())
@@ -1045,6 +1069,10 @@ def mfa_confirm(
     A wrong code counts in the same progressive lockout as a wrong password. For
     a privileged user the enroll token is denied afterwards: the session ends and
     a normal login (which now asks for the second factor) follows.
+
+    For every user, a new factor is a change of credentials: all existing
+    sessions end (`tokens_valid_since`, every refresh family revoked), the
+    presented token is denied and the cookies are cleared.
     """
     _check_can_enroll(actor, now)
     user = actor.user
@@ -1080,15 +1108,19 @@ def mfa_confirm(
     user.mfa_enabled_at = now
     user.mfa_last_step = step
     user.mfa_enroll_until = None
-    scoped = "scope" in actor.claims
-    if scoped:
-        _deny_jti(session, actor.claims)
+    # From the app clock, like every write of this column (see register).
+    user.tokens_valid_since = now
+    session.execute(
+        update(RefreshFamily)
+        .where(RefreshFamily.user_id == user.id, RefreshFamily.revoked_at.is_(None))
+        .values(revoked_at=now)
+    )
+    _deny_jti(session, actor.claims)
     session.commit()
-    if scoped:
-        _clear_session_cookies(response)
+    _clear_session_cookies(response)
     response.headers.update(NO_STORE)
     _log_event("mfa_enabled", subject, now)
-    return RecoveryCodesOut(recovery_codes=codes, relogin_required=scoped)
+    return RecoveryCodesOut(recovery_codes=codes, relogin_required=True)
 
 
 def _check_second_factor(

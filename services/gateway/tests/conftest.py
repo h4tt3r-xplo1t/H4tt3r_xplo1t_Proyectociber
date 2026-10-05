@@ -99,3 +99,28 @@ def client(db_engine, clock):
     app.dependency_overrides[auth.get_now] = clock
     yield TestClient(app, base_url="https://testserver")
     get_engine().dispose()
+
+
+ENV_VARS = (
+    "GATEWAY_OPENBAO_ADDR",
+    "GATEWAY_OPENBAO_ROLE_ID_FILE",
+    "GATEWAY_OPENBAO_SECRET_ID_FILE",
+)
+
+
+@pytest.fixture(scope="session")
+def openbao_env() -> dict[str, str]:
+    """Connection settings of the OpenBao used by these tests.
+
+    Missing configuration fails the test on purpose, like the database tests:
+    a silently skipped test would look green without proving anything.
+    """
+    missing = [name for name in ENV_VARS if not os.environ.get(name)]
+    if missing:
+        pytest.fail(
+            f"{', '.join(missing)} not set: start OpenBao "
+            "(docker compose up -d --wait openbao), run "
+            "scripts/openbao-dev-init.sh and export the three GATEWAY_OPENBAO_* "
+            "variables to run the OpenBao tests"
+        )
+    return {name: os.environ[name] for name in ENV_VARS}

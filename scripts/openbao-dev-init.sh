@@ -4,7 +4,7 @@
 #
 # Initialises, unseals and configures the OpenBao service from
 # docker-compose.yml. Idempotent: every run unseals if needed, and the
-# one-time setup (KV v2, AppRole, policy, keys) happens only on the first
+# one-time setup (KV v2, transit, AppRole, policy, keys) happens only on the first
 # run, when the root token exists. The root token is held in a shell variable,
 # never written to disk, and revoked before the script ends.
 #
@@ -105,9 +105,13 @@ done
 
 if [[ "$FIRST_SETUP" == "true" ]]; then
   export BAO_TOKEN="$ROOT_TOKEN"
-  echo "First setup: KV v2, AppRole, policy and keys"
+  echo "First setup: KV v2, transit, AppRole, policy and keys"
   bao secrets enable -path=secret -version=2 kv >/dev/null
   bao auth enable approle >/dev/null
+  # Transit encrypts the TOTP secrets; the key never leaves OpenBao and the
+  # gateway policy only allows encrypt and decrypt with it.
+  bao secrets enable -path=transit transit >/dev/null
+  bao write -f transit/keys/totp type=aes256-gcm96 >/dev/null
   bao policy write gateway - <deploy/openbao/gateway-policy.hcl >/dev/null
   # secret_id_ttl=0: the dev secret_id never expires, so there is no re-issue
   # path to maintain; the policy still limits it to reading gateway keys.

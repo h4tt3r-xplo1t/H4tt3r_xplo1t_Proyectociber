@@ -160,13 +160,13 @@ def _log_event(
     )
 
 
-class LoginBusy(RuntimeError):
+class ServiceBusy(RuntimeError):
     """A row stayed locked (or the database gave up on a lock); answered with 503.
 
     `cause` only goes to the security log; every cause gets the same 503 body.
     """
 
-    def __init__(self, message: str, cause: str = "attempt_row_locked") -> None:
+    def __init__(self, message: str, cause: str) -> None:
         super().__init__(message)
         self.cause = cause
 
@@ -297,7 +297,7 @@ def _lock_attempt(session: Session, attempt_key: str) -> LoginAttempt:
         lock_failed = True
     if lock_failed:
         # Answered like a saturated hasher (same 503); nothing is counted.
-        raise LoginBusy("login attempt row is locked")
+        raise ServiceBusy("login attempt row is locked", "attempt_row_locked")
     return attempt
 
 
@@ -487,7 +487,7 @@ def _lock_refresh_token(
             raise
         lock_failed = True
     if lock_failed:
-        raise LoginBusy("refresh token row is locked", "refresh_row_locked")
+        raise ServiceBusy("refresh token row is locked", "refresh_row_locked")
     return found
 
 
@@ -656,7 +656,7 @@ def logout(
             raise
         busy = True
     if busy:
-        raise LoginBusy("logout family row is locked", "logout_row_locked")
+        raise ServiceBusy("logout family row is locked", "logout_row_locked")
     _clear_session_cookies(response)
     response.headers.update(NO_STORE)
     _log_event("logout", str(user_id), now)

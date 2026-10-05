@@ -626,7 +626,7 @@ class FailingSession:
 
 @pytest.mark.parametrize("sqlstate", ["55P03", "40P01", "40001"])
 def test_lock_timeout_deadlock_and_serialization_failure_are_busy(sqlstate):
-    with pytest.raises(auth.LoginBusy) as raised:
+    with pytest.raises(auth.ServiceBusy) as raised:
         auth._lock_refresh_token(FailingSession(sqlstate), "hash")
 
     assert raised.value.cause == "refresh_row_locked"

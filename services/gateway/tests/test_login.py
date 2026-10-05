@@ -691,8 +691,8 @@ def test_login_answers_503_when_the_row_lock_is_not_obtained_in_time(
 
 
 def test_row_lock_timeout_is_a_distinct_error_from_hash_saturation():
-    assert not issubclass(auth.LoginBusy, passwords.HashingBusy)
-    assert not issubclass(passwords.HashingBusy, auth.LoginBusy)
+    assert not issubclass(auth.ServiceBusy, passwords.HashingBusy)
+    assert not issubclass(passwords.HashingBusy, auth.ServiceBusy)
 
 
 def test_both_503_causes_are_logged_and_look_the_same_to_the_client(

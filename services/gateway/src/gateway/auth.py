@@ -180,15 +180,18 @@ def log_service_busy(cause: str) -> None:
     )
 
 
+# ADR 0004 decision 4: at least 15 characters (after NFC) and no composition rules.
+PASSWORD_MIN_LENGTH = 15
+
+
 class RegisterRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     username: Annotated[
         str, Field(min_length=3, max_length=32, pattern=r"^[a-z0-9_.-]+$")
     ]
-    # ADR 0004 decision 4: at least 15 characters and no composition rules.
     # The upper bound only limits the cost of hashing.
-    password: Annotated[str, Field(min_length=15, max_length=128)]
+    password: Annotated[str, Field(min_length=PASSWORD_MIN_LENGTH, max_length=128)]
 
     @field_validator("password")
     @classmethod
@@ -196,8 +199,10 @@ class RegisterRequest(BaseModel):
         # The hash is taken over the NFC form, so the minimum applies to it: a
         # decomposed string can be longer raw than the password it stands for.
         # The message is fixed; the value never goes into it.
-        if len(normalize_password(value)) < 15:
-            raise ValueError("password must have at least 15 characters")
+        if len(normalize_password(value)) < PASSWORD_MIN_LENGTH:
+            raise ValueError(
+                f"password must have at least {PASSWORD_MIN_LENGTH} characters"
+            )
         return value
 
 

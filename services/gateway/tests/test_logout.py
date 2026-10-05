@@ -479,3 +479,40 @@ def test_a_signed_token_with_wrongly_typed_claims_is_401_on_logout(
 
     assert response.status_code == 401
     assert response.json() == NOT_AUTHENTICATED
+
+
+def test_logout_still_works_after_the_access_jwt_expired_in_the_browser(
+    client, db_engine, clock
+):
+    # The access cookie must outlive the 15-minute JWT, or the browser stops
+    # sending it and logout cannot find the session. The login happens 20
+    # minutes "ago": the JWT is already expired, the cookie's Max-Age is not.
+    register(client)
+    with db_engine.begin() as conn:
+        conn.execute(
+            text("UPDATE users SET tokens_valid_since = now() - interval '1 hour'")
+        )
+    clock.offset = -timedelta(minutes=20)
+    response = login(client)
+    session = Session(client, response)
+    (line,) = set_cookie_lines(response, "__Host-access")
+    assert f"max-age={7 * 24 * 3600}" in line.lower()
+    clock.offset = timedelta(0)
+
+    assert client.get("/api/auth/me").status_code == 401  # the JWT has expired
+    assert "__Host-access" in client.cookies  # but the browser still sends it
+    response = logout(client, session.access, session.csrf)
+
+    assert response.status_code == 204
+    assert revoked_at(db_engine) is not None
+
+
+def test_the_access_cookie_lifetime_follows_the_role(client, db_engine):
+    register(client)
+    with db_engine.begin() as conn:
+        conn.execute(text("UPDATE users SET role = 'editor'"))
+
+    response = login(client)
+
+    (line,) = set_cookie_lines(response, "__Host-access")
+    assert f"max-age={8 * 3600}" in line.lower()

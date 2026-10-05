@@ -275,7 +275,7 @@ def test_login_returns_public_fields_and_sets_the_cookies(client):
     assert response.json() == user
     (access,) = set_cookie_lines(response, "__Host-access")
     attributes = {part.strip().lower() for part in access.split(";")[1:]}
-    assert {"httponly", "secure", "samesite=strict", "path=/", "max-age=900"} <= (
+    assert {"httponly", "secure", "samesite=strict", "path=/", "max-age=604800"} <= (
         attributes
     )
     assert not any(a.startswith("domain") for a in attributes)

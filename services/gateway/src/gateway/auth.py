@@ -28,7 +28,6 @@ from gateway.passwords import (
 from gateway.secrets import GatewayKeys, get_gateway_keys
 from gateway.settings import get_allowed_origin
 from gateway.tokens import (
-    ACCESS_TOKEN_TTL,
     PRE_SESSION_BINDING,
     InvalidToken,
     check_csrf,
@@ -51,8 +50,6 @@ CSRF_COOKIE = "__Host-csrf"
 REFRESH_COOKIE = "__Secure-refresh"
 REFRESH_PATH = "/api/auth/refresh"
 CSRF_HEADER = "X-CSRF-Token"
-# The cookie lives exactly as long as the JWT inside it.
-ACCESS_COOKIE_MAX_AGE = int(ACCESS_TOKEN_TTL.total_seconds())
 PRE_SESSION_CSRF_MAX_AGE = 10 * 60
 
 # ADR 0004 decision 4: the first FREE_FAILURES failures cost nothing; every
@@ -326,7 +323,10 @@ def _set_session_cookies(
     response.set_cookie(
         ACCESS_COOKIE,
         access_token,
-        max_age=ACCESS_COOKIE_MAX_AGE,
+        # Longer than the 15-minute JWT on purpose: once the cookie is gone the
+        # browser cannot send it and logout could not find the session. The
+        # JWT's own `exp` bounds its validity; current_user rejects it after.
+        max_age=absolute,
         path="/",
         secure=True,
         httponly=True,

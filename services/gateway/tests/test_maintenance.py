@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from gateway import maintenance
 from gateway.maintenance import ATTEMPT_TTL, purge
+from gateway.tokens import LEEWAY_SECONDS
 from tests.test_refresh import refresh, start
 
 SRC = Path(__file__).resolve().parent.parent / "src"
@@ -101,13 +102,26 @@ def test_purge_attempts_keeps_recent_and_locked_rows(db_engine):
 
 def test_purge_jtis_deletes_only_expired_ones(db_engine):
     with db_engine.begin() as conn:
-        add_jti(conn, "expired", NOW - timedelta(seconds=1))
+        add_jti(conn, "expired", NOW - timedelta(minutes=5))
         add_jti(conn, "live", NOW + timedelta(seconds=1))
 
     counts = run_purge(db_engine)
 
     assert counts["revoked_jtis"] == 1
     assert column(db_engine, "SELECT jti FROM revoked_jtis") == {"live"}
+
+
+def test_purge_jtis_keeps_those_the_decoder_still_accepts_within_the_leeway(db_engine):
+    # The JWT decoder accepts a token up to LEEWAY_SECONDS after its exp, so its
+    # denied jti must survive that long.
+    with db_engine.begin() as conn:
+        add_jti(conn, "expired-10s", NOW - timedelta(seconds=10))
+        add_jti(conn, "expired-31s", NOW - timedelta(seconds=LEEWAY_SECONDS + 1))
+
+    counts = run_purge(db_engine)
+
+    assert counts["revoked_jtis"] == 1
+    assert column(db_engine, "SELECT jti FROM revoked_jtis") == {"expired-10s"}
 
 
 # --- refresh families and tokens --------------------------------------------------

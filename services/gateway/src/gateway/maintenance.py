@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from gateway.auth import PRIVILEGED_LIMITS, READER_LIMITS
 from gateway.db import get_engine
 from gateway.models import LoginAttempt, RefreshFamily, RefreshToken, RevokedJti, User
+from gateway.tokens import LEEWAY_SECONDS
 
 # A failure counter that has not moved for this long is stale: lockouts last 30
 # minutes at most, so a row that is not locked has nothing left to remember.
@@ -63,7 +64,13 @@ def purge(session: Session, now: datetime) -> dict[str, int]:
             or_(LoginAttempt.locked_until.is_(None), LoginAttempt.locked_until < now),
         )
     )
-    jtis = session.execute(delete(RevokedJti).where(RevokedJti.expires_at < now))
+    # The decoder still accepts a token LEEWAY_SECONDS after its exp, so its
+    # denied jti has to outlive that window.
+    jtis = session.execute(
+        delete(RevokedJti).where(
+            RevokedJti.expires_at < now - timedelta(seconds=LEEWAY_SECONDS)
+        )
+    )
     # Refresh tokens go with their family through ON DELETE CASCADE.
     families = session.execute(
         delete(RefreshFamily).where(RefreshFamily.id.in_(_dead_families(now)))

@@ -9,7 +9,7 @@ or revoked.
 import sys
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from gateway.auth import PRIVILEGED_LIMITS, READER_LIMITS
@@ -53,11 +53,17 @@ def _dead_families(now: datetime):
 
 def purge(session: Session, now: datetime) -> dict[str, int]:
     """Delete stale rows in one transaction and return how many went per table."""
-    tokens = session.scalar(
-        select(func.count())
-        .select_from(RefreshToken)
-        .where(RefreshToken.family_id.in_(_dead_families(now)))
-    )
+    # Lock the doomed families first (refresh and logout lock the family before
+    # touching it), so nothing can add a token to one while it is being removed.
+    family_ids = session.scalars(
+        _dead_families(now).with_for_update(of=RefreshFamily)
+    ).all()
+    # Delete the tokens explicitly so the count is exactly what was removed.
+    tokens = session.execute(
+        delete(RefreshToken)
+        .where(RefreshToken.family_id.in_(family_ids))
+        .returning(RefreshToken.id)
+    ).all()
     attempts = session.execute(
         delete(LoginAttempt).where(
             LoginAttempt.updated_at < now - ATTEMPT_TTL,
@@ -71,16 +77,15 @@ def purge(session: Session, now: datetime) -> dict[str, int]:
             RevokedJti.expires_at < now - timedelta(seconds=LEEWAY_SECONDS)
         )
     )
-    # Refresh tokens go with their family through ON DELETE CASCADE.
     families = session.execute(
-        delete(RefreshFamily).where(RefreshFamily.id.in_(_dead_families(now)))
+        delete(RefreshFamily).where(RefreshFamily.id.in_(family_ids))
     )
     session.commit()
     return {
         "login_attempts": attempts.rowcount,
         "revoked_jtis": jtis.rowcount,
         "refresh_families": families.rowcount,
-        "refresh_tokens": tokens or 0,
+        "refresh_tokens": len(tokens),
     }
 
 

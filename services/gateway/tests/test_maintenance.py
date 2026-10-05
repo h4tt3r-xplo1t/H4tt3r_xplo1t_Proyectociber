@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.orm import Session
 
 from gateway import maintenance
@@ -269,3 +269,28 @@ def test_cli_rejects_anything_but_purge_with_exit_2(args):
 
 def test_usage_text_is_a_fixed_string():
     assert maintenance.USAGE == "usage: python -m gateway.maintenance purge"
+
+
+def test_token_count_comes_from_the_delete_not_from_a_separate_select(db_engine):
+    # A separate COUNT could disagree with what the cascade removes if a token
+    # appeared in between; the count must come from DELETE ... RETURNING.
+    with db_engine.begin() as conn:
+        user = add_user(conn, "someone")
+        add_family(conn, user, NOW - timedelta(days=30), tokens=3)
+    statements = []
+
+    def record(conn, cursor, statement, *args):
+        statements.append(statement.lower())
+
+    event.listen(db_engine, "before_cursor_execute", record)
+    try:
+        counts = run_purge(db_engine)
+    finally:
+        event.remove(db_engine, "before_cursor_execute", record)
+
+    assert counts["refresh_tokens"] == 3
+    assert not any("count(" in statement for statement in statements)
+    assert any(
+        statement.startswith("delete from refresh_tokens") and "returning" in statement
+        for statement in statements
+    )

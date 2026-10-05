@@ -231,9 +231,19 @@ class LoginRequest(BaseModel):
     dependencies=[Depends(require_same_origin)],
 )
 def register(
-    body: RegisterRequest, session: Annotated[Session, Depends(get_session)]
+    body: RegisterRequest,
+    session: Annotated[Session, Depends(get_session)],
+    now: Annotated[datetime, Depends(get_now)],
 ) -> UserOut:
-    user = User(username=body.username, password_hash=hash_password(body.password))
+    # `tokens_valid_since` is compared with values from the app clock (`iat`,
+    # `family.created_at`), so it must be written from that same clock, never
+    # from the database's now(). Any future write to this column (password or
+    # role change, A3) must use the app clock too.
+    user = User(
+        username=body.username,
+        password_hash=hash_password(body.password),
+        tokens_valid_since=now,
+    )
     session.add(user)
     try:
         session.commit()

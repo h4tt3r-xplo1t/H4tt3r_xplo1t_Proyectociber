@@ -875,3 +875,31 @@ def test_enroll_token_forgery_with_a_wrong_csrf_binding_is_refused(
     other_binding = make_csrf("some-other-sid", KEYS.csrf_key, clock())
 
     assert post(client, ENROLL, csrf=other_binding).status_code == 403
+
+
+# --- the enrollment window also binds the enroll token -------------------
+
+
+def test_enroll_token_is_refused_once_the_window_has_closed(client, db_engine, clock):
+    make_user(client, db_engine, clock)
+    login(client)  # the 10-minute token is still valid when the window ends
+    clock.now += timedelta(hours=24, seconds=1)
+
+    response = post(client, ENROLL)
+
+    assert response.status_code == 401
+    assert response.json() == LOGIN_FAILED
+    assert user_row(db_engine)["mfa_pending_ciphertext"] is None
+
+
+def test_confirm_is_refused_once_the_window_has_closed(client, db_engine, clock):
+    make_user(client, db_engine, clock)
+    login(client)
+    secret = post(client, ENROLL).json()["secret"]
+    clock.now += timedelta(hours=24, seconds=1)
+
+    response = post(client, CONFIRM, {"code": totp(secret, clock)})
+
+    assert response.status_code == 401
+    assert response.json() == LOGIN_FAILED
+    assert user_row(db_engine)["mfa_enabled_at"] is None

@@ -985,7 +985,7 @@ def _lock_second_factor(
     return attempt
 
 
-def _check_can_enroll(actor: CurrentUser) -> None:
+def _check_can_enroll(actor: CurrentUser, now: datetime) -> None:
     user = actor.user
     if user.mfa_enabled_at is not None:
         raise HTTPException(
@@ -993,6 +993,12 @@ def _check_can_enroll(actor: CurrentUser) -> None:
             detail="MFA is already enabled",
             headers=NO_STORE,
         )
+    # The enroll token outlives its window by up to 10 minutes: the window
+    # (ADR 0004, decision 11) is checked on every call, not only at login.
+    if "scope" in actor.claims and (
+        user.mfa_enroll_until is None or user.mfa_enroll_until <= now
+    ):
+        raise _login_failed()
     # A full session may enroll only a reader: every other role must have been
     # through the limited enroll-mfa session (and cannot hold a full one without
     # MFA).
@@ -1014,7 +1020,7 @@ def mfa_enroll(
     It becomes the user's secret only when /mfa/confirm proves a valid code. A
     new call replaces a pending secret that was never confirmed.
     """
-    _check_can_enroll(actor)
+    _check_can_enroll(actor, now)
     user = actor.user
     secret = new_totp_secret()
     # A transit failure raises TransitError (fixed 503) before anything is saved.
@@ -1040,7 +1046,7 @@ def mfa_confirm(
     a privileged user the enroll token is denied afterwards: the session ends and
     a normal login (which now asks for the second factor) follows.
     """
-    _check_can_enroll(actor)
+    _check_can_enroll(actor, now)
     user = actor.user
     if user.mfa_pending_ciphertext is None:
         raise HTTPException(

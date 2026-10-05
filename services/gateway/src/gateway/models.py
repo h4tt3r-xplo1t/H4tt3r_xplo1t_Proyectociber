@@ -16,6 +16,8 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 ROLES = ("lector", "editor", "auditor", "administrador")
+# Roles that must have MFA (ADR 0004, decision 8).
+PRIVILEGED_ROLES = ("editor", "auditor", "administrador")
 
 
 class Base(DeclarativeBase):

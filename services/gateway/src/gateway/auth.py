@@ -2,19 +2,29 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import exists, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError, InvalidRequestError, OperationalError
 from sqlalchemy.orm import Session
 
 from gateway.db import get_session
+from gateway.mfa import (
+    TOTP_CODE,
+    matching_step,
+    new_recovery_codes,
+    new_totp_secret,
+    normalize_recovery_code,
+    provisioning_uri,
+)
 from gateway.models import (
+    PRIVILEGED_ROLES,
     LoginAttempt,
+    RecoveryCode,
     RefreshFamily,
     RefreshToken,
     RevokedJti,
@@ -29,7 +39,11 @@ from gateway.passwords import (
 from gateway.secrets import GatewayKeys, get_gateway_keys
 from gateway.settings import get_allowed_origin
 from gateway.tokens import (
+    ENROLL_TOKEN_TTL,
+    MFA_PENDING_TTL,
     PRE_SESSION_BINDING,
+    SCOPE_ENROLL_MFA,
+    SCOPE_MFA_PENDING,
     InvalidToken,
     check_csrf,
     decode_access_token,
@@ -40,6 +54,7 @@ from gateway.tokens import (
     make_csrf,
     new_refresh_token,
 )
+from gateway.transit import decrypt_totp_secret, encrypt_totp_secret
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 logger = logging.getLogger("gateway.auth")
@@ -213,6 +228,40 @@ class UserOut(BaseModel):
     role: str
 
 
+class StatusOut(BaseModel):
+    """Login answer when the session is not issued yet: a second step is due."""
+
+    status: Literal["mfa_enrollment_required", "mfa_required"]
+
+
+class EnrollOut(BaseModel):
+    otpauth_uri: str
+    secret: str
+
+
+class RecoveryCodesOut(BaseModel):
+    recovery_codes: list[str]
+    # True for a privileged user: the enroll session ends and a normal login,
+    # which now asks for the second factor, follows.
+    relogin_required: bool
+
+
+# The second factor is a TOTP (6 digits) or a recovery code (XXXX-XXXX-XXXX, the
+# dashes optional), so only the shape of the characters is checked here.
+class MfaLoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: Annotated[
+        str, Field(min_length=6, max_length=32, pattern=r"^[0-9A-Za-z -]+$")
+    ]
+
+
+class ConfirmRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: Annotated[str, Field(pattern=r"^[0-9]{6}$")]
+
+
 class LoginRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -380,49 +429,40 @@ def _set_session_cookies(
     )
 
 
-@router.post(
-    "/login",
-    dependencies=[Depends(require_same_origin), Depends(require_presession_csrf)],
-)
-def login(
-    body: LoginRequest,
+def _record_failure(
+    session: Session,
+    attempt: LoginAttempt,
+    subject: str,
+    now: datetime,
+    event: str,
+) -> None:
+    """Count one failure on the (locked) row, lock the account if owed, commit."""
+    attempt.failures += 1
+    attempt.updated_at = now
+    lock = lockout_duration(attempt.failures)
+    if lock is not None:
+        attempt.locked_until = now + lock
+    session.commit()
+    _log_event(event, subject, now, logging.WARNING)
+    if lock is not None:
+        _log_event("account_locked", subject, now, logging.WARNING)
+
+
+def _start_session(
     response: Response,
-    session: Annotated[Session, Depends(get_session)],
-    keys: Annotated[GatewayKeys, Depends(get_keys)],
-    now: Annotated[datetime, Depends(get_now)],
+    session: Session,
+    user: User,
+    attempt: LoginAttempt,
+    keys: GatewayKeys,
+    now: datetime,
 ) -> UserOut:
-    username = body.username
-    user = session.scalar(select(User).where(User.username == username))
-    attempt_key = login_attempt_key(username, keys.csrf_key)
-    attempt = _lock_attempt(session, attempt_key)
-    # Never log the typed name of an unknown user (it may be a password): only
-    # a short prefix of its keyed hash, enough to correlate repeated attempts.
-    subject = str(user.id) if user else f"unknown:{attempt_key[:16]}"
+    """Issue the full session (family, access, refresh, CSRF) and reset the counter.
 
-    if attempt.locked_until is not None and attempt.locked_until > now:
-        # Locked: do not even look at the password, but spend the same time.
-        session.commit()
-        verify_dummy(body.password)
-        _log_event("login_blocked", subject, now, logging.WARNING)
-        raise _login_failed()
-
-    if user is None:
-        verified = verify_dummy(body.password)
-    else:
-        verified = verify_password(user.password_hash, body.password)
-
-    if not verified:
-        attempt.failures += 1
-        attempt.updated_at = now
-        lock = lockout_duration(attempt.failures)
-        if lock is not None:
-            attempt.locked_until = now + lock
-        session.commit()
-        _log_event("login_failure", subject, now, logging.WARNING)
-        if lock is not None:
-            _log_event("account_locked", subject, now, logging.WARNING)
-        raise _login_failed()
-
+    The one path every successful login ends in: the password alone for a user
+    without MFA, the second factor for one with it. The caller may have staged
+    other changes (a denied token, a spent recovery code): everything commits
+    together.
+    """
     # Issue everything first and commit once: the counter is only reset if the
     # session exists. A failure while issuing (signing, database) rolls back
     # the family, the token and the reset together, so the counter still counts.
@@ -449,8 +489,108 @@ def login(
         response, token, refresh_token, claims["sid"], user.role, keys, now
     )
     response.headers.update(NO_STORE)
-    _log_event("login_success", subject, now)
+    _log_event("login_success", str(user.id), now)
     return UserOut(id=user.id, username=user.username, role=user.role)
+
+
+def _start_scoped_session(
+    response: Response,
+    user: User,
+    scope: str,
+    ttl: timedelta,
+    keys: GatewayKeys,
+    now: datetime,
+) -> None:
+    """Set the cookies of a limited-purpose session: no family, no refresh token.
+
+    The `sid` is a fresh random id that names nothing in the database; the CSRF
+    token is bound to it, like a real session's, and both cookies live as long
+    as the token does.
+    """
+    sid = str(uuid.uuid4())
+    token, _ = issue_access_token(
+        user.id, user.role, sid, keys, now, scope=scope, ttl=ttl
+    )
+    max_age = int(ttl.total_seconds())
+    response.set_cookie(
+        ACCESS_COOKIE,
+        token,
+        max_age=max_age,
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="strict",
+    )
+    response.set_cookie(
+        CSRF_COOKIE,
+        make_csrf(sid, keys.csrf_key, now),
+        max_age=max_age,
+        path="/",
+        secure=True,
+        httponly=False,
+        samesite="strict",
+    )
+    response.headers.update(NO_STORE)
+
+
+@router.post(
+    "/login",
+    dependencies=[Depends(require_same_origin), Depends(require_presession_csrf)],
+)
+def login(
+    body: LoginRequest,
+    response: Response,
+    session: Annotated[Session, Depends(get_session)],
+    keys: Annotated[GatewayKeys, Depends(get_keys)],
+    now: Annotated[datetime, Depends(get_now)],
+) -> UserOut | StatusOut:
+    username = body.username
+    user = session.scalar(select(User).where(User.username == username))
+    attempt_key = login_attempt_key(username, keys.csrf_key)
+    attempt = _lock_attempt(session, attempt_key)
+    # Never log the typed name of an unknown user (it may be a password): only
+    # a short prefix of its keyed hash, enough to correlate repeated attempts.
+    subject = str(user.id) if user else f"unknown:{attempt_key[:16]}"
+
+    if attempt.locked_until is not None and attempt.locked_until > now:
+        # Locked: do not even look at the password, but spend the same time.
+        session.commit()
+        verify_dummy(body.password)
+        _log_event("login_blocked", subject, now, logging.WARNING)
+        raise _login_failed()
+
+    if user is None:
+        verified = verify_dummy(body.password)
+    else:
+        verified = verify_password(user.password_hash, body.password)
+
+    if not verified:
+        _record_failure(session, attempt, subject, now, "login_failure")
+        raise _login_failed()
+
+    if user.mfa_enabled_at is not None:
+        # Password ok, second factor due. The counter is not reset: only a
+        # complete login does that, so guessing codes cannot restart it.
+        session.commit()
+        _start_scoped_session(
+            response, user, SCOPE_MFA_PENDING, MFA_PENDING_TTL, keys, now
+        )
+        return StatusOut(status="mfa_required")
+
+    if user.role in PRIVILEGED_ROLES:
+        # A privileged role cannot operate without MFA. Within the enrollment
+        # window the user may enroll; outside it (or with no window) the answer
+        # is the generic one, counted like any failed login.
+        if user.mfa_enroll_until is None or user.mfa_enroll_until <= now:
+            _record_failure(session, attempt, subject, now, "login_failure")
+            raise _login_failed()
+        session.commit()
+        _start_scoped_session(
+            response, user, SCOPE_ENROLL_MFA, ENROLL_TOKEN_TTL, keys, now
+        )
+        return StatusOut(status="mfa_enrollment_required")
+
+    return _start_session(response, session, user, attempt, keys, now)
 
 
 def _session_denied() -> HTTPException:
@@ -709,18 +849,29 @@ class CurrentUser:
     claims: dict
 
 
-def current_user(
+# `None` stands for a full session (a token without a `scope` claim).
+FULL_SESSION = frozenset({None})
+ENROLLMENT_SESSIONS = frozenset({None, SCOPE_ENROLL_MFA})
+SECOND_FACTOR_SESSIONS = frozenset({SCOPE_MFA_PENDING})
+
+
+def _authenticate(
     request: Request,
-    session: Annotated[Session, Depends(get_session)],
-    keys: Annotated[GatewayKeys, Depends(get_keys)],
+    session: Session,
+    keys: GatewayKeys,
+    accepted: frozenset[str | None],
 ) -> CurrentUser:
     """Authenticate from the access cookie and reload the user from the database.
 
     One query loads the user only if the token's `jti` is not denied (logout),
-    its `sid` names a session (refresh family) that exists and is not revoked,
     and the token was issued no earlier than `tokens_valid_since`. `iat` is whole
     seconds while the column has microseconds, so the column is truncated to the
     second: a token issued in the same second as the cut-off still passes.
+
+    `accepted` lists the scopes the caller takes; a token whose `scope` claim is
+    not in it is refused (a token without the claim is the key `None`). A full
+    session must also name a refresh family that exists and is not revoked; a
+    scoped token has no family.
 
     Every failure is the same 401: callers learn nothing about why.
     """
@@ -730,23 +881,268 @@ def current_user(
     if token:
         try:
             claims = decode_access_token(token, keys)
-            user = session.scalar(
-                select(User).where(
-                    User.id == uuid.UUID(claims["sub"]),
-                    ~exists().where(RevokedJti.jti == claims["jti"]),
+            scope = claims["scope"] if "scope" in claims else None
+            # A present-but-null claim is not "no scope": refuse it outright.
+            if ("scope" in claims and scope is None) or scope not in accepted:
+                raise InvalidToken
+            conditions = [
+                User.id == uuid.UUID(claims["sub"]),
+                ~exists().where(RevokedJti.jti == claims["jti"]),
+                func.date_trunc("second", User.tokens_valid_since)
+                <= func.to_timestamp(claims["iat"]),
+            ]
+            if scope is None:
+                conditions.append(
                     exists().where(
                         RefreshFamily.id == uuid.UUID(claims["sid"]),
                         RefreshFamily.revoked_at.is_(None),
-                    ),
-                    func.date_trunc("second", User.tokens_valid_since)
-                    <= func.to_timestamp(claims["iat"]),
+                    )
                 )
-            )
+            user = session.scalar(select(User).where(*conditions))
         except InvalidToken, ValueError, TypeError, AttributeError:
             user = None
     if user is None or claims is None:
         raise _session_denied()
     return CurrentUser(user=user, claims=claims)
+
+
+def _require_session_csrf(request: Request, claims: dict, keys: GatewayKeys) -> None:
+    """Double-submit check against the `sid` of the token (scoped or full)."""
+    if not check_csrf(
+        request.cookies.get(CSRF_COOKIE),
+        request.headers.get(CSRF_HEADER),
+        claims["sid"],
+        keys.csrf_key,
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+
+def current_user(
+    request: Request,
+    session: Annotated[Session, Depends(get_session)],
+    keys: Annotated[GatewayKeys, Depends(get_keys)],
+) -> CurrentUser:
+    """The user of a full session. Any token with a `scope` claim is refused."""
+    return _authenticate(request, session, keys, FULL_SESSION)
+
+
+def enrollment_actor(
+    request: Request,
+    session: Annotated[Session, Depends(get_session)],
+    keys: Annotated[GatewayKeys, Depends(get_keys)],
+) -> CurrentUser:
+    """Who may enroll: an `enroll-mfa` token or a full session, with its CSRF."""
+    actor = _authenticate(request, session, keys, ENROLLMENT_SESSIONS)
+    _require_session_csrf(request, actor.claims, keys)
+    return actor
+
+
+def second_factor_actor(
+    request: Request,
+    session: Annotated[Session, Depends(get_session)],
+    keys: Annotated[GatewayKeys, Depends(get_keys)],
+) -> CurrentUser:
+    """Who may give the second factor: only an `mfa-pending` token, with its CSRF."""
+    actor = _authenticate(request, session, keys, SECOND_FACTOR_SESSIONS)
+    _require_session_csrf(request, actor.claims, keys)
+    return actor
+
+
+def _deny_jti(session: Session, claims: dict) -> None:
+    """Deny the token's `jti` until it would have expired anyway."""
+    session.execute(
+        insert(RevokedJti)
+        .values(
+            jti=claims["jti"], expires_at=datetime.fromtimestamp(claims["exp"], UTC)
+        )
+        .on_conflict_do_nothing(index_elements=["jti"])
+    )
+
+
+def _reload_user(session: Session, user: User) -> None:
+    """Re-read the user after taking the counter lock: the actor's copy is older."""
+    try:
+        session.refresh(user)
+    except InvalidRequestError:
+        session.rollback()
+        raise _session_denied() from None
+
+
+def _lock_second_factor(
+    session: Session, user: User, keys: GatewayKeys, now: datetime
+) -> LoginAttempt:
+    """Lock the user's login counter; a locked account gets the generic 401.
+
+    Same row and same rules as the password step. A locked account is answered
+    before any code is looked at or any transit call is made.
+    """
+    attempt = _lock_attempt(session, login_attempt_key(user.username, keys.csrf_key))
+    _reload_user(session, user)
+    if attempt.locked_until is not None and attempt.locked_until > now:
+        session.commit()
+        _log_event("login_blocked", str(user.id), now, logging.WARNING)
+        raise _login_failed()
+    return attempt
+
+
+def _check_can_enroll(actor: CurrentUser) -> None:
+    user = actor.user
+    if user.mfa_enabled_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="MFA is already enabled",
+            headers=NO_STORE,
+        )
+    # A full session may enroll only a reader: every other role must have been
+    # through the limited enroll-mfa session (and cannot hold a full one without
+    # MFA).
+    if "scope" not in actor.claims and user.role != "lector":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden", headers=NO_STORE
+        )
+
+
+@router.post("/mfa/enroll", dependencies=[Depends(require_same_origin)])
+def mfa_enroll(
+    actor: Annotated[CurrentUser, Depends(enrollment_actor)],
+    response: Response,
+    session: Annotated[Session, Depends(get_session)],
+    now: Annotated[datetime, Depends(get_now)],
+) -> EnrollOut:
+    """Generate a TOTP secret, keep it (encrypted, pending) and show it once.
+
+    It becomes the user's secret only when /mfa/confirm proves a valid code. A
+    new call replaces a pending secret that was never confirmed.
+    """
+    _check_can_enroll(actor)
+    user = actor.user
+    secret = new_totp_secret()
+    # A transit failure raises TransitError (fixed 503) before anything is saved.
+    user.mfa_pending_ciphertext = encrypt_totp_secret(secret.encode())
+    session.commit()
+    response.headers.update(NO_STORE)
+    _log_event("mfa_enrollment_started", str(user.id), now)
+    return EnrollOut(otpauth_uri=provisioning_uri(secret, user.username), secret=secret)
+
+
+@router.post("/mfa/confirm", dependencies=[Depends(require_same_origin)])
+def mfa_confirm(
+    body: ConfirmRequest,
+    actor: Annotated[CurrentUser, Depends(enrollment_actor)],
+    response: Response,
+    session: Annotated[Session, Depends(get_session)],
+    keys: Annotated[GatewayKeys, Depends(get_keys)],
+    now: Annotated[datetime, Depends(get_now)],
+) -> RecoveryCodesOut:
+    """Activate MFA with a valid code and show the recovery codes once.
+
+    A wrong code counts in the same progressive lockout as a wrong password. For
+    a privileged user the enroll token is denied afterwards: the session ends and
+    a normal login (which now asks for the second factor) follows.
+    """
+    _check_can_enroll(actor)
+    user = actor.user
+    if user.mfa_pending_ciphertext is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No enrollment in progress",
+            headers=NO_STORE,
+        )
+    attempt = _lock_second_factor(session, user, keys, now)
+    subject = str(user.id)
+    pending = user.mfa_pending_ciphertext
+    if user.mfa_enabled_at is not None or pending is None:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No enrollment in progress",
+            headers=NO_STORE,
+        )
+    secret = decrypt_totp_secret(pending).decode()
+    step = matching_step(secret, body.code, now)
+    if step is None:
+        _record_failure(session, attempt, subject, now, "mfa_failure")
+        raise _login_failed()
+
+    codes = new_recovery_codes()
+    session.add_all(
+        RecoveryCode(user_id=user.id, code_hash=hash_password(code), created_at=now)
+        for code in codes
+    )
+    user.mfa_secret_ciphertext = pending
+    user.mfa_pending_ciphertext = None
+    user.mfa_enabled_at = now
+    user.mfa_last_step = step
+    user.mfa_enroll_until = None
+    scoped = "scope" in actor.claims
+    if scoped:
+        _deny_jti(session, actor.claims)
+    session.commit()
+    if scoped:
+        _clear_session_cookies(response)
+    response.headers.update(NO_STORE)
+    _log_event("mfa_enabled", subject, now)
+    return RecoveryCodesOut(recovery_codes=codes, relogin_required=scoped)
+
+
+def _check_second_factor(
+    session: Session, user: User, code: str, now: datetime
+) -> Literal["totp", "recovery"] | None:
+    """Which kind of valid second factor `code` is, or None. Stages the changes.
+
+    A TOTP must fall in the window and in a step after the last accepted one
+    (replay, ASVS 6.5.1). A recovery code is compared against the unused hashes
+    and marked used.
+    """
+    if user.mfa_enabled_at is None or user.mfa_secret_ciphertext is None:
+        return None
+    if TOTP_CODE.fullmatch(code):
+        secret = decrypt_totp_secret(user.mfa_secret_ciphertext).decode()
+        step = matching_step(secret, code, now)
+        if step is None:
+            return None
+        if user.mfa_last_step is not None and step <= user.mfa_last_step:
+            return None
+        user.mfa_last_step = step
+        return "totp"
+    recovery = normalize_recovery_code(code)
+    if recovery is None:
+        return None
+    unused = session.scalars(
+        select(RecoveryCode)
+        .where(RecoveryCode.user_id == user.id, RecoveryCode.used_at.is_(None))
+        .with_for_update()
+    ).all()
+    for row in unused:
+        if verify_password(row.code_hash, recovery):
+            row.used_at = now
+            return "recovery"
+    return None
+
+
+@router.post("/login/mfa", dependencies=[Depends(require_same_origin)])
+def login_mfa(
+    body: MfaLoginRequest,
+    response: Response,
+    actor: Annotated[CurrentUser, Depends(second_factor_actor)],
+    session: Annotated[Session, Depends(get_session)],
+    keys: Annotated[GatewayKeys, Depends(get_keys)],
+    now: Annotated[datetime, Depends(get_now)],
+) -> UserOut:
+    """Finish a login with a TOTP or a recovery code, then issue the session."""
+    user = actor.user
+    attempt = _lock_second_factor(session, user, keys, now)
+    subject = str(user.id)
+    kind = _check_second_factor(session, user, body.code, now)
+    if kind is None:
+        _record_failure(session, attempt, subject, now, "mfa_failure")
+        raise _login_failed()
+    # The pending token is good for one second factor only.
+    _deny_jti(session, actor.claims)
+    if kind == "recovery":
+        _log_event("recovery_code_used", subject, now, logging.WARNING)
+    _log_event("mfa_success", subject, now)
+    return _start_session(response, session, user, attempt, keys, now)
 
 
 @router.get("/me")

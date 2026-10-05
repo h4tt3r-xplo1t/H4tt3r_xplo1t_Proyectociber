@@ -516,3 +516,14 @@ def test_the_access_cookie_lifetime_follows_the_role(client, db_engine):
 
     (line,) = set_cookie_lines(response, "__Host-access")
     assert f"max-age={8 * 3600}" in line.lower()
+
+
+def test_a_signed_token_with_a_non_numeric_exp_is_401_on_logout(client, db_engine):
+    user = register(client)
+    sid = str(uuid.uuid4())
+    csrf = make_csrf(sid, KEYS.csrf_key)
+    for exp in ("tomorrow", [1], None, True):
+        token = forged_access(user["id"], sid=sid, exp=exp)
+        response = logout(client, token, csrf)
+        assert response.status_code == 401, exp
+        assert response.json() == NOT_AUTHENTICATED

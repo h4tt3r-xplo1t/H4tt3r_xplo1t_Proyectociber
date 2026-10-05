@@ -607,7 +607,19 @@ def logout(
         )
         user_id = uuid.UUID(claims["sub"])
         family_id = uuid.UUID(claims["sid"])
-    except InvalidToken, ValueError, TypeError, AttributeError:
+        # The decoder did not check `exp` here, so its type is checked now.
+        exp = claims["exp"]
+        if isinstance(exp, bool) or not isinstance(exp, int | float):
+            raise InvalidToken
+        expires_at = datetime.fromtimestamp(exp, UTC)
+    except (
+        InvalidToken,
+        ValueError,
+        TypeError,
+        AttributeError,
+        OverflowError,
+        OSError,
+    ):
         raise _session_denied() from None
     if not check_csrf(
         request.cookies.get(CSRF_COOKIE),
@@ -619,7 +631,6 @@ def logout(
 
     # Same bounded wait as refresh and login; SET LOCAL lasts for this transaction.
     session.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
-    expires_at = datetime.fromtimestamp(claims["exp"], UTC)
     busy = False
     try:
         session.execute(

@@ -11,7 +11,7 @@ dependencies = [
     "hvac>=2.4.0",
     "psycopg[binary]>=3.3.6",
     "pyjwt>=2.15.1",
-    "sqlalchemy>=2.1.1",
+    "sqlalchemy>=2.1.2",
 ]
 
 [dependency-groups]

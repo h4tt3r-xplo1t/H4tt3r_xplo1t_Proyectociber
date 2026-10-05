@@ -14,7 +14,7 @@ Issue #35 (E3, auth A2b, ADR 0004): opaque refresh token with rotation and reuse
 ## Design decisions
 - `sid` = `refresh_families.id` (UUID string). Login creates the family; the access JWT `sid` and the session CSRF binding use it. No new column on the family.
 - New migration `0003` (0001 and 0002 are merged): table `refresh_tokens` (id, `family_id` FK cascade, `token_hash` unique SHA-256 hex of a 256-bit CSPRNG token, `created_at`, `used_at` nullable) and table `revoked_jtis` (`jti` pk, `expires_at`). SHA-256 (not Argon2) is enough because the token is high-entropy random.
-- Refresh: lock the presented token row `FOR UPDATE`; used token -> revoke family + 401 (reuse); revoked/idle/absolute-expired family -> 401; else mark used, insert new token, bump `last_used_at`, issue new access JWT (same `sid`) and new session CSRF. CSRF is checked against the family's `sid` (the access cookie may be expired). Limits by DB role: lector idle 24 h / absolute 7 d; others 30 min / 8 h. Refresh cookie `Max-Age` = absolute limit.
+- Refresh: look the token up without a lock to get its family, then lock the family `FOR UPDATE`, then the token `FOR UPDATE` (one fixed order, so logout, which locks only the family, cannot deadlock with it); used token -> revoke family + 401 (reuse); revoked/idle/absolute-expired family -> 401; else mark used, insert new token, bump `last_used_at`, issue new access JWT (same `sid`) and new session CSRF. CSRF is checked against the family's `sid` (the access cookie may be expired). Limits by DB role: lector idle 24 h / absolute 7 d; others 30 min / 8 h. Refresh cookie `Max-Age` = absolute limit.
 - Logout: decode the access JWT with signature, `iss`, `aud` verified and `exp` not enforced; revoke the family by `sid`; deny the `jti` until `exp` (skip if already past); clear the three cookies. Requires session CSRF + same origin.
 - `current_user`: one query joining user, `tokens_valid_since` and denylist. Compare `iat` against `tokens_valid_since` truncated to the second (JWT `iat` is whole seconds; `now()` has microseconds, so a token issued in the same second must not be rejected).
 
@@ -47,8 +47,16 @@ Forecast ~1500 authored changed lines (about half tests). Strategy: `single-pr` 
   - L4 (`e4216c8`): refresh rejects `family.created_at < date_trunc('second', tokens_valid_since)` with `reason=invalidated`. RED: `assert 200 == 401`. Two absolute-limit tests now also move `tokens_valid_since` back.
   - L6 (`472fe82`): `current_user` and logout also catch `TypeError`/`AttributeError`. RED: `AttributeError: 'int' object has no attribute 'replace'` (int and list `sid`).
   - Final run from an empty test DB: ruff check, ruff format --check, 333 passed.
-- [ ] **T2**: BITACORA entry and threat evidence (1, 35).
-- [ ] **T3**: reviews and fixes.
+- [x] **T2** (`828ece5`, `f160105`): BITACORA entry and threat evidence (1, 35).
+- [x] **T3** (revisor-seguridad and Gentle AI review `review-3a4bb0b52adcc031` approved, with the T3a and T3b fixes): reviews and fixes.
+- [x] **T3b advisory fixes** (Gentle AI review), one commit each:
+  - Access cookie Max-Age (`34999b7`): `__Host-access` now lives as long as the session (role absolute limit) so logout can still find it after the 15-minute JWT expired. RED: `max-age=900` instead of 604800/28800. Login assertion updated.
+  - Non-numeric `exp` on logout (`3e786d2`): `exp` type checked inside the claim try (bool, str, list, null rejected). RED: `TypeError: argument must be int or float, not str` (500).
+  - Test name (`380bad9`): the rotated-token test now presents the old token and asserts 401 plus the revoked family (presenting it is reuse by policy, explained in the docstring). Test only.
+  - Rename (`6e3d6c1`): `LoginBusy` is `ServiceBusy`, `cause` now required. No RED (rename).
+  - Constant (`c43e3b1`): single `PASSWORD_MIN_LENGTH`. No RED (refactor).
+  - Design and status lines of this document updated (T2, T3 checked).
+  - Pending, not changed: unbounded growth of `refresh_tokens`; comparison of `tokens_valid_since` across two clocks.
 - [ ] **T4**: push and PR (person request only).
 
 ## Progress

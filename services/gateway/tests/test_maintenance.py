@@ -223,12 +223,12 @@ def test_a_purged_revoked_family_ends_its_access_and_refresh_tokens(client, db_e
 # --- command line -----------------------------------------------------------------
 
 
-def run_cli(*args):
+def run_cli(*args, env=None):
     return subprocess.run(  # noqa: S603 (fixed interpreter and module, test args)
         [sys.executable, "-m", "gateway.maintenance", *args],
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONPATH": str(SRC)},
+        env={**os.environ, "PYTHONPATH": str(SRC), **(env or {})},
         timeout=60,
         check=False,
     )
@@ -294,3 +294,37 @@ def test_token_count_comes_from_the_delete_not_from_a_separate_select(db_engine)
         statement.startswith("delete from refresh_tokens") and "returning" in statement
         for statement in statements
     )
+
+
+FAILED = "purge failed: database unavailable or not configured"
+
+
+def test_cli_without_a_database_url_fails_with_a_fixed_message():
+    env = {k: v for k, v in os.environ.items() if k != "GATEWAY_DATABASE_URL"}
+    result = subprocess.run(  # noqa: S603 (fixed interpreter and module)
+        [sys.executable, "-m", "gateway.maintenance", "purge"],
+        capture_output=True,
+        text=True,
+        env={**env, "PYTHONPATH": str(SRC)},
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.strip() == FAILED
+    assert "Traceback" not in result.stderr
+
+
+def test_cli_with_an_unreachable_database_fails_without_leaking_the_url():
+    password = "dummy-password"  # noqa: S105 (fake)
+    url = f"postgresql+psycopg://leaky_user:{password}@127.0.0.1:1/leaky_db"
+
+    result = run_cli("purge", env={"GATEWAY_DATABASE_URL": url})
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.strip() == FAILED
+    assert "Traceback" not in result.stderr
+    for leaked in (password, "leaky_user", "leaky_db", "127.0.0.1"):
+        assert leaked not in result.stdout + result.stderr

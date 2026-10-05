@@ -10,6 +10,7 @@ import sys
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import and_, delete, or_, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from gateway.auth import PRIVILEGED_LIMITS, READER_LIMITS
@@ -22,6 +23,7 @@ from gateway.tokens import LEEWAY_SECONDS
 ATTEMPT_TTL = timedelta(hours=24)
 
 USAGE = "usage: python -m gateway.maintenance purge"
+FAILED = "purge failed: database unavailable or not configured"
 
 
 def _dead_families(now: datetime):
@@ -93,8 +95,14 @@ def main(argv: list[str]) -> int:
     if argv != ["purge"]:
         print(USAGE, file=sys.stderr)
         return 2
-    with sessionmaker(get_engine(), expire_on_commit=False)() as session:
-        counts = purge(session, datetime.now(UTC))
+    try:
+        with sessionmaker(get_engine(), expire_on_commit=False)() as session:
+            counts = purge(session, datetime.now(UTC))
+    except RuntimeError, SQLAlchemyError:
+        # Fixed text on purpose: the exception text can carry the host, the user
+        # or the URL. A missing GATEWAY_DATABASE_URL is a RuntimeError.
+        print(FAILED, file=sys.stderr)
+        return 1
     # Table names and counts only: never a username, key, token or hash.
     for table, count in counts.items():
         print(f"{table}={count}")

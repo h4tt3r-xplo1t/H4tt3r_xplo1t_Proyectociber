@@ -13,6 +13,9 @@ import base64
 from gateway import secrets
 
 TOTP_KEY = "totp"
+# Per-request HTTP timeout: a request path must not hang on a slow OpenBao, so
+# a slow answer fails fast as TransitError (503). Module-level for tests.
+TRANSIT_TIMEOUT_SECONDS = 2
 TRANSIT_MOUNT = "transit"
 CIPHERTEXT_PREFIX = "vault:v"
 FAILED = "transit operation failed"
@@ -33,7 +36,7 @@ def _connect():
         secret_id = secrets._read_file(
             secrets._env("GATEWAY_OPENBAO_SECRET_ID_FILE"), "secret_id"
         )
-        client = secrets.login(addr, role_id, secret_id)
+        client = secrets.login(addr, role_id, secret_id, TRANSIT_TIMEOUT_SECONDS)
     except Exception:
         client = None
     if client is None:

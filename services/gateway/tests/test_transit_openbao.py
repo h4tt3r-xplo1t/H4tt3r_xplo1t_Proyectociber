@@ -1,6 +1,8 @@
 """Transit tests against a real OpenBao (see scripts/openbao-dev-init.sh)."""
 
 import base64
+import socket
+import time
 from pathlib import Path
 
 import hvac
@@ -101,3 +103,21 @@ def test_token_is_revoked_after_each_call(openbao_env, monkeypatch):
         probe = hvac.Client(url=openbao_env["GATEWAY_OPENBAO_ADDR"], token=token)
         assert probe.is_authenticated() is False
     assert transit.TOTP_KEY == "totp"
+
+
+def test_a_slow_openbao_fails_fast_as_a_transit_error(monkeypatch):
+    monkeypatch.setattr(transit, "TRANSIT_TIMEOUT_SECONDS", 1)
+    # Accepts connections at TCP level but never answers: only the client
+    # timeout can end the request.
+    with socket.socket() as silent:
+        silent.bind(("127.0.0.1", 0))
+        silent.listen(1)
+        monkeypatch.setenv(
+            "GATEWAY_OPENBAO_ADDR", f"http://127.0.0.1:{silent.getsockname()[1]}"
+        )
+        started = time.monotonic()
+
+        with pytest.raises(TransitError):
+            encrypt_totp_secret(PLAINTEXT)
+
+    assert time.monotonic() - started < 3

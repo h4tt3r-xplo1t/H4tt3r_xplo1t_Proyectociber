@@ -9,6 +9,7 @@ travel with an error.
 """
 
 import base64
+import uuid
 
 from gateway import secrets
 
@@ -44,14 +45,21 @@ def _connect():
     return client
 
 
-def encrypt_totp_secret(plaintext: bytes) -> str:
-    """Return the transit ciphertext (`vault:v1:...`) of a TOTP secret."""
+def _context(user_id: uuid.UUID) -> str:
+    """Base64 derivation context: the key is derived per user id, so a
+    ciphertext only decrypts for the user it was made for."""
+    return base64.b64encode(str(user_id).encode()).decode("ascii")
+
+
+def encrypt_totp_secret(plaintext: bytes, user_id: uuid.UUID) -> str:
+    """Return the transit ciphertext (`vault:v1:...`) of a user's TOTP secret."""
     client = _connect()
     ciphertext = None
     try:
         response = client.secrets.transit.encrypt_data(
             name=TOTP_KEY,
             plaintext=base64.b64encode(plaintext).decode("ascii"),
+            context=_context(user_id),
             mount_point=TRANSIT_MOUNT,
         )
         ciphertext = response["data"]["ciphertext"]
@@ -64,13 +72,16 @@ def encrypt_totp_secret(plaintext: bytes) -> str:
     return ciphertext
 
 
-def decrypt_totp_secret(ciphertext: str) -> bytes:
-    """Return the TOTP secret a transit ciphertext holds."""
+def decrypt_totp_secret(ciphertext: str, user_id: uuid.UUID) -> bytes:
+    """Return the TOTP secret a transit ciphertext holds for this user."""
     client = _connect()
     plaintext = None
     try:
         response = client.secrets.transit.decrypt_data(
-            name=TOTP_KEY, ciphertext=ciphertext, mount_point=TRANSIT_MOUNT
+            name=TOTP_KEY,
+            ciphertext=ciphertext,
+            context=_context(user_id),
+            mount_point=TRANSIT_MOUNT,
         )
         plaintext = base64.b64decode(response["data"]["plaintext"], validate=True)
     except Exception:

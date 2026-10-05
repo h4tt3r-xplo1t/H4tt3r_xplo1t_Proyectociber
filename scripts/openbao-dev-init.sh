@@ -111,7 +111,9 @@ if [[ "$FIRST_SETUP" == "true" ]]; then
   # Transit encrypts the TOTP secrets; the key never leaves OpenBao and the
   # gateway policy only allows encrypt and decrypt with it.
   bao secrets enable -path=transit transit >/dev/null
-  bao write -f transit/keys/totp type=aes256-gcm96 >/dev/null
+  # derived=true: the ciphertext is bound to a context (the user id), so one
+  # user's ciphertext cannot be decrypted as another's.
+  bao write -f transit/keys/totp type=aes256-gcm96 derived=true >/dev/null
   bao policy write gateway - <deploy/openbao/gateway-policy.hcl >/dev/null
   # secret_id_ttl=0: the dev secret_id never expires, so there is no re-issue
   # path to maintain; the policy still limits it to reading gateway keys.

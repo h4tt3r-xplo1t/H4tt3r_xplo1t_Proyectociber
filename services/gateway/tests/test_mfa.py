@@ -443,7 +443,7 @@ def test_locked_confirm_does_not_decrypt_anything(
     for _ in range(4):
         post(client, CONFIRM, {"code": totp(secret, clock, 2)})
 
-    def boom(_):
+    def boom(*_):
         raise AssertionError("transit must not be called for a locked account")
 
     monkeypatch.setattr(auth, "decrypt_totp_secret", boom)
@@ -831,7 +831,7 @@ def test_locked_second_factor_does_not_verify_anything(
     for _ in range(4):
         post(client, LOGIN_MFA, {"code": totp(secret, clock, 2)})
 
-    def boom(_):
+    def boom(*_):
         raise AssertionError("transit must not be called for a locked account")
 
     monkeypatch.setattr(auth, "decrypt_totp_secret", boom)
@@ -1081,3 +1081,25 @@ def test_two_codes_in_parallel_consume_the_pending_token_once(
             assert families.scalar() == attempt + 1
         with db_engine.begin() as conn:
             conn.execute(text("UPDATE login_attempts SET failures = 0"))
+
+
+def test_a_ciphertext_copied_to_another_user_does_not_decrypt(client, db_engine, clock):
+    make_user(client, db_engine, clock, "alice")
+    login(client, "alice")
+    secret = post(client, ENROLL).json()["secret"]
+    post(client, CONFIRM, {"code": totp(secret, clock)})
+    make_user(client, db_engine, clock, "bob")
+    with db_engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE users SET mfa_secret_ciphertext = a.mfa_secret_ciphertext, "
+                "mfa_enabled_at = now() FROM users a "
+                "WHERE users.username = 'bob' AND a.username = 'alice'"
+            )
+        )
+    to_pending(client, "bob")
+
+    response = post(client, LOGIN_MFA, {"code": totp(secret, clock, 1)})
+
+    assert response.status_code == 503
+    assert attempt_row(db_engine, "bob").failures == 0

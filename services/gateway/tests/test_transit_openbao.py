@@ -3,6 +3,7 @@
 import base64
 import socket
 import time
+import uuid
 from pathlib import Path
 
 import hvac
@@ -13,6 +14,8 @@ from gateway.secrets import login
 from gateway.transit import TransitError, decrypt_totp_secret, encrypt_totp_secret
 
 PLAINTEXT = b"JBSWY3DPEHPK3PXP"
+USER_A = uuid.UUID("00000000-0000-4000-8000-00000000000a")
+USER_B = uuid.UUID("00000000-0000-4000-8000-00000000000b")
 
 
 @pytest.fixture
@@ -23,20 +26,22 @@ def bao_client(openbao_env):
 
 
 def test_round_trip_returns_the_same_secret(openbao_env):
-    ciphertext = encrypt_totp_secret(PLAINTEXT)
+    ciphertext = encrypt_totp_secret(PLAINTEXT, USER_A)
 
-    assert decrypt_totp_secret(ciphertext) == PLAINTEXT
+    assert decrypt_totp_secret(ciphertext, USER_A) == PLAINTEXT
 
 
 def test_ciphertext_is_versioned_transit_text_without_the_plaintext(openbao_env):
-    ciphertext = encrypt_totp_secret(PLAINTEXT)
+    ciphertext = encrypt_totp_secret(PLAINTEXT, USER_A)
 
     assert ciphertext.startswith("vault:v1:")
     assert PLAINTEXT.decode() not in ciphertext
 
 
 def test_two_encryptions_of_the_same_secret_differ(openbao_env):
-    assert encrypt_totp_secret(PLAINTEXT) != encrypt_totp_secret(PLAINTEXT)
+    assert encrypt_totp_secret(PLAINTEXT, USER_A) != encrypt_totp_secret(
+        PLAINTEXT, USER_A
+    )
 
 
 def test_gateway_token_cannot_read_the_transit_key(bao_client):
@@ -53,7 +58,7 @@ def test_gateway_token_cannot_encrypt_with_another_key(bao_client):
 
 def test_tampered_ciphertext_fails_closed(openbao_env):
     with pytest.raises(TransitError) as excinfo:
-        decrypt_totp_secret("vault:v1:not-a-real-ciphertext")
+        decrypt_totp_secret("vault:v1:not-a-real-ciphertext", USER_A)
 
     assert "not-a-real-ciphertext" not in str(excinfo.value)
     assert excinfo.value.__cause__ is None
@@ -65,23 +70,23 @@ def test_unreachable_openbao_fails_closed(openbao_env, monkeypatch):
     monkeypatch.setattr(secrets, "REQUEST_TIMEOUT_SECONDS", 1)
 
     with pytest.raises(TransitError):
-        encrypt_totp_secret(PLAINTEXT)
+        encrypt_totp_secret(PLAINTEXT, USER_A)
     with pytest.raises(TransitError):
-        decrypt_totp_secret("vault:v1:abc")
+        decrypt_totp_secret("vault:v1:abc", USER_A)
 
 
 def test_missing_settings_fail_closed(openbao_env, monkeypatch):
     monkeypatch.delenv("GATEWAY_OPENBAO_ADDR", raising=False)
 
     with pytest.raises(TransitError):
-        encrypt_totp_secret(PLAINTEXT)
+        encrypt_totp_secret(PLAINTEXT, USER_A)
 
 
 def test_plain_http_to_a_remote_host_is_refused(openbao_env, monkeypatch):
     monkeypatch.setenv("GATEWAY_OPENBAO_ADDR", "http://openbao.example:8200")
 
     with pytest.raises(TransitError):
-        encrypt_totp_secret(PLAINTEXT)
+        encrypt_totp_secret(PLAINTEXT, USER_A)
 
 
 def test_token_is_revoked_after_each_call(openbao_env, monkeypatch):
@@ -95,8 +100,8 @@ def test_token_is_revoked_after_each_call(openbao_env, monkeypatch):
 
     monkeypatch.setattr(secrets, "login", capturing_login)
 
-    ciphertext = encrypt_totp_secret(PLAINTEXT)
-    decrypt_totp_secret(ciphertext)
+    ciphertext = encrypt_totp_secret(PLAINTEXT, USER_A)
+    decrypt_totp_secret(ciphertext, USER_A)
 
     assert len(used) == 2
     for token in used:
@@ -118,6 +123,14 @@ def test_a_slow_openbao_fails_fast_as_a_transit_error(monkeypatch):
         started = time.monotonic()
 
         with pytest.raises(TransitError):
-            encrypt_totp_secret(PLAINTEXT)
+            encrypt_totp_secret(PLAINTEXT, USER_A)
 
     assert time.monotonic() - started < 3
+
+
+def test_a_ciphertext_is_bound_to_its_user(openbao_env):
+    ciphertext = encrypt_totp_secret(PLAINTEXT, USER_A)
+
+    assert decrypt_totp_secret(ciphertext, USER_A) == PLAINTEXT
+    with pytest.raises(TransitError):
+        decrypt_totp_secret(ciphertext, USER_B)

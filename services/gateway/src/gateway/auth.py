@@ -1048,7 +1048,7 @@ def mfa_enroll(
             raise _login_failed()
     secret = new_totp_secret()
     # A transit failure raises TransitError (fixed 503) before anything is saved.
-    user.mfa_pending_ciphertext = encrypt_totp_secret(secret.encode())
+    user.mfa_pending_ciphertext = encrypt_totp_secret(secret.encode(), user.id)
     session.commit()
     response.headers.update(NO_STORE)
     _log_event("mfa_enrollment_started", str(user.id), now)
@@ -1092,7 +1092,7 @@ def mfa_confirm(
             detail="No enrollment in progress",
             headers=NO_STORE,
         )
-    secret = decrypt_totp_secret(pending).decode()
+    secret = decrypt_totp_secret(pending, user.id).decode()
     step = matching_step(secret, body.code, now)
     if step is None:
         _record_failure(session, attempt, subject, now, "mfa_failure")
@@ -1135,7 +1135,7 @@ def _check_second_factor(
     if user.mfa_enabled_at is None or user.mfa_secret_ciphertext is None:
         return None
     if TOTP_CODE.fullmatch(code):
-        secret = decrypt_totp_secret(user.mfa_secret_ciphertext).decode()
+        secret = decrypt_totp_secret(user.mfa_secret_ciphertext, user.id).decode()
         step = matching_step(secret, code, now)
         if step is None:
             return None

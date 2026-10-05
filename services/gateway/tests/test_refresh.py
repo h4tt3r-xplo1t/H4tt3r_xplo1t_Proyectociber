@@ -139,15 +139,28 @@ def test_refresh_keeps_the_sid_and_issues_a_fresh_jti_and_csrf(client):
     assert check_csrf(session.csrf, session.csrf, after["sid"], KEYS.csrf_key)
 
 
-def test_the_new_access_token_works_and_the_old_refresh_token_does_not(client):
+def test_the_new_access_token_works_and_the_old_refresh_token_does_not(
+    client, db_engine
+):
+    """Presenting a rotated token is reuse, so it also revokes the family.
+
+    That is the policy (no grace window), and it means the rejection of the old
+    token cannot be observed without also killing the chain: the 401 and the
+    revoked family are asserted together, last.
+    """
     session = start(client)
     old = session.refresh
     response = refresh(client, old, session.csrf)
     session.take(response)
 
     assert client.get("/api/auth/me").status_code == 200
-    # The token that was just rotated is dead; the new one is alive.
-    assert refresh(client, session.refresh, session.csrf).status_code == 200
+    assert family_row(db_engine).revoked_at is None
+
+    rejected = refresh(client, old, session.csrf)
+
+    assert rejected.status_code == 401
+    assert rejected.json() == NOT_AUTHENTICATED
+    assert family_row(db_engine).revoked_at is not None
 
 
 def test_refresh_bumps_the_idle_clock(client, db_engine, clock):

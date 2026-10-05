@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import exists, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
@@ -231,9 +232,19 @@ class LoginRequest(BaseModel):
     dependencies=[Depends(require_same_origin)],
 )
 def register(
-    body: RegisterRequest, session: Annotated[Session, Depends(get_session)]
+    body: RegisterRequest,
+    session: Annotated[Session, Depends(get_session)],
+    now: Annotated[datetime, Depends(get_now)],
 ) -> UserOut:
-    user = User(username=body.username, password_hash=hash_password(body.password))
+    # `tokens_valid_since` is compared with values from the app clock (`iat`,
+    # `family.created_at`), so it must be written from that same clock, never
+    # from the database's now(). Any future write to this column (password or
+    # role change, A3) must use the app clock too.
+    user = User(
+        username=body.username,
+        password_hash=hash_password(body.password),
+        tokens_valid_since=now,
+    )
     session.add(user)
     try:
         session.commit()
@@ -286,16 +297,21 @@ def _lock_attempt(session: Session, attempt_key: str) -> LoginAttempt:
     lock_failed = False
     attempt = None
     try:
-        session.execute(
-            insert(LoginAttempt)
-            .values(attempt_key=attempt_key)
-            .on_conflict_do_nothing(index_elements=["attempt_key"])
-        )
-        attempt = session.execute(
-            select(LoginAttempt)
-            .where(LoginAttempt.attempt_key == attempt_key)
-            .with_for_update()
-        ).scalar_one()
+        # A purge can delete the row between the insert and the lock; one retry
+        # recreates it, and a second miss is answered like a busy service.
+        for _ in range(2):
+            session.execute(
+                insert(LoginAttempt)
+                .values(attempt_key=attempt_key)
+                .on_conflict_do_nothing(index_elements=["attempt_key"])
+            )
+            attempt = session.execute(
+                select(LoginAttempt)
+                .where(LoginAttempt.attempt_key == attempt_key)
+                .with_for_update()
+            ).scalar_one_or_none()
+            if attempt is not None:
+                break
     except OperationalError as exc:
         if getattr(exc.orig, "sqlstate", None) != LOCK_NOT_AVAILABLE:
             raise
@@ -303,6 +319,9 @@ def _lock_attempt(session: Session, attempt_key: str) -> LoginAttempt:
     if lock_failed:
         # Answered like a saturated hasher (same 503); nothing is counted.
         raise ServiceBusy("login attempt row is locked", "attempt_row_locked")
+    if attempt is None:
+        session.rollback()
+        raise ServiceBusy("login attempt row vanished", "attempt_row_vanished")
     return attempt
 
 
@@ -591,6 +610,7 @@ def _clear_session_cookies(response: Response) -> None:
 @router.post(
     "/logout",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
     dependencies=[Depends(require_same_origin)],
 )
 def logout(
@@ -599,12 +619,17 @@ def logout(
     session: Annotated[Session, Depends(get_session)],
     keys: Annotated[GatewayKeys, Depends(get_keys)],
     now: Annotated[datetime, Depends(get_now)],
-) -> None:
+) -> Response | None:
     """End the session of the access token: revoke its family, deny its jti.
 
     An expired access token is fine (the session may outlive the 15 minutes) but
     its signature, issuer and audience must be valid, and the session CSRF token
     must match its `sid`. The call is idempotent.
+
+    An unidentifiable session (missing or invalid access cookie) answers 401 and
+    clears the cookies. A failed origin or CSRF check answers 403 and clears
+    nothing: those requests may be forged by another site, and a forgery must
+    not be able to wipe the victim's cookies.
     """
     try:
         claims = decode_access_token_allow_expired(
@@ -625,7 +650,18 @@ def logout(
         OverflowError,
         OSError,
     ):
-        raise _session_denied() from None
+        # Same 401 as everywhere, but the browser is also told to drop whatever
+        # it holds: a missing or broken access cookie must not leave the other
+        # two behind. HTTPException cannot carry several Set-Cookie headers, so
+        # the response is built here.
+        denied = _session_denied()
+        unauthenticated = JSONResponse(
+            status_code=denied.status_code,
+            content={"detail": denied.detail},
+            headers=denied.headers,
+        )
+        _clear_session_cookies(unauthenticated)
+        return unauthenticated
     if not check_csrf(
         request.cookies.get(CSRF_COOKIE),
         request.headers.get(CSRF_HEADER),

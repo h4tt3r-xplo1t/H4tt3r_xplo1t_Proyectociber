@@ -1,13 +1,15 @@
 import unicodedata
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
-from gateway import passwords
+from gateway import auth, passwords
 from gateway.db import get_engine
 from gateway.main import create_app
 from gateway.passwords import verify_password
+from tests.test_login import KEYS
 
 URL = "/api/auth/register"
 SAME_ORIGIN = {"Sec-Fetch-Site": "same-origin"}
@@ -24,8 +26,10 @@ def client(db_engine):
     get_engine().dispose()
 
 
-def register(client, username="alice", password=GOOD):
-    return client.post(URL, json={"username": username, "password": password})
+def register(client, username="alice", password=GOOD, headers=None):
+    return client.post(
+        URL, json={"username": username, "password": password}, headers=headers
+    )
 
 
 def test_register_returns_201_with_public_fields_only(client):
@@ -246,3 +250,43 @@ def test_register_accepts_the_allowed_origin_when_sec_fetch_site_is_missing(db_e
 
     assert response.status_code == 201
     get_engine().dispose()
+
+
+# --- tokens_valid_since comes from the app clock ----------------------------------
+
+
+@pytest.fixture
+def fixed_clock_client(db_engine):
+    """App whose clock is frozen a minute in the past, with the usual fake keys."""
+    instant = datetime.now(UTC) - timedelta(minutes=1)
+    app = create_app()
+    app.dependency_overrides[auth.get_keys] = lambda: KEYS
+    app.dependency_overrides[auth.get_now] = lambda: instant
+    yield TestClient(app, base_url="https://testserver"), instant
+    get_engine().dispose()
+
+
+def test_register_sets_tokens_valid_since_from_the_injected_clock(
+    fixed_clock_client, db_engine
+):
+    client, instant = fixed_clock_client
+
+    assert register(client, headers=SAME_ORIGIN).status_code == 201
+
+    with db_engine.connect() as conn:
+        stored = conn.execute(text("SELECT tokens_valid_since FROM users")).scalar_one()
+    assert stored == instant  # not the database's now()
+
+
+def test_a_token_issued_at_the_registration_instant_passes_me(fixed_clock_client):
+    client, _ = fixed_clock_client
+    assert register(client, headers=SAME_ORIGIN).status_code == 201
+    token = client.get("/api/auth/csrf").json()["csrf_token"]
+    login = client.post(
+        "/api/auth/login",
+        json={"username": "alice", "password": GOOD},
+        headers={**SAME_ORIGIN, "X-CSRF-Token": token},
+    )
+    assert login.status_code == 200
+
+    assert client.get("/api/auth/me").status_code == 200

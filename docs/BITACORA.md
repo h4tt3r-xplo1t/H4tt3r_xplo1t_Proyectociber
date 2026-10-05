@@ -115,6 +115,8 @@ Rama `feat/35-sesion-gateway`. Completa la gestión de sesión del ADR 0004.
 - [ ] Saturación del threadpool: hasta 5 s de espera por el semáforo bloquean hilos de las rutas síncronas; depende del límite de tasa (E5) (L6 de la revisión del #33).
 - [ ] Exigir el CSRF ligado al `sid` en las rutas que cambien estado después del login; `refresh` y `logout` ya lo exigen (#35).
 - [ ] Purga de las filas vencidas de `revoked_jtis` (`expires_at` ya está indexado) y de las filas de `refresh_tokens` de familias vencidas o revocadas, que crecen con cada refresh (#35).
+- [ ] Un logout sin cookie de acceso válida responde 401 sin borrar las cookies de refresh y CSRF; valorar borrarlas siempre (segunda revisión de Gentle AI del #35).
+- [ ] Limpieza de pruebas del #35: fixtures `clock` y `client` duplicados en `test_refresh.py` y `test_logout.py`, y un parámetro `absolute` sin usar en `test_idle_limit_by_role`.
 - [ ] `tokens_valid_since` se compara con dos relojes: `family.created_at` sale del reloj de la aplicación y `tokens_valid_since` del `now()` de PostgreSQL. Unificar el origen antes de que algo modifique ese campo (A3) (revisión de Gentle AI del #35).
 
 ### OpenBao (issue #31)

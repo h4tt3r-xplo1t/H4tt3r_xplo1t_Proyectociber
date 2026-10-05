@@ -88,6 +88,9 @@ Rama `feat/35-sesion-gateway`. Completa la gestión de sesión del ADR 0004.
   - El refresh respeta `tokens_valid_since`.
   - Un claim de tipo inesperado da 401, nunca 500.
 - **Riesgo aceptado (M1):** si se pierde la respuesta de un refresh y el cliente reintenta con el token ya usado, se revoca la familia y la persona debe volver a iniciar sesión. Lo decide el ADR 0004 («sin periodo de gracia»). Una ventana de gracia requeriría un ADR nuevo.
+- **Revisión de Gentle AI (4 lentes):** `review-3a4bb0b52adcc031`, aprobada y confirmada sin bloqueantes. Una lente falló al primer intento por el límite de sesión de la cuenta del revisor; se relanzó cuando el estado volvió a ofrecerla.
+  - Lo más relevante: el logout no funcionaba pasados 15 min, porque el navegador deja de enviar `__Host-access`. Ahora la cookie vive lo mismo que la sesión y el `exp` del JWT sigue limitando su validez.
+  - Corregido también: un `exp` de tipo inválido en el logout daba 500; una prueba de rotación no comprobaba lo que decía su nombre; `LoginBusy` pasa a un nombre genérico; la longitud mínima queda en una sola constante.
 - **Riesgo anotado (L5):** `__Secure-refresh` no puede ser `__Host-` porque lleva `Path`; un subdominio hermano podría sobrescribirlo con `Domain=`. Queda mitigado por `SameSite=Strict` y porque el valor no se puede adivinar. Anotado en la amenaza 35.
 
 ## Pendientes
@@ -111,7 +114,8 @@ Rama `feat/35-sesion-gateway`. Completa la gestión de sesión del ADR 0004.
 - [ ] El login mantiene la conexión a la base de datos y el bloqueo de fila durante la espera del hash (hasta 5 s más el hash). Valorar leer y bloquear el contador en una transacción corta separada del hash (revisión de Gentle AI del #33).
 - [ ] Saturación del threadpool: hasta 5 s de espera por el semáforo bloquean hilos de las rutas síncronas; depende del límite de tasa (E5) (L6 de la revisión del #33).
 - [ ] Exigir el CSRF ligado al `sid` en las rutas que cambien estado después del login; `refresh` y `logout` ya lo exigen (#35).
-- [ ] Purga de las filas vencidas de `revoked_jtis` (`expires_at` ya está indexado) (#35).
+- [ ] Purga de las filas vencidas de `revoked_jtis` (`expires_at` ya está indexado) y de las filas de `refresh_tokens` de familias vencidas o revocadas, que crecen con cada refresh (#35).
+- [ ] `tokens_valid_since` se compara con dos relojes: `family.created_at` sale del reloj de la aplicación y `tokens_valid_since` del `now()` de PostgreSQL. Unificar el origen antes de que algo modifique ese campo (A3) (revisión de Gentle AI del #35).
 
 ### OpenBao (issue #31)
 - [ ] Llevar a OpenBao las credenciales de PostgreSQL (hoy en variables de entorno).

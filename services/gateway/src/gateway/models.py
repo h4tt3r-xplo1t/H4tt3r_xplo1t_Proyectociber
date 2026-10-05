@@ -50,7 +50,12 @@ class User(Base):
 
 
 class RefreshFamily(Base):
-    """Refresh-token family. Prepared for issue A2; no endpoint uses it yet."""
+    """One login session. Its id is the access token's `sid`.
+
+    Refresh tokens rotate inside the family; revoking the family (logout, or
+    reuse of a rotated token) ends the session. `last_used_at` is the idle
+    clock, `created_at` the absolute one.
+    """
 
     __tablename__ = "refresh_families"
 
@@ -91,3 +96,39 @@ class LoginAttempt(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class RefreshToken(Base):
+    """A refresh token of a family; only its SHA-256 hex is stored.
+
+    `used_at` is set when the token is rotated. Presenting a used token again is
+    reuse: the whole family is revoked.
+    """
+
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    family_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("refresh_families.id", ondelete="CASCADE"), index=True
+    )
+    token_hash: Mapped[str] = mapped_column(Text, unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class RevokedJti(Base):
+    """Access token id denied until the token would have expired anyway."""
+
+    __tablename__ = "revoked_jtis"
+
+    jti: Mapped[str] = mapped_column(Text, primary_key=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

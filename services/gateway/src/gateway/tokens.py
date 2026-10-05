@@ -31,17 +31,19 @@ class InvalidToken(Exception):
 
 
 def issue_access_token(
-    user_id: uuid.UUID, role: str, keys: GatewayKeys, now: datetime
+    user_id: uuid.UUID, role: str, sid: str, keys: GatewayKeys, now: datetime
 ) -> tuple[str, dict]:
     """Return a signed access token and its claims.
 
-    A fresh `sid` per call: every login starts a new session (ASVS 7.2.4).
+    `sid` is the id of the session (refresh family) the token belongs to; a
+    refresh keeps it, a new login creates a new one (ASVS 7.2.4). The `jti` is
+    new on every call.
     """
     issued_at = int(now.timestamp())
     claims = {
         "sub": str(user_id),
         "role": role,
-        "sid": secrets.token_urlsafe(16),
+        "sid": sid,
         "jti": secrets.token_urlsafe(16),
         "iat": issued_at,
         "nbf": issued_at,
@@ -55,8 +57,21 @@ def issue_access_token(
     return token, claims
 
 
-def decode_access_token(token: str, keys: GatewayKeys) -> dict:
-    """Verify signature, algorithm, kid, iss, aud, times and required claims."""
+def new_refresh_token() -> str:
+    """An opaque refresh token: 256 bits from the CSPRNG."""
+    return secrets.token_urlsafe(32)
+
+
+def hash_refresh_token(token: str) -> str:
+    """Hex SHA-256 of a refresh token: the only form that is stored.
+
+    A fast hash is enough because the token is high-entropy random, so there is
+    nothing to brute-force (unlike a password).
+    """
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _decode(token: str, keys: GatewayKeys, *, verify_exp: bool) -> dict:
     # Settings are read outside the try: a missing issuer or audience is a
     # server misconfiguration (500), not a client authentication failure (401).
     issuer = get_jwt_issuer()
@@ -67,6 +82,9 @@ def decode_access_token(token: str, keys: GatewayKeys) -> dict:
         if header.get("kid") == keys.jwt_kid:
             # `options` is built on every call and never reused or shared
             # (GHSA-gvp8-978c-rx2q); the signature is always verified.
+            options: dict = {"require": list(REQUIRED_CLAIMS)}
+            if not verify_exp:
+                options["verify_exp"] = False
             claims = jwt.decode(
                 token,
                 keys.jwt_key,
@@ -74,13 +92,28 @@ def decode_access_token(token: str, keys: GatewayKeys) -> dict:
                 audience=audience,
                 issuer=issuer,
                 leeway=LEEWAY_SECONDS,
-                options={"require": list(REQUIRED_CLAIMS)},
+                options=options,
             )
     except jwt.PyJWTError:
         claims = None
     if claims is None:
         raise InvalidToken
     return claims
+
+
+def decode_access_token(token: str, keys: GatewayKeys) -> dict:
+    """Verify signature, algorithm, kid, iss, aud, times and required claims."""
+    return _decode(token, keys, verify_exp=True)
+
+
+def decode_access_token_allow_expired(token: str, keys: GatewayKeys) -> dict:
+    """Like decode_access_token, but an expired token is accepted.
+
+    Only for ending a session (logout), which must work after the 15 minutes.
+    The signature, algorithm, kid, issuer, audience, `nbf` and the presence of
+    every claim (`exp` included) are still checked.
+    """
+    return _decode(token, keys, verify_exp=False)
 
 
 CSRF_FUTURE_LEEWAY_SECONDS = 30

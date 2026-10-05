@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from gateway.auth import LoginBusy, log_service_busy
+from gateway.auth import ServiceBusy, log_service_busy
 from gateway.auth import router as auth_router
 from gateway.passwords import HashingBusy
 
@@ -46,9 +46,9 @@ def create_app() -> FastAPI:
         log_service_busy("hash_saturated")
         return JSONResponse(status_code=503, content=busy_body)
 
-    @app.exception_handler(LoginBusy)
-    async def login_busy(request: Request, exc: LoginBusy) -> JSONResponse:
-        log_service_busy("attempt_row_locked")
+    @app.exception_handler(ServiceBusy)
+    async def service_busy(request: Request, exc: ServiceBusy) -> JSONResponse:
+        log_service_busy(exc.cause)
         return JSONResponse(status_code=503, content=busy_body)
 
     @app.get("/healthz")

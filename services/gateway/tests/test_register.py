@@ -1,3 +1,5 @@
+import unicodedata
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -49,6 +51,26 @@ def test_stored_hash_is_argon2id_with_adr_parameters(client, db_engine):
 
 def test_short_password_is_rejected_with_422(client):
     assert register(client, password="x" * 14).status_code == 422
+
+
+def test_password_shorter_than_15_after_nfc_is_rejected_without_echo(client):
+    # 13 letters + "e" + combining accent = 15 code points, 14 after NFC.
+    decomposed = "abcdefghijklm" + "e\u0301"
+    assert len(decomposed) == 15
+    assert len(unicodedata.normalize("NFC", decomposed)) == 14
+
+    response = register(client, password=decomposed)
+
+    assert response.status_code == 422
+    assert decomposed not in response.text
+    assert "abcdefghijklm" not in response.text
+
+
+def test_password_of_exactly_15_after_nfc_is_accepted(client):
+    composed = "abcdefghijklm" + "\u00e9" + "x"
+    assert len(unicodedata.normalize("NFC", composed)) == 15
+
+    assert register(client, password=composed).status_code == 201
 
 
 @pytest.mark.parametrize("length", [15, 64, 128])

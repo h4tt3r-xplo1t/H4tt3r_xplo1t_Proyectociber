@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import threading
 import time
@@ -274,7 +275,7 @@ def test_login_returns_public_fields_and_sets_the_cookies(client):
     assert response.json() == user
     (access,) = set_cookie_lines(response, "__Host-access")
     attributes = {part.strip().lower() for part in access.split(";")[1:]}
-    assert {"httponly", "secure", "samesite=strict", "path=/", "max-age=900"} <= (
+    assert {"httponly", "secure", "samesite=strict", "path=/", "max-age=604800"} <= (
         attributes
     )
     assert not any(a.startswith("domain") for a in attributes)
@@ -293,10 +294,113 @@ def test_login_sets_a_session_csrf_cookie_bound_to_the_sid(client):
     attributes = {part.strip().lower() for part in line.split(";")[1:]}
     assert {"secure", "samesite=strict", "path=/"} <= attributes
     assert "httponly" not in attributes
+    # It must outlive the 15-minute access cookie: the refresh call needs it.
+    assert f"max-age={7 * 24 * 3600}" in attributes
     token = client.cookies.get("__Host-csrf")
     sid = decode_access_token(client.cookies.get("__Host-access"), KEYS)["sid"]
     assert check_csrf(token, token, sid, KEYS.csrf_key)
     assert not check_csrf(token, token, PRE_SESSION_BINDING, KEYS.csrf_key)
+
+
+def refresh_cookie_value(response):
+    (line,) = set_cookie_lines(response, "__Secure-refresh")
+    return line.split(";")[0].split("=", 1)[1]
+
+
+def test_login_creates_a_family_whose_id_is_the_sid(client, db_engine):
+    user = register(client)
+
+    login(client)
+
+    claims = decode_access_token(client.cookies.get("__Host-access"), KEYS)
+    with db_engine.connect() as conn:
+        families = conn.execute(
+            text("SELECT id, user_id, revoked_at FROM refresh_families")
+        ).all()
+    ((family_id, user_id, revoked_at),) = families
+    assert claims["sid"] == str(family_id)
+    assert str(user_id) == user["id"]
+    assert revoked_at is None
+
+
+def test_login_sets_the_refresh_cookie_scoped_to_the_refresh_path(client):
+    register(client)
+
+    response = login(client)
+
+    (line,) = set_cookie_lines(response, "__Secure-refresh")
+    attributes = {part.strip().lower() for part in line.split(";")[1:]}
+    assert {"httponly", "secure", "samesite=strict"} <= attributes
+    assert "path=/api/auth/refresh" in attributes
+    assert f"max-age={7 * 24 * 3600}" in attributes
+    assert not any(a.startswith("domain") for a in attributes)
+    assert len(refresh_cookie_value(response)) >= 43
+
+
+def test_only_the_sha256_of_the_refresh_token_is_stored(client, db_engine):
+    register(client)
+
+    response = login(client)
+
+    token = refresh_cookie_value(response)
+    with db_engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT token_hash, used_at, family_id FROM refresh_tokens")
+        ).all()
+        family_id = conn.execute(text("SELECT id FROM refresh_families")).scalar_one()
+    ((stored, used_at, token_family),) = rows
+    assert stored == hashlib.sha256(token.encode()).hexdigest()
+    assert token not in stored
+    assert used_at is None
+    assert token_family == family_id
+
+
+def test_session_limits_by_role():
+    day = timedelta(days=1)
+    assert auth.session_limits("lector") == auth.SessionLimits(
+        idle=day, absolute=7 * day
+    )
+    for role in ("editor", "auditor", "administrador"):
+        assert auth.session_limits(role) == auth.SessionLimits(
+            idle=timedelta(minutes=30), absolute=timedelta(hours=8)
+        )
+
+
+def test_an_editor_gets_the_shorter_refresh_cookie_lifetime(client, db_engine):
+    register(client)
+    with db_engine.begin() as conn:
+        conn.execute(text("UPDATE users SET role = 'editor'"))
+
+    response = login(client)
+
+    (line,) = set_cookie_lines(response, "__Secure-refresh")
+    assert f"max-age={8 * 3600}" in line.lower()
+
+
+def test_failed_token_issuing_leaves_the_counter_and_tables_untouched(
+    app, db_engine, monkeypatch
+):
+    client = TestClient(
+        app, base_url="https://testserver", raise_server_exceptions=False
+    )
+    register(client)
+    login(client, password=OTHER)
+    login(client, password=OTHER)
+    assert attempt_row(db_engine) == (2, None)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("signing failed")
+
+    monkeypatch.setattr(auth, "issue_access_token", boom)
+    response = login(client)
+
+    assert response.status_code == 500
+    assert attempt_row(db_engine) == (2, None)
+    with db_engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM refresh_families")).scalar() == 0
+        assert conn.execute(text("SELECT count(*) FROM refresh_tokens")).scalar() == 0
+    assert not set_cookie_lines(response, "__Host-access")
+    get_engine().dispose()
 
 
 def test_every_login_starts_a_new_session(client):
@@ -587,8 +691,8 @@ def test_login_answers_503_when_the_row_lock_is_not_obtained_in_time(
 
 
 def test_row_lock_timeout_is_a_distinct_error_from_hash_saturation():
-    assert not issubclass(auth.LoginBusy, passwords.HashingBusy)
-    assert not issubclass(passwords.HashingBusy, auth.LoginBusy)
+    assert not issubclass(auth.ServiceBusy, passwords.HashingBusy)
+    assert not issubclass(passwords.HashingBusy, auth.ServiceBusy)
 
 
 def test_both_503_causes_are_logged_and_look_the_same_to_the_client(
@@ -696,7 +800,14 @@ def test_me_returns_the_logged_in_user(client):
 
 def test_me_reads_the_role_from_the_database_not_from_the_token(client, db_engine):
     user = register(client)
-    client.cookies.set("__Host-access", forged_access(user["id"], role="administrador"))
+    with db_engine.begin() as conn:
+        sid = conn.execute(
+            text("INSERT INTO refresh_families (user_id) VALUES (:u) RETURNING id"),
+            {"u": user["id"]},
+        ).scalar_one()
+    client.cookies.set(
+        "__Host-access", forged_access(user["id"], role="administrador", sid=str(sid))
+    )
 
     response = client.get("/api/auth/me")
 

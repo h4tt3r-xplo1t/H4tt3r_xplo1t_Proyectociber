@@ -10,14 +10,12 @@ from sqlalchemy.exc import OperationalError
 
 from gateway import auth
 from gateway.db import get_engine
-from gateway.main import create_app
 from gateway.tokens import check_csrf, decode_access_token, hash_refresh_token
 from tests.test_login import (
     GOOD,
     KEYS,
     NOT_AUTHENTICATED,
     SAME_ORIGIN,
-    Clock,
     login,
     refresh_cookie_value,
     register,
@@ -26,20 +24,6 @@ from tests.test_login import (
 
 URL = "/api/auth/refresh"
 JAR = object()  # "send what the login gave us"
-
-
-@pytest.fixture
-def clock():
-    return Clock()
-
-
-@pytest.fixture
-def client(db_engine, clock):
-    app = create_app()
-    app.dependency_overrides[auth.get_keys] = lambda: KEYS
-    app.dependency_overrides[auth.get_now] = clock
-    yield TestClient(app, base_url="https://testserver")
-    get_engine().dispose()
 
 
 class Session:
@@ -243,15 +227,15 @@ def test_a_deleted_user_is_401(client, db_engine):
 
 
 @pytest.mark.parametrize(
-    ("role", "idle", "absolute"),
+    ("role", "idle"),
     [
-        ("lector", timedelta(hours=24), timedelta(days=7)),
-        ("editor", timedelta(minutes=30), timedelta(hours=8)),
-        ("auditor", timedelta(minutes=30), timedelta(hours=8)),
-        ("administrador", timedelta(minutes=30), timedelta(hours=8)),
+        ("lector", timedelta(hours=24)),
+        ("editor", timedelta(minutes=30)),
+        ("auditor", timedelta(minutes=30)),
+        ("administrador", timedelta(minutes=30)),
     ],
 )
-def test_idle_limit_by_role(client, db_engine, clock, role, idle, absolute):
+def test_idle_limit_by_role(client, db_engine, clock, role, idle):
     session = start(client)
     with db_engine.begin() as conn:
         conn.execute(text("UPDATE users SET role = :r"), {"r": role})

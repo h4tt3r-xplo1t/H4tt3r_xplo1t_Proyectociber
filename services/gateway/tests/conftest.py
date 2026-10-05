@@ -4,8 +4,14 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
+
+from gateway import auth
+from gateway.db import get_engine
+from gateway.main import create_app
+from tests.test_login import KEYS, Clock
 
 ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
 
@@ -73,3 +79,23 @@ def db_engine(migrated_db):
         )
     yield engine
     engine.dispose()
+
+
+@pytest.fixture
+def clock():
+    """Movable 'now' shared by the session tests."""
+    return Clock()
+
+
+@pytest.fixture
+def client(db_engine, clock):
+    """App with fake keys and the movable clock; each test sets its own headers.
+
+    test_login and test_register define their own `client` and take precedence
+    in their modules.
+    """
+    app = create_app()
+    app.dependency_overrides[auth.get_keys] = lambda: KEYS
+    app.dependency_overrides[auth.get_now] = clock
+    yield TestClient(app, base_url="https://testserver")
+    get_engine().dispose()

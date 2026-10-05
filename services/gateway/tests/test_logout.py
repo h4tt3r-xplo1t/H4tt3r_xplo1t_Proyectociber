@@ -9,14 +9,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from gateway import auth, tokens
-from gateway.db import get_engine
-from gateway.main import create_app
 from gateway.tokens import decode_access_token, make_csrf
 from tests.test_login import (
     KEYS,
     NOT_AUTHENTICATED,
     SAME_ORIGIN,
-    Clock,
     forged_access,
     login,
     register,
@@ -25,20 +22,6 @@ from tests.test_login import (
 from tests.test_refresh import JAR, Session, refresh, start
 
 URL = "/api/auth/logout"
-
-
-@pytest.fixture
-def clock():
-    return Clock()
-
-
-@pytest.fixture
-def client(db_engine, clock):
-    app = create_app()
-    app.dependency_overrides[auth.get_keys] = lambda: KEYS
-    app.dependency_overrides[auth.get_now] = clock
-    yield TestClient(app, base_url="https://testserver")
-    get_engine().dispose()
 
 
 def logout(client, access, csrf, *, header=JAR, headers=SAME_ORIGIN):

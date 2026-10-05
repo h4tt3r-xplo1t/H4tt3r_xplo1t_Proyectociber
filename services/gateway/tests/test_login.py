@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 import jwt
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import event, text
 
 from gateway import auth, passwords
 from gateway.db import get_engine
@@ -955,3 +955,50 @@ def test_lockout_is_logged(client, caplog):
     assert sum("login_blocked" in m for m in messages) == 1
     assert OTHER not in caplog.text
     assert GOOD not in caplog.text
+
+
+# --- the counter row vanishes between the insert and the lock (purge) ----------------
+
+
+def vanish_after_insert(times):
+    """Delete the counter row right after the login's INSERT, `times` times.
+
+    This is what a purge committing in that gap looks like to the request. The
+    delete runs on the request's own connection, inside its transaction.
+    """
+    state = {"left": times}
+
+    def hook(conn, cursor, statement, parameters, context, executemany):
+        if statement.lower().startswith("insert into login_attempts") and state["left"]:
+            state["left"] -= 1
+            conn.exec_driver_sql("DELETE FROM login_attempts")
+
+    event.listen(get_engine(), "after_cursor_execute", hook)
+    return hook
+
+
+def test_login_retries_once_when_the_counter_row_vanishes(client, db_engine):
+    register(client)
+    hook = vanish_after_insert(1)
+    try:
+        response = login(client)
+    finally:
+        event.remove(get_engine(), "after_cursor_execute", hook)
+
+    assert response.status_code == 200
+
+
+def test_login_answers_503_not_500_when_the_counter_row_keeps_vanishing(
+    client, db_engine, caplog
+):
+    register(client)
+    caplog.set_level(logging.INFO, logger="gateway.auth")
+    hook = vanish_after_insert(2)
+    try:
+        response = login(client)
+    finally:
+        event.remove(get_engine(), "after_cursor_execute", hook)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Service busy; try again later"}
+    assert "cause=attempt_row_vanished" in caplog.text

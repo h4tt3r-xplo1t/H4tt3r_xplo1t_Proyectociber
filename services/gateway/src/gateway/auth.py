@@ -297,16 +297,21 @@ def _lock_attempt(session: Session, attempt_key: str) -> LoginAttempt:
     lock_failed = False
     attempt = None
     try:
-        session.execute(
-            insert(LoginAttempt)
-            .values(attempt_key=attempt_key)
-            .on_conflict_do_nothing(index_elements=["attempt_key"])
-        )
-        attempt = session.execute(
-            select(LoginAttempt)
-            .where(LoginAttempt.attempt_key == attempt_key)
-            .with_for_update()
-        ).scalar_one()
+        # A purge can delete the row between the insert and the lock; one retry
+        # recreates it, and a second miss is answered like a busy service.
+        for _ in range(2):
+            session.execute(
+                insert(LoginAttempt)
+                .values(attempt_key=attempt_key)
+                .on_conflict_do_nothing(index_elements=["attempt_key"])
+            )
+            attempt = session.execute(
+                select(LoginAttempt)
+                .where(LoginAttempt.attempt_key == attempt_key)
+                .with_for_update()
+            ).scalar_one_or_none()
+            if attempt is not None:
+                break
     except OperationalError as exc:
         if getattr(exc.orig, "sqlstate", None) != LOCK_NOT_AVAILABLE:
             raise
@@ -314,6 +319,9 @@ def _lock_attempt(session: Session, attempt_key: str) -> LoginAttempt:
     if lock_failed:
         # Answered like a saturated hasher (same 503); nothing is counted.
         raise ServiceBusy("login attempt row is locked", "attempt_row_locked")
+    if attempt is None:
+        session.rollback()
+        raise ServiceBusy("login attempt row vanished", "attempt_row_vanished")
     return attempt
 
 

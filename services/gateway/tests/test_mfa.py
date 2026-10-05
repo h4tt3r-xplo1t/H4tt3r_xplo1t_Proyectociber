@@ -7,6 +7,8 @@ arithmetic is deterministic.
 
 import logging
 import re
+import threading
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -984,3 +986,98 @@ def test_confirm_is_refused_once_the_window_has_closed(client, db_engine, clock)
     assert response.status_code == 401
     assert response.json() == LOGIN_FAILED
     assert user_row(db_engine)["mfa_enabled_at"] is None
+
+
+# --- the pending token is consumed once, also under concurrency -----------
+
+WAIT_SECONDS = 10
+
+
+class Gate:
+    """Holds the first caller of `_check_second_factor` inside the counter lock."""
+
+    def __init__(self, real):
+        self.real = real
+        self.mutex = threading.Lock()
+        self.first = True
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def __call__(self, *args):
+        with self.mutex:
+            leader, self.first = self.first, False
+        if leader:
+            self.entered.set()
+            assert self.release.wait(WAIT_SECONDS)
+        return self.real(*args)
+
+
+def lock_waiters(db_engine):
+    with db_engine.connect() as conn:
+        return conn.execute(
+            text(
+                "SELECT count(*) FROM pg_stat_activity "
+                "WHERE datname = current_database() AND wait_event_type = 'Lock'"
+            )
+        ).scalar()
+
+
+def wait_until(predicate):
+    deadline = time.monotonic() + WAIT_SECONDS
+    while not predicate():
+        assert time.monotonic() < deadline, "timed out"
+        threading.Event().wait(0.005)
+
+
+def test_a_wrong_code_does_not_burn_the_pending_token(client, db_engine, clock):
+    secret, _ = enroll(client, db_engine, clock)
+    to_pending(client)
+    clear_replay_guard(db_engine)
+
+    assert post(client, LOGIN_MFA, {"code": totp(secret, clock, 2)}).status_code == 401
+    assert post(client, LOGIN_MFA, {"code": totp(secret, clock, 1)}).status_code == 200
+
+
+def test_two_codes_in_parallel_consume_the_pending_token_once(
+    client, db_engine, clock, monkeypatch
+):
+    secret, codes = enroll(client, db_engine, clock)
+    for attempt in range(20):
+        with db_engine.begin() as conn:
+            conn.execute(text("UPDATE recovery_codes SET used_at = NULL"))
+            conn.execute(text("UPDATE users SET mfa_last_step = NULL"))
+        to_pending(client)
+        racers = []
+        for _ in range(2):
+            other = second_client(client)
+            other.cookies.set("__Host-access", client.cookies.get("__Host-access"))
+            other.cookies.set("__Host-csrf", client.cookies.get("__Host-csrf"))
+            racers.append(other)
+        # One racer brings a TOTP, the other a recovery code; swap each round.
+        bodies = [{"code": totp(secret, clock, 1)}, {"code": codes[attempt % 10]}]
+        if attempt % 2:
+            bodies.reverse()
+        gate = Gate(auth._check_second_factor)
+        monkeypatch.setattr(auth, "_check_second_factor", gate)
+        statuses = []
+
+        def run(racer, body, results):
+            results.append(post(racer, LOGIN_MFA, body).status_code)
+
+        first = threading.Thread(target=run, args=(racers[0], bodies[0], statuses))
+        second = threading.Thread(target=run, args=(racers[1], bodies[1], statuses))
+        first.start()
+        assert gate.entered.wait(WAIT_SECONDS)
+        second.start()
+        # The second request is now queued on the counter row's lock.
+        wait_until(lambda: lock_waiters(db_engine) >= 1)
+        gate.release.set()
+        first.join(WAIT_SECONDS)
+        second.join(WAIT_SECONDS)
+
+        assert sorted(statuses) == [200, 401], f"round {attempt}: {statuses}"
+        with db_engine.connect() as conn:
+            families = conn.execute(text("SELECT count(*) FROM refresh_families"))
+            assert families.scalar() == attempt + 1
+        with db_engine.begin() as conn:
+            conn.execute(text("UPDATE login_attempts SET failures = 0"))

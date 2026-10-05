@@ -1171,6 +1171,15 @@ def login_mfa(
     user = actor.user
     attempt = _lock_second_factor(session, user, keys, now)
     subject = str(user.id)
+    # Single use under concurrency: the authentication above saw the denylist
+    # before this request queued on the counter row's lock, so a request that
+    # waited may hold a token the winner has just consumed. Re-check it here,
+    # inside the lock. The jti is inserted only on success (still under this
+    # lock, which serializes every attempt of the user), so a wrong code does
+    # not burn the token and can be retried within the lockout limits.
+    if session.scalar(select(exists().where(RevokedJti.jti == actor.claims["jti"]))):
+        session.commit()
+        raise _session_denied()
     kind = _check_second_factor(session, user, body.code, now)
     if kind is None:
         _record_failure(session, attempt, subject, now, "mfa_failure")

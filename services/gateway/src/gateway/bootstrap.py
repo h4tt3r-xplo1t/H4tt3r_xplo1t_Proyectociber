@@ -10,8 +10,11 @@ line and is never printed or logged; every failure prints one fixed message.
 Order of the steps, and why. The account is created and the secret destroyed as
 one step: the user row is flushed under a database lock, the destroy runs, and
 only then the transaction commits. If the destroy fails, the creation rolls back
-(nothing exists, the secret is intact, a rerun is safe). If the commit fails
-after the destroy, no account and no secret exist (the person seeds a new one).
+(nothing exists and the secret is intact, so a rerun is safe). If the delete may
+have applied but could not be verified (timeout, 5xx, dropped connection), the
+creation also rolls back, but the secret may be gone: the person checks it and
+reseeds before rerunning. If the commit fails after the destroy, no account and
+no secret exist (the person seeds a new one).
 The outcome that cannot happen is an account whose password still sits in
 OpenBao. Creating first and destroying afterwards would allow exactly that, and
 a rerun would then refuse (an administrator exists), leaving it there.
@@ -46,6 +49,7 @@ EXIT_FAILED = 1
 EXIT_USAGE = 2
 EXIT_REFUSED = 3
 EXIT_DESTROY_FAILED = 4
+EXIT_DESTROY_UNCERTAIN = 5
 
 USAGE = "usage: python -m gateway.bootstrap --username <name>"
 REFUSED = "bootstrap refused: an administrator already exists"
@@ -60,10 +64,19 @@ DESTROY_FAILED = (
     "bootstrap failed: the bootstrap secret could not be destroyed, so nothing "
     "was created; check the OpenBao access and run it again"
 )
+DESTROY_UNCERTAIN = (
+    "bootstrap failed: the outcome of destroying the bootstrap secret is "
+    "unknown, so nothing was created; check whether the secret still exists, "
+    "seed a new one if it does not, and run it again"
+)
 
 
 class DestroyFailed(RuntimeError):
     """The secret could not be destroyed or still answers a read."""
+
+
+class DestroyUncertain(DestroyFailed):
+    """The delete may have applied, but the verification read gave no answer."""
 
 
 def login_client():
@@ -103,17 +116,16 @@ def _destroy(client) -> None:
         )
     except Exception:
         raise DestroyFailed from None
-    gone = False
     try:
         client.secrets.kv.v2.read_secret_version(
             path=KV_PATH, mount_point=KV_MOUNT, raise_on_deleted_version=True
         )
     except hvac.exceptions.InvalidPath:
-        gone = True
+        return
     except Exception:
-        gone = False
-    if not gone:
-        raise DestroyFailed
+        # The delete was accepted and the read gave no answer: it may be gone.
+        raise DestroyUncertain from None
+    raise DestroyFailed
 
 
 def _administrator_exists(session: Session) -> bool:
@@ -149,6 +161,9 @@ def _create(client, username: str, password: str) -> int:
         session.flush()
         try:
             _destroy(client)
+        except DestroyUncertain:
+            session.rollback()
+            return EXIT_DESTROY_UNCERTAIN
         except DestroyFailed:
             session.rollback()
             return EXIT_DESTROY_FAILED
@@ -164,6 +179,7 @@ def _create(client, username: str, password: str) -> int:
 MESSAGES = {
     EXIT_REFUSED: REFUSED,
     EXIT_DESTROY_FAILED: DESTROY_FAILED,
+    EXIT_DESTROY_UNCERTAIN: DESTROY_UNCERTAIN,
 }
 
 

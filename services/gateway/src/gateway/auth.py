@@ -636,6 +636,7 @@ def login(
     # a short prefix of its keyed hash, enough to correlate repeated attempts.
     subject = str(user.id) if user else f"unknown:{attempt_key[:16]}"
     password_hash = user.password_hash if user else None
+    user_id = user.id if user else None
     # Plain reads, then the transaction ends: no connection, no row lock and no
     # open transaction while Argon2id runs, so a queue of guesses never waits on
     # a hash. What was read can be stale by then; it is checked again under the
@@ -654,6 +655,25 @@ def login(
         verified = verify_password(password_hash, body.password)
 
     attempt = _lock_attempt(session, attempt_key)
+    user_gone = False
+    if user is not None:
+        # Then the user row, the same order as every other path (counter row,
+        # user row). It stays locked until the session is committed: a change of
+        # password that closes the other sessions either commits first (this
+        # login then sees the new hash) or waits and revokes the family this
+        # login opens. Without the lock that family could be inserted after the
+        # revocation, in the same second as the cut-off, and outlive the
+        # password it was opened with.
+        with busy_guard("user_row_locked", session):
+            user_gone = (
+                session.execute(
+                    select(User)
+                    .where(User.id == user_id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                ).scalar_one_or_none()
+                is None
+            )
     if attempt.locked_until is not None and attempt.locked_until > now:
         # Locked while this request was hashing (a burst of wrong guesses): the
         # right password does not open a locked account, and nothing is counted,
@@ -662,17 +682,12 @@ def login(
         _log_event("login_blocked", subject, now, logging.WARNING)
         raise _login_failed()
     if user is not None:
-        try:
-            session.refresh(user)
-        except InvalidRequestError:
-            # The user is gone: the answer was for a hash that no longer exists.
-            verified = False
-        else:
-            # A password changed while this request was hashing makes the answer
-            # worthless in both directions: the old password must not open a
-            # session, and a miss against the old hash says nothing about the
-            # new one. Either way it is one failed login, with the generic 401.
-            verified = verified and user.password_hash == password_hash
+        # A user who is gone, or a password changed while this request was
+        # hashing, makes the answer worthless in both directions: the old
+        # password must not open a session, and a miss against the old hash says
+        # nothing about the new one. Either way it is one failed login, with the
+        # generic 401.
+        verified = verified and not user_gone and user.password_hash == password_hash
 
     if not verified:
         _record_failure(session, attempt, subject, now, "login_failure")

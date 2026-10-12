@@ -906,6 +906,40 @@ def test_a_password_changed_during_the_hash_does_not_open_a_session(
     assert attempt_row(db_engine) == (2, None)  # counted like any failed login
 
 
+def test_the_user_row_is_locked_while_the_login_opens_the_session(
+    client, db_engine, monkeypatch
+):
+    # A change of password that closes the other sessions revokes the families
+    # that exist when it commits. If it could commit while this login is still
+    # opening its family, that family would outlive the old password.
+    register(client)
+    token = get_csrf(client)
+    outcomes = []
+
+    def probe_user_row():
+        with db_engine.connect() as conn:
+            try:
+                conn.execute(text("SELECT 1 FROM users FOR UPDATE NOWAIT"))
+                outcomes.append("free")
+            except OperationalError:
+                outcomes.append("locked")
+            finally:
+                conn.rollback()
+
+    real_start = auth._start_session
+
+    def probe_then_start(*args, **kwargs):
+        probe_user_row()
+        return real_start(*args, **kwargs)
+
+    monkeypatch.setattr(auth, "_start_session", probe_then_start)
+
+    response = login(client, token=token)
+
+    assert response.status_code == 200
+    assert outcomes == ["locked"]
+
+
 def test_a_user_removed_during_the_hash_is_a_failed_login_not_a_500(
     client, db_engine, monkeypatch
 ):

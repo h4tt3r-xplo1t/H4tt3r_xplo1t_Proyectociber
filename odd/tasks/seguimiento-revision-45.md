@@ -34,10 +34,11 @@ Forecast ~400-600 authored changed lines (mostly tests). `single-pr`. Low-churn 
 - [x] **T2** (`707361d`; RED: 40P01/40001 gave 500; recheck tests passed first, mutation check proves them) gateway auth/admin: single busy-translation helper (item 2); `change_password` recheck test (item 6); comment fix (item 7); `_locked_usernames` (item 8); shared `FrozenClock` (item 9); placeholder case (item 10).
 - [x] **T3** (`279a1b6`; guard `CI=true` or `OPENBAO_DEV_BOOTSTRAP_SEED=1`; no `.github` change; truth table only, end-to-end with a recreated volume NOT VERIFIED) `bootstrap-seed` only with an explicit dev/CI environment (item 3).
 - [x] **T4** (this docs commit) docs: remove duplicated #37 entry from BITACORA, #45 review record in `odd/tasks/administracion-gateway.md`, #47 BITACORA entry. One docs commit.
-- [ ] **T5** revisor-seguridad, Gentle AI review.
+- [x] **T5** revisor-seguridad (fix `8769324`), Gentle AI review: high risk, consent granted by the person, 4 lenses approved, acknowledged (`review-3441fa797e590557`); 9 advisory findings.
 - [ ] **T6** push and PR (person request only).
 
 ## Progress
 - 2026-10-12: issue #47 created by Claude at the person's request (the person's attempts #47/#48 were not found in the repo; GitHub assigned #47). Branch `fix/47-seguimiento-revision-45` from `8ab9ce6`.
 - 2026-10-12: writer T1-T3 (3 commits), 626 passed; parent spot check 626 passed; ruff clean. Decisions: distinct exit code 5 for uncertain destroy; shared `busy_guard` (rollback only when a session is passed). Out of scope, added to Pendientes: login counter lock still translates only `LOCK_NOT_AVAILABLE`. T4 docs inline. Next: revisor-seguridad, Gentle AI.
 - 2026-10-12: revisor-seguridad: ready for PR, 0 critical/high/medium; 1 low (5xx/transport failure on the DELETE itself still reported DESTROY_FAILED) fixed inline in one round (RED: 5 parametrized cases; GREEN); only 4xx counts as a definite rejection. 631 passed, ruff clean. Next: Gentle AI review.
+- 2026-10-12: Gentle AI approved and acknowledged. Advisory follow-ups: fake race test in test_bootstrap.py:159 has only a start barrier (0/30 failures observed, theoretical window remains); helpers imported from test_mfa instead of conftest; DestroyUncertain subclass relies on except order; constant-compare assert and 5xx-vs-timeout comment in test_bootstrap.py; barrier failure mode in the real test; busy_guard docstring vs end_sessions; seed guard not exercised in CI. Next: T6 push/PR on request.

@@ -1,5 +1,7 @@
 import logging
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
@@ -194,6 +196,29 @@ class ServiceBusy(RuntimeError):
     def __init__(self, message: str, cause: str) -> None:
         super().__init__(message)
         self.cause = cause
+
+
+@contextmanager
+def busy_guard(cause: str, session: Session | None = None) -> Iterator[None]:
+    """Turn a lock that stayed taken into `ServiceBusy` (the gateway's 503).
+
+    Any of `BUSY_SQLSTATES` counts; other database errors pass through. With a
+    `session`, its transaction is rolled back first: pass it when the caller
+    would otherwise go on holding locks it already took (the 503 is the end of
+    the request, and the rollback frees them without waiting for the session to
+    close). Callers that take their first lock inside the guard need not.
+    """
+    busy = False
+    try:
+        yield
+    except OperationalError as exc:
+        if getattr(exc.orig, "sqlstate", None) not in BUSY_SQLSTATES:
+            raise
+        busy = True
+    if busy:
+        if session is not None:
+            session.rollback()
+        raise ServiceBusy("row is locked", cause)
 
 
 def log_service_busy(cause: str) -> None:
@@ -1140,18 +1165,13 @@ def _lock_user_row(session: Session, user: User) -> None:
     row; no admin path takes them the other way round, so they cannot deadlock.
     The wait is bounded by the `lock_timeout` the counter lock already set.
     """
-    try:
+    with busy_guard("user_row_locked", session):
         locked = session.execute(
             select(User)
             .where(User.id == user.id)
             .with_for_update()
             .execution_options(populate_existing=True)
         ).scalar_one_or_none()
-    except OperationalError as exc:
-        if getattr(exc.orig, "sqlstate", None) != LOCK_NOT_AVAILABLE:
-            raise
-        session.rollback()
-        raise ServiceBusy("user row is locked", "user_row_locked") from None
     if locked is None:
         session.rollback()
         raise _session_denied()
@@ -1381,8 +1401,10 @@ def change_password(
     user = actor.user
     subject = str(user.id)
     scoped = "scope" in actor.claims
-    # Slow work (two hashes) runs outside the counter lock; what it decided is
-    # rechecked under the lock before anything is written.
+    # The current password is verified while holding the counter lock, as in
+    # `_lock_second_factor`'s docstring; only the new password is hashed after
+    # that lock is released, and what that step relied on is rechecked under the
+    # second lock before anything is written.
     _refuse_if_locked(session, user, keys, now)
     attempt = _lock_second_factor(session, user, keys, now)
     verified_hash = user.password_hash

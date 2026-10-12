@@ -11,25 +11,21 @@ leaves a security event with the actor and the target, never a secret.
 
 import logging
 import uuid
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select, text, update
-from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from gateway.auth import (
-    BUSY_SQLSTATES,
     LOCK_TIMEOUT,
     NO_STORE,
     CurrentUser,
-    ServiceBusy,
     _lock_attempt,
     _require_session_csrf,
+    busy_guard,
     current_user,
     get_keys,
     get_now,
@@ -132,28 +128,13 @@ def administrator_writer(
     return actor
 
 
-@contextmanager
-def _busy_guard(cause: str) -> Iterator[None]:
-    """Turn a lock that stayed taken into the gateway's 503 (the clients cannot
-    tell it from the other busy causes)."""
-    busy = False
-    try:
-        yield
-    except OperationalError as exc:
-        if getattr(exc.orig, "sqlstate", None) not in BUSY_SQLSTATES:
-            raise
-        busy = True
-    if busy:
-        raise ServiceBusy("admin row is locked", cause)
-
-
 def _begin_change(session: Session) -> None:
     # Same bounded wait as the login counter; SET LOCAL lasts for the transaction.
     session.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
 
 
 def _lock_target(session: Session, target_id: uuid.UUID) -> User:
-    with _busy_guard("admin_target_locked"):
+    with busy_guard("admin_target_locked"):
         target = session.scalar(
             select(User).where(User.id == target_id).with_for_update()
         )
@@ -167,7 +148,7 @@ def _lock_target(session: Session, target_id: uuid.UUID) -> User:
     return target
 
 
-def _is_locked(
+def _locked_usernames(
     session: Session, usernames: list[str], keys: GatewayKeys, now: datetime
 ) -> set[str]:
     """Which of `usernames` have a lockout in force (looked up by keyed hash)."""
@@ -197,7 +178,9 @@ def _out(user: User, locked: bool) -> AdminUserOut:
 def _out_one(
     session: Session, user: User, keys: GatewayKeys, now: datetime
 ) -> AdminUserOut:
-    return _out(user, user.username in _is_locked(session, [user.username], keys, now))
+    return _out(
+        user, user.username in _locked_usernames(session, [user.username], keys, now)
+    )
 
 
 @router.get("/users")
@@ -219,7 +202,7 @@ def list_users(
     users = session.scalars(
         select(User).order_by(User.username).limit(limit).offset(offset)
     ).all()
-    locked = _is_locked(session, [u.username for u in users], keys, now)
+    locked = _locked_usernames(session, [u.username for u in users], keys, now)
     response.headers.update(NO_STORE)
     return UserPageOut(
         items=[_out(u, u.username in locked) for u in users],
@@ -264,7 +247,7 @@ def assign_role(
     """
     actor_user = actor.user
     _begin_change(session)
-    with _busy_guard("admin_role_lock"):
+    with busy_guard("admin_role_lock"):
         session.execute(
             text("SELECT pg_advisory_xact_lock(:key)"), {"key": ROLE_LOCK_KEY}
         )
@@ -399,7 +382,7 @@ def end_sessions(
     the tokens issued so far."""
     _begin_change(session)
     target = _lock_target(session, user_id)
-    with _busy_guard("admin_families_locked"):
+    with busy_guard("admin_families_locked"):
         revoked = session.execute(
             update(RefreshFamily)
             .where(

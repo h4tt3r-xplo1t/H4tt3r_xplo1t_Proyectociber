@@ -165,6 +165,8 @@ def seed_files(openbao_env) -> dict[str, str]:
     if missing:
         pytest.fail(
             "bootstrap-seed credential files not found next to the gateway "
-            "ones: recreate the dev OpenBao and run scripts/openbao-dev-init.sh"
+            "ones: that dev/CI-only role is created on the first setup only "
+            "when CI=true or OPENBAO_DEV_BOOTSTRAP_SEED=1; recreate the dev "
+            "OpenBao and run scripts/openbao-dev-init.sh with one of them set"
         )
     return files

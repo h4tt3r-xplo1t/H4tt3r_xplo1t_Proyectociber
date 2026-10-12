@@ -38,7 +38,7 @@ Forecast ~1500-2000 authored changed lines (about half tests). `single-pr`, foll
 - [x] **T4** (`c7684dd`): `/api/admin/...` (list, assign role with pending, reissue window, unlock, end sessions, separation of duties, last admin); pending role applied on MFA confirm; security events; #43 advisory (current_user event, refresh event test, docstring).
 - [x] **T5** (this docs commit; route: delegated writer, writer trigger: threat model md + json + BITACORA): threats 1, 43, 47; BITACORA; how to run the bootstrap in dev. One docs commit.
 - [x] **T6a** (`4493982`; delegated writer; RED: user row not held during confirm, GREEN, mutation check): fix round M1 (`_lock_user_row` in `mfa_confirm`, order counter row then user row, no admin path takes the reverse) and L3 (loser exit code and fixed message). 621 passed; parent spot check 621 passed; ruff clean.
-- [ ] **T6b**: Gentle AI review.
+- [x] **T6b**: Gentle AI review, high risk, consent granted by the person; 4 lenses, approved with no blocking findings; acknowledged (lineage `review-574db0b2d3b6c9a8`). 13 advisory findings recorded as follow-up work (no commits after approval).
 - [ ] **T7**: push and PR (person request only).
 
 ## Progress
@@ -47,3 +47,4 @@ Forecast ~1500-2000 authored changed lines (about half tests). `single-pr`, foll
 - 2026-10-11: `fee74c6` closes the T2 gap (local OpenBao recreated again as authorized); 620 passed, parent spot check 620 passed. revisor-seguridad next.
 - 2026-10-11: revisor-seguridad: ready for PR, 0 critical/high. Fix round pending: M1 (medium-low) race between `mfa_confirm` applying `pending_role` and `assign_role` (lock the user row FOR UPDATE in mfa_confirm before applying, Barrier test); L3 tautological assert in `test_real_simultaneous_runs_create_one_administrator` (check loser exit code). Document only: L1 bootstrap admin stuck if the 24 h window lapses (depends on A3b2 break-glass), L2 same-second `tokens_valid_since` for scoped tokens, I1 refused bootstrap leaves the seeded secret (runbook note), I2 advisory lock instead of a unique constraint, bootstrap-seed must stay out of E5 manifests. Next: fix round -> T5 docs commit -> Gentle AI.
 - 2026-10-12: fix round `4493982` (M1, L3); 621 passed, parent spot check 621 passed. Next: T5 docs commit, then Gentle AI.
+- 2026-10-12: docs `c52f6b4`; Gentle AI approved and acknowledged. Advisory follow-ups: R4 ambiguous bootstrap destroy outcome; R3 flaky real bootstrap race test; R3 password-change recheck untested; R2/R3 tautological race assert in test_bootstrap.py:149; R2 password-change lock comment; minor readability suggestions. Next: T7 push and PR on the person's request.

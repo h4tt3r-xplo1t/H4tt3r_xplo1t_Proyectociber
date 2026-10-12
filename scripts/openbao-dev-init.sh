@@ -18,7 +18,10 @@
 #   bootstrap-seed-role-id, bootstrap-seed-secret-id  DEV/CI-ONLY AppRole that
 #               can create and update secret/bootstrap/admin, so the tests can
 #               seed the secret (in production the responsible person writes it
-#               with their own credentials)
+#               with their own credentials). Created on the first setup only
+#               when CI=true (GitHub Actions sets it) or
+#               OPENBAO_DEV_BOOTSTRAP_SEED=1 is exported for a local dev stack;
+#               otherwise it does not exist
 #   setup-complete  marker written after every first-setup step succeeded
 #
 # Recovery: if the setup is interrupted after init, the root token is gone.
@@ -141,12 +144,18 @@ if [[ "$FIRST_SETUP" == "true" ]]; then
 
   # DEV/CI ONLY: a writer for secret/bootstrap/admin so the tests can seed it
   # (the bootstrap role can only read and destroy it). It cannot read or delete.
-  bao policy write bootstrap-seed - <deploy/openbao/bootstrap-seed-policy.hcl >/dev/null
-  bao write auth/approle/role/bootstrap-seed \
-    token_policies=bootstrap-seed token_ttl=15m token_max_ttl=1h \
-    secret_id_ttl=0 secret_id_num_uses=0 >/dev/null
-  bao read -field=role_id auth/approle/role/bootstrap-seed/role-id >"$STATE_DIR/bootstrap-seed-role-id"
-  bao write -f -field=secret_id auth/approle/role/bootstrap-seed/secret-id >"$STATE_DIR/bootstrap-seed-secret-id"
+  # Created only when the environment says so explicitly: CI=true, or
+  # OPENBAO_DEV_BOOTSTRAP_SEED=1 for a local dev stack that runs the real tests.
+  if [[ "${CI:-}" == "true" || "${OPENBAO_DEV_BOOTSTRAP_SEED:-}" == "1" ]]; then
+    bao policy write bootstrap-seed - <deploy/openbao/bootstrap-seed-policy.hcl >/dev/null
+    bao write auth/approle/role/bootstrap-seed \
+      token_policies=bootstrap-seed token_ttl=15m token_max_ttl=1h \
+      secret_id_ttl=0 secret_id_num_uses=0 >/dev/null
+    bao read -field=role_id auth/approle/role/bootstrap-seed/role-id >"$STATE_DIR/bootstrap-seed-role-id"
+    bao write -f -field=secret_id auth/approle/role/bootstrap-seed/secret-id >"$STATE_DIR/bootstrap-seed-secret-id"
+  else
+    echo "Skipping the bootstrap-seed AppRole (dev/CI only): export OPENBAO_DEV_BOOTSTRAP_SEED=1 before the first setup to create it"
+  fi
 
   # Keys are created only if absent, and read from stdin (key=-) so they are
   # never on a command line or in the output.

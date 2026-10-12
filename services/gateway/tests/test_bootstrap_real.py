@@ -123,11 +123,23 @@ def test_real_second_run_is_refused_and_creates_nothing(db_engine, seed, reader)
 
 
 def test_real_simultaneous_runs_create_one_administrator(
-    db_engine, seed, reader, capsys
+    db_engine, seed, reader, capsys, monkeypatch
 ):
     seed()
     start = threading.Barrier(2)
     codes = []
+    # main() reads the secret before taking the advisory lock. Hold both runs
+    # until each has read it, so the loser cannot read after the winner destroyed
+    # the secret (that would be INPUT_UNAVAILABLE, a different valid outcome).
+    read_password = bootstrap._read_password
+    read_done = threading.Barrier(2, timeout=30)
+
+    def read_then_wait(client):
+        password = read_password(client)
+        read_done.wait()
+        return password
+
+    monkeypatch.setattr(bootstrap, "_read_password", read_then_wait)
 
     def worker(name):
         start.wait()

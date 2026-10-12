@@ -1,10 +1,11 @@
 """python -m gateway.bootstrap: the first administrator, from a one-shot secret.
 
-The secret store is a fake that mimics the hvac calls the command makes, because
-no credential available to the tests may write `secret/bootstrap/admin` (the
-bootstrap role only reads and destroys it). The policy itself is proven against
-the real OpenBao in test_bootstrap_openbao.py, and the real login and the
-missing-secret path are proven here with the real bootstrap AppRole.
+The secret store is a fake that mimics the hvac calls the command makes. It is
+only needed where the real server cannot be driven: a destroy that fails or
+whose outcome is uncertain, and a commit that fails after the destroy. The
+happy path, the refusals and the race run against the real OpenBao in
+test_bootstrap_real.py (seeded through the dev/CI `bootstrap-seed` role), and
+the policy itself is proven in test_bootstrap_openbao.py.
 """
 
 import logging
@@ -15,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 
 import hvac
 import pytest
+import requests
 from sqlalchemy import text
 
 from gateway import bootstrap
@@ -28,15 +30,21 @@ FIXED_MESSAGES = (
     bootstrap.INPUT_UNAVAILABLE,
     bootstrap.CREATE_FAILED,
     bootstrap.DESTROY_FAILED,
+    bootstrap.DESTROY_UNCERTAIN,
 )
 
 
 class FakeBao:
     """Just enough of hvac's KV v2 client for the bootstrap."""
 
-    def __init__(self, password=SEEDED, *, destroy_error=None, shared=None):
+    def __init__(
+        self, password=SEEDED, *, destroy_error=None, verify_error=None, shared=None
+    ):
         self.store = shared if shared is not None else {"password": password}
         self.destroy_error = destroy_error
+        # Raised by the first read after a delete that was applied.
+        self.verify_error = verify_error
+        self.deleted = False
         self.logged_out = False
         self.secrets = self
         self.kv = self
@@ -44,6 +52,8 @@ class FakeBao:
 
     def read_secret_version(self, path, mount_point, raise_on_deleted_version=True):
         assert (path, mount_point) == ("bootstrap/admin", "secret")
+        if self.deleted and self.verify_error is not None:
+            raise self.verify_error
         if not self.store:
             raise hvac.exceptions.InvalidPath
         return {"data": {"data": dict(self.store)}}
@@ -53,6 +63,7 @@ class FakeBao:
         if self.destroy_error is not None:
             raise self.destroy_error
         self.store.clear()
+        self.deleted = True
 
     def logout(self, revoke_token=False):
         assert revoke_token is True
@@ -145,8 +156,7 @@ def test_simultaneous_runs_create_at_most_one_administrator(db_engine, monkeypat
         thread.join()
 
     assert len(users(db_engine)) == 1
-    assert codes.count(0) == 1
-    assert all(code != 0 for code in codes if code != 0)
+    assert sorted(codes) == [0, bootstrap.EXIT_REFUSED]
     assert shared == {}
 
 
@@ -165,6 +175,55 @@ def test_destroy_failure_rolls_the_creation_back_and_keeps_the_secret(
     assert fake.store == {"password": SEEDED}
     err = capsys.readouterr().err
     assert err.strip() == bootstrap.DESTROY_FAILED
+    assert "secret-url" not in err
+    assert fake.logged_out is True
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        hvac.exceptions.InternalServerError("http://secret-url"),
+        hvac.exceptions.BadGateway("http://secret-url"),
+        hvac.exceptions.VaultDown("http://secret-url"),
+        requests.exceptions.Timeout("http://secret-url"),
+        requests.exceptions.ConnectionError("http://secret-url"),
+    ],
+    ids=["500", "502", "503", "timeout", "connection"],
+)
+def test_a_delete_without_a_definite_answer_is_uncertain(
+    db_engine, monkeypatch, capsys, error
+):
+    # A 5xx or a transport failure during the delete may come after OpenBao
+    # applied it: the message must not claim that the secret is intact.
+    fake = FakeBao(destroy_error=error)
+    monkeypatch.setattr(bootstrap, "login_client", lambda: fake)
+
+    assert run("--username", USERNAME) == bootstrap.EXIT_DESTROY_UNCERTAIN
+
+    assert users(db_engine) == []
+    err = capsys.readouterr().err
+    assert err.strip() == bootstrap.DESTROY_UNCERTAIN
+    assert "secret-url" not in err
+
+
+def test_an_uncertain_destroy_rolls_back_and_does_not_promise_the_secret(
+    db_engine, monkeypatch, capsys
+):
+    # The delete was applied, then the verification read timed out: the secret
+    # may be gone, so the message must not claim that it is intact.
+    fake = FakeBao(
+        verify_error=hvac.exceptions.InternalServerError("http://secret-url")
+    )
+    monkeypatch.setattr(bootstrap, "login_client", lambda: fake)
+
+    assert run("--username", USERNAME) == bootstrap.EXIT_DESTROY_UNCERTAIN
+
+    # Still fails closed: no account is left behind.
+    assert users(db_engine) == []
+    err = capsys.readouterr().err
+    assert err.strip() == bootstrap.DESTROY_UNCERTAIN
+    assert bootstrap.DESTROY_UNCERTAIN != bootstrap.DESTROY_FAILED
+    assert "intact" not in err
     assert "secret-url" not in err
     assert fake.logged_out is True
 

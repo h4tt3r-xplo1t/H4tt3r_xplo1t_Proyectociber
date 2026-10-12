@@ -20,7 +20,7 @@ a rerun would then refuse (an administrator exists), leaving it there.
 import logging
 import re
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import hvac
 from sqlalchemy import exists, select, text
@@ -28,6 +28,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from gateway.db import get_engine
+from gateway.mfa import ENROLL_WINDOW
 from gateway.models import User
 from gateway.passwords import hash_password, meets_password_policy
 from gateway.secrets import KV_MOUNT, SecretsError, login_from_env, revoke
@@ -36,8 +37,6 @@ logger = logging.getLogger("gateway.bootstrap")
 
 KV_PATH = "bootstrap/admin"
 USERNAME_PATTERN = re.compile(r"^[a-z0-9_.-]{3,32}$")
-# ADR 0004, decision 11: the enrollment window after the bootstrap.
-ENROLL_WINDOW = timedelta(hours=24)
 # Any fixed number works: it only has to be the same in every run. It names the
 # lock that serializes the runs and is held until the transaction ends.
 LOCK_KEY = 4_540_000_001

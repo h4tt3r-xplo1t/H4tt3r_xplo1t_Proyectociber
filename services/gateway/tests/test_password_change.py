@@ -488,3 +488,18 @@ def test_a_privileged_session_without_mfa_cannot_change_the_password(client, db_
 
     assert change(client).status_code == 401
     assert verify_password(user_row(db_engine)["password_hash"], GOOD)
+
+
+def test_current_user_leaves_an_event_for_a_session_that_must_change_the_password(
+    client, db_engine, clock, caplog
+):
+    start(client)
+    set_user(db_engine, must_change_password=True)
+    caplog.set_level(logging.INFO, logger="gateway.auth")
+
+    assert client.get(ME).status_code == 401
+
+    user_id = user_row(db_engine)["id"]
+    assert f"event=session_refused_password_change_required subject={user_id}" in (
+        caplog.text
+    )

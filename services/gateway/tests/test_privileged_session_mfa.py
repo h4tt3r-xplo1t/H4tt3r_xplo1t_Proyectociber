@@ -4,6 +4,8 @@ The password login enforces it (see test_mfa); these tests cover the other two
 doors: `current_user` (every authenticated route) and the refresh.
 """
 
+import logging
+
 import pytest
 from sqlalchemy import text
 
@@ -107,3 +109,31 @@ def test_a_lector_without_mfa_is_unaffected(client, db_engine):
     assert client.get(ME).status_code == 200
     assert refresh(client, session.refresh, session.csrf).status_code == 200
     assert family_row(db_engine).revoked_at is None
+
+
+def test_current_user_leaves_an_event_when_it_refuses_a_privileged_session(
+    client, db_engine, caplog
+):
+    start(client)
+    set_role(db_engine, "editor", mfa=False)
+    caplog.set_level(logging.INFO, logger="gateway.auth")
+    with db_engine.connect() as conn:
+        user_id = conn.execute(text("SELECT id FROM users")).scalar_one()
+
+    assert client.get(ME).status_code == 401
+
+    assert f"event=session_refused_mfa_required subject={user_id}" in caplog.text
+
+
+def test_refresh_leaves_the_mfa_required_event(client, db_engine, caplog):
+    session = start(client)
+    set_role(db_engine, "editor", mfa=False)
+    caplog.set_level(logging.INFO, logger="gateway.auth")
+    with db_engine.connect() as conn:
+        user_id = conn.execute(text("SELECT id FROM users")).scalar_one()
+
+    assert refresh(client, session.refresh, session.csrf).status_code == 401
+
+    assert f"event=refresh_failed reason=mfa_required subject={user_id}" in (
+        caplog.text
+    )

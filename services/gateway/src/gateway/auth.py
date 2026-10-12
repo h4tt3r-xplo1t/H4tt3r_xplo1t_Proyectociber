@@ -625,13 +625,16 @@ def login(
         return StatusOut(status="mfa_required")
 
     privileged = user.role in PRIVILEGED_ROLES
-    if privileged or user.must_change_password:
+    window_open = user.mfa_enroll_until is not None and user.mfa_enroll_until > now
+    # A reader with a pending role is sent to the enrollment while the window is
+    # open (decision 11); once it has lapsed they are an ordinary reader until an
+    # administrator reissues it.
+    pending = user.pending_role is not None and window_open
+    if privileged or user.must_change_password or pending:
         # A privileged role cannot operate without MFA. Within the enrollment
         # window the user may enroll; outside it (or with no window) the answer
         # is the generic one, counted like any failed login.
-        if privileged and (
-            user.mfa_enroll_until is None or user.mfa_enroll_until <= now
-        ):
+        if privileged and not window_open:
             _record_failure(session, attempt, subject, now, "login_failure")
             raise _login_failed()
         # Whoever must change the password (the bootstrap administrator, later a
@@ -1115,9 +1118,11 @@ def _lock_second_factor(
 ) -> LoginAttempt:
     """Lock the user's login counter; a locked account gets the generic 401.
 
-    Same row and same rules as the password step. Callers do their slow work
-    (transit, hashing) before this, so the lock covers only quick reads and
-    writes; whatever they decided from the user is rechecked after it.
+    Same row and same rules as the password step. /login/mfa and /mfa/confirm do
+    their slow work (transit, recovery-code hashing) before this, so the lock
+    covers only quick reads and writes; /mfa/enroll and /password check the
+    current password while holding it, as the login does. Whatever a caller
+    decided from the user is rechecked after the lock.
     """
     attempt = _lock_attempt(session, login_attempt_key(user.username, keys.csrf_key))
     _reload_user(session, user)
@@ -1136,9 +1141,11 @@ def _check_can_enroll(actor: CurrentUser, now: datetime) -> None:
         )
     # The enroll token outlives its window by up to 10 minutes: the window
     # (ADR 0004, decision 11) is checked on every call, not only at login.
-    if "scope" in actor.claims and (
-        user.mfa_enroll_until is None or user.mfa_enroll_until <= now
-    ):
+    # The same holds for a reader with a pending role, also from a full session:
+    # the privileged role must not be reachable with the password alone after
+    # the window.
+    window_closed = user.mfa_enroll_until is None or user.mfa_enroll_until <= now
+    if ("scope" in actor.claims or user.pending_role is not None) and window_closed:
         raise _login_failed()
     # A full session may enroll only a reader: every other role must have been
     # through the limited enroll-mfa session (and cannot hold a full one without
@@ -1272,6 +1279,11 @@ def mfa_confirm(
     user.mfa_enabled_at = now
     user.mfa_last_step = step
     user.mfa_enroll_until = None
+    # A role that waited for the factor takes effect now (decision 11).
+    applied_role = user.pending_role
+    if applied_role is not None:
+        user.role = applied_role
+        user.pending_role = None
     # From the app clock, like every write of this column (see register).
     user.tokens_valid_since = now
     session.execute(
@@ -1284,6 +1296,8 @@ def mfa_confirm(
     _clear_session_cookies(response)
     response.headers.update(NO_STORE)
     _log_event("mfa_enabled", subject, now)
+    if applied_role is not None:
+        _log_event("pending_role_applied", subject, now)
     return RecoveryCodesOut(recovery_codes=codes, relogin_required=True)
 
 

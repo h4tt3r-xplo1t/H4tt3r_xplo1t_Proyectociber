@@ -122,7 +122,9 @@ def test_real_second_run_is_refused_and_creates_nothing(db_engine, seed, reader)
     assert data["data"]["data"]["password"] == SEEDED
 
 
-def test_real_simultaneous_runs_create_one_administrator(db_engine, seed, reader):
+def test_real_simultaneous_runs_create_one_administrator(
+    db_engine, seed, reader, capsys
+):
     seed()
     start = threading.Barrier(2)
     codes = []
@@ -138,8 +140,9 @@ def test_real_simultaneous_runs_create_one_administrator(db_engine, seed, reader
         thread.join()
 
     assert len(admins(db_engine)) == 1
-    assert codes.count(0) == 1
-    assert codes.count(0) + len([c for c in codes if c != 0]) == 2
+    # One run wins; the other is refused with the fixed message and nothing else.
+    assert sorted(codes) == [0, bootstrap.EXIT_REFUSED]
+    assert capsys.readouterr().err == bootstrap.REFUSED + "\n"
     assert_no_version_left(reader)
 
 

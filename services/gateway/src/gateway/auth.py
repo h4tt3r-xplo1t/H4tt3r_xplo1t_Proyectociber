@@ -1131,6 +1131,32 @@ def _lock_second_factor(
     return attempt
 
 
+def _lock_user_row(session: Session, user: User) -> None:
+    """Lock the user's own row and re-read it, after the counter lock.
+
+    `assign_role` locks this row (after its advisory lock) before it changes the
+    role or the pending role. A caller that decides from those columns takes the
+    same row lock, so the two cannot interleave. Order: counter row, then user
+    row; no admin path takes them the other way round, so they cannot deadlock.
+    The wait is bounded by the `lock_timeout` the counter lock already set.
+    """
+    try:
+        locked = session.execute(
+            select(User)
+            .where(User.id == user.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+    except OperationalError as exc:
+        if getattr(exc.orig, "sqlstate", None) != LOCK_NOT_AVAILABLE:
+            raise
+        session.rollback()
+        raise ServiceBusy("user row is locked", "user_row_locked") from None
+    if locked is None:
+        session.rollback()
+        raise _session_denied()
+
+
 def _check_can_enroll(actor: CurrentUser, now: datetime) -> None:
     user = actor.user
     if user.mfa_enabled_at is not None:
@@ -1259,6 +1285,8 @@ def mfa_confirm(
     hashes = [hash_password(code) for code in codes]
 
     attempt = _lock_second_factor(session, user, keys, now)
+    # The pending role is read and applied below: hold the row `assign_role` locks.
+    _lock_user_row(session, user)
     # Under the lock, with the user reloaded: the user must still be eligible
     # (window, role, MFA not active yet) and the enrollment this code was
     # checked against must still be the one in progress.

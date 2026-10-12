@@ -675,6 +675,47 @@ def test_confirming_the_mfa_applies_the_pending_role(client, db_engine, clock, c
     assert again.get(ME).json()["role"] == "editor"
 
 
+def test_confirm_holds_the_user_row_while_it_applies_the_pending_role(
+    client, db_engine, clock, monkeypatch
+):
+    """`assign_role` locks the user row; so must the confirmation that reads it.
+
+    Without that lock the confirmation can apply a pending role that an
+    administrator changed or cleared in between (the last writer would win). A
+    separate connection asks for `FOR UPDATE NOWAIT` on the row at the point
+    where the eligibility is checked again: if the request did not hold it,
+    PostgreSQL would grant it at once, so there is nothing to time.
+    """
+    c = admin(client, db_engine, clock)
+    register(browser(client), "target")
+    assign(c, user_id(db_engine, "target"), "editor")
+    target = browser(client)
+    assert login(target, "target").json() == {"status": "mfa_enrollment_required"}
+    secret = call(target, "POST", ENROLL).json()["secret"]
+    held = []
+    real = auth._recheck_can_enroll
+
+    def probing(*args, **kwargs):
+        with db_engine.connect() as conn:
+            try:
+                conn.execute(
+                    text(
+                        "SELECT 1 FROM users WHERE username = 'target' "
+                        "FOR UPDATE NOWAIT"
+                    )
+                ).one()
+            except Exception as exc:
+                held.append(type(exc.orig).__name__)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(auth, "_recheck_can_enroll", probing)
+
+    response = call(target, "POST", CONFIRM, {"code": totp(secret, clock)})
+
+    assert response.status_code == 200
+    assert held == ["LockNotAvailable"]
+
+
 def test_a_reader_with_a_pending_role_cannot_enroll_after_the_window(
     client, db_engine, clock
 ):

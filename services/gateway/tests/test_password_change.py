@@ -1,7 +1,7 @@
 """POST /api/auth/password and the must-change-password gate (ADR 0004, 4/5/11)."""
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 import pyotp
 import pytest
@@ -25,6 +25,7 @@ from tests.test_login import (
     refresh_cookie_value,
     register,
 )
+from tests.test_mfa import FrozenClock, Interfere, run_sql
 from tests.test_refresh import refresh, start
 
 URL = "/api/auth/password"
@@ -33,17 +34,6 @@ NEW = "an entirely new passphrase"
 ENROLL = "/api/auth/mfa/enroll"
 CONFIRM = "/api/auth/mfa/confirm"
 LOGIN_MFA = "/api/auth/login/mfa"
-
-
-class FrozenClock:
-    """A 'now' that only moves when a test says so, set at the start of a TOTP step."""
-
-    def __init__(self):
-        real = datetime.now(UTC).replace(microsecond=0)
-        self.now = real - timedelta(seconds=int(real.timestamp()) % 30)
-
-    def __call__(self):
-        return self.now
 
 
 @pytest.fixture
@@ -195,15 +185,12 @@ def test_wrong_current_passwords_lock_the_account_like_login(client, db_engine):
         "é" * 7,  # 14 characters once composed
         "x" * 129,
         GOOD,  # equal to the current password
-        "café " + GOOD[:0] + "x" * 8,  # placeholder replaced below
     ],
 )
 def test_the_registration_policy_applies_to_the_new_password(
     client, db_engine, caplog, new
 ):
     start(client)
-    if new.startswith("caf"):
-        new = GOOD  # same password
     old_hash = user_row(db_engine)["password_hash"]
 
     response = change(client, new=new)
@@ -503,3 +490,52 @@ def test_current_user_leaves_an_event_for_a_session_that_must_change_the_passwor
     assert f"event=session_refused_password_change_required subject={user_id}" in (
         caplog.text
     )
+
+
+# --- the recheck under the second lock -----------------------------------
+
+
+def test_a_password_changed_while_hashing_is_not_overwritten(
+    client, db_engine, monkeypatch
+):
+    start(client)
+    other_hash = auth.hash_password("another passphrase entirely")
+    monkeypatch.setattr(
+        auth,
+        "hash_password",
+        Interfere(
+            auth.hash_password,
+            lambda: run_sql(
+                db_engine, "UPDATE users SET password_hash = :h", h=other_hash
+            ),
+        ),
+    )
+
+    response = change(client)
+
+    assert response.status_code == 401
+    assert response.json() == NOT_AUTHENTICATED
+    assert user_row(db_engine)["password_hash"] == other_hash
+
+
+def test_a_lifted_duty_while_hashing_refuses_the_enroll_session(
+    client, db_engine, clock, monkeypatch
+):
+    register(client)
+    flag_must_change(db_engine, clock)
+    login(client)
+    assert "scope" in claims_of(client)
+    monkeypatch.setattr(
+        auth,
+        "hash_password",
+        Interfere(
+            auth.hash_password,
+            lambda: run_sql(db_engine, "UPDATE users SET must_change_password = false"),
+        ),
+    )
+
+    response = change(client)
+
+    assert response.status_code == 401
+    assert response.json() == NOT_AUTHENTICATED
+    assert verify_password(user_row(db_engine)["password_hash"], GOOD)

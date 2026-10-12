@@ -16,6 +16,8 @@ import pyotp
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 
 from gateway import auth, secrets
 from gateway.db import get_engine
@@ -1413,6 +1415,35 @@ def test_confirm_rechecks_the_role_under_the_lock(
     response = post(client, CONFIRM, {"code": totp(secret, clock)})
 
     assert response.status_code == 403
+    assert user_row(db_engine)["mfa_enabled_at"] is None
+    assert count(db_engine, "recovery_codes") == 0
+
+
+class DbError(Exception):
+    def __init__(self, sqlstate):
+        self.sqlstate = sqlstate
+
+
+@pytest.mark.parametrize("sqlstate", ["55P03", "40P01", "40001"])
+def test_confirm_answers_503_for_any_busy_error_on_the_user_row(
+    client, db_engine, clock, monkeypatch, sqlstate
+):
+    make_user(client, db_engine, clock)
+    login(client)
+    secret = post(client, ENROLL).json()["secret"]
+    real_execute = Session.execute
+
+    def execute(self, statement, *args, **kwargs):
+        sql = str(statement)
+        if "FROM users" in sql and "FOR UPDATE" in sql:
+            raise OperationalError("SELECT", {}, DbError(sqlstate))
+        return real_execute(self, statement, *args, **kwargs)
+
+    monkeypatch.setattr(Session, "execute", execute)
+
+    response = post(client, CONFIRM, {"code": totp(secret, clock)})
+
+    assert response.status_code == 503
     assert user_row(db_engine)["mfa_enabled_at"] is None
     assert count(db_engine, "recovery_codes") == 0
 

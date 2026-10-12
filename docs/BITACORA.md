@@ -65,6 +65,21 @@ Rama `feat/39-mfa-gateway`. Primera parte de A3 (ADR 0004, decisiones 4, 8 y 11)
 - **TDD:** RED observado en cada tarea y en cada corrección; de 360 a 462 pruebas (448 antes de las correcciones de la revisión).
 - **Bitácora rotada:** las entradas del #33, el #35 y el #37 pasan a `docs/bitacora/2026-10-03_05.md`, con el cierre del #37 y el número de pruebas corregido (360).
 
+## 2026-10-11 · Issue #43: cierre de A3a
+
+Rama `fix/43-mfa-sesion-privilegiada`. Corrige lo que señaló la revisión de Gentle AI del #39 (PR #42, `28f63e8`), que no se pudo arreglar en ese PR para no hacer commits después de la aprobación.
+
+- **Cierre del #39:** la persona fusionó el PR #42 como `28f63e8`. Antes, al fusionar los PR #41 (SQLAlchemy 2.1.2) y #40 (ruff 0.16.10) de Dependabot, hubo que integrar `main` dos veces en la rama (`55dabed` y `a64f917`, con `uv lock` regenerado) y repetir dos veces la revisión de riesgo alto. **Decisión:** los PR de dependencias se fusionan antes de abrir el PR de una funcionalidad, o esperan a que esta se fusione. Además, la carpeta `.codex/` que apareció sin seguimiento (una copia del kit para Codex) se excluye en local con `.git/info/exclude`.
+- **Sesión con privilegios sin MFA:** `current_user` y `refresh` responden el 401 genérico cuando el usuario tiene un rol con privilegios y no tiene MFA, y el refresh revoca la familia. Cubre la sesión abierta antes del despliegue y la de un lector ascendido. Siete pruebas existentes que ascendían a un usuario ahora también le asignan MFA, sin aserciones debilitadas.
+- **Trabajo lento fuera del bloqueo:** en `login_mfa`, `mfa_confirm` y `mfa_enroll`, la llamada a transit y el Argon2 de los códigos de recuperación se hacen sin filas bloqueadas. Después, bajo el bloqueo, una comprobación final (compare-and-set) mantiene el uso único del paso TOTP y de cada código, y repite la elegibilidad del alta (ventana, rol y MFA ya activo).
+  - Pruebas sin tiempos: una sonda intenta `FOR UPDATE NOWAIT` desde otra conexión durante el trabajo lento.
+  - Cada comprobación final tiene una prueba que falla si se quita (comprobación por mutación).
+- **Transit:** los errores se registran con la causa fija `transit_failed`. La prueba de OpenBao lento pasaba sin probar nada si faltaban las variables de entorno; ahora falla sin el tiempo máximo. `transit.py` usa `secrets.login_from_env` y `secrets.revoke`, que ahora son públicas.
+- **Documentación:** el ADR 0006 pasa a Aceptado y describe la clave derivada con el id del usuario como `context`; las amenazas 1 y 43 recogen los controles nuevos.
+- **Revisión de seguridad (`revisor-seguridad`):** lista para PR, sin críticos, altos ni medios; 3 bajos y 4 informativos. Se corrigieron L2, L3 y la falta de pruebas de las comprobaciones finales (I1) en una sola ronda. L1 queda aceptado (ver Pendientes).
+- **Entorno de pruebas local:** `DOCKER_CONTEXT=default`; OpenBao con `docker compose` y PostgreSQL en un contenedor desechable con credenciales de prueba, igual que la CI, sin leer el `.env`.
+- **TDD:** RED observado en cada cambio de comportamiento; de 462 a 488 pruebas (480 antes de las correcciones de la revisión).
+
 ## Pendientes
 
 ### E3: primer flujo (búsqueda por tema) y autenticación
@@ -74,6 +89,8 @@ Rama `feat/39-mfa-gateway`. Primera parte de A3 (ADR 0004, decisiones 4, 8 y 11)
 - [ ] **E3:** elegir y verificar una lista de contraseñas filtradas y su licencia (ASVS 6.2.12, L2, pendiente hasta entonces).
 - [ ] **A3b:** recuperación asistida, arranque del primer administrador, procedimiento de emergencia, asignación pendiente de roles con privilegios y cambio de contraseña (ADR 0004, decisiones 10 y 11). Amenazas 45 a 47.
 - [ ] Límite de frecuencia propio en `/mfa/enroll`, y desactivar el MFA o regenerar los códigos de recuperación (#39).
+- [ ] **A3b:** un usuario con privilegios que ya existía sin MFA y sin fecha límite de alta no puede iniciar sesión ni darse de alta; se resuelve con la asignación pendiente de roles (revisión de Gentle AI del #39).
+- [ ] Varias peticiones `/login/mfa` en paralelo con un token `mfa-pending` válido hacen su llamada a transit y su Argon2 a la vez, ya sin serializar; depende del límite de tasa por IP (E5) (L1 de la revisión del #43).
 - [ ] Rotación de la clave transit `totp` con `rewrap` de los textos cifrados (ADR 0006).
 - [ ] **E3:** implementar la renovación de sesión de un solo vuelo en el frontend.
 - [ ] **E3:** antes de añadir `pysentimiento`, verificar nombre, mantenedor, licencia y actividad (AGENTS.md §3) y fijar el modelo de Hugging Face por hash de commit (riesgo de deserialización con `torch`) (hallazgo B5 del #15).
@@ -136,6 +153,7 @@ Rama `feat/39-mfa-gateway`. Primera parte de A3 (ADR 0004, decisiones 4, 8 y 11)
 - [x] **Issue #29 (PR #30)** y **#31 (PR #32):** registro de usuarios y OpenBao.
 - [x] **A2b (issue #35):** refresh con rotación y detección de reutilización, logout, denylist y `tokens_valid_since`; reinicio del contador tras emitir los tokens y longitud después de NFC.
 - [x] Mecanismo de cifrado del secreto TOTP: transit de OpenBao (ADR 0006, issue #39).
+- [x] **Issue #39 (PR #42, `28f63e8`):** MFA con TOTP y secreto cifrado con transit de OpenBao (ADR 0006).
 - [x] **Issue #37:** purga de las tablas de sesión, reloj único para `tokens_valid_since` y logout que borra las cookies.
 - [x] Normalización Unicode de contraseñas (NFC) y tiempo máximo del semáforo de Argon2id (pendientes del #29, cerrados en el #33).
 - [x] **Issue #27 (PR #28):** `gateway` obligatorio en el ruleset (aplicado en GitHub el 2026-09-30 y verificado desde la API), documentación de la API desactivada por defecto y `httpx2`. ADR 0001 actualizado en el issue #29.

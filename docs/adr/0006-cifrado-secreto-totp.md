@@ -2,7 +2,7 @@
 
 ## Estado
 
-Propuesto, 2026-10-05 (issue #39). Pasa a Aceptado cuando la persona responsable fusione el PR.
+Aceptado, 2026-10-11: la persona responsable fusionó el PR #42 (`28f63e8`). Propuesto el 2026-10-05 (issue #39).
 
 Concreta el punto que el [ADR 0004](0004-autenticacion.md) dejó pendiente en las decisiones 8 y 11 («el secreto TOTP se guarda cifrado; el mecanismo se decide junto con el ADR de red y criptografía»). Se adelanta a ese ADR porque el MFA (A3a) lo necesita ya. El resto del cifrado interno (TLS entre servicios) sigue pendiente.
 
@@ -21,7 +21,8 @@ El gateway ya usa OpenBao 2.7.0 ([ADR 0005](0005-openbao-gestor-secretos.md)) me
 
 La tomó la persona responsable el 2026-10-05: **opción 1, transit de OpenBao.**
 
-- Clave de transit `totp`, de tipo `aes256-gcm96`, creada por el script de inicialización de desarrollo junto con el resto de la configuración inicial.
+- Clave de transit `totp`, de tipo `aes256-gcm96` y derivada (`derived=true`), creada por el script de inicialización de desarrollo junto con el resto de la configuración inicial.
+- Cada cifrado y descifrado pasa como `context` el id del usuario, así que OpenBao usa una clave distinta para cada uno: un texto cifrado copiado a la fila de otro usuario no se descifra. Se añadió en la revisión de seguridad del #39.
 - La política del gateway solo permite `update` sobre `transit/encrypt/totp` y `transit/decrypt/totp`: no puede leer, exportar ni rotar la clave, ni cifrar con otras claves.
 - En la base de datos se guarda solo el texto cifrado de transit (`vault:v1:…`), nunca el secreto en base32.
 - Cada operación usa un token de AppRole de vida corta que se revoca al terminar, como la lectura de claves del ADR 0005. Si OpenBao no responde, la operación falla cerrada con un 503 y un mensaje fijo, sin detalles.

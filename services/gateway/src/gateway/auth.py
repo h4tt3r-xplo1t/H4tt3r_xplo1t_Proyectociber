@@ -1099,6 +1099,20 @@ def mfa_enroll(
     return EnrollOut(otpauth_uri=provisioning_uri(secret, user.username), secret=secret)
 
 
+def _no_enrollment() -> HTTPException:
+    """The 409 for a confirmation with nothing to confirm.
+
+    Raised twice on purpose: a cheap check before any slow work, and again under
+    the counter lock, because the enrollment can change in between (a concurrent
+    confirm or a new enroll).
+    """
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="No enrollment in progress",
+        headers=NO_STORE,
+    )
+
+
 @router.post("/mfa/confirm", dependencies=[Depends(require_same_origin)])
 def mfa_confirm(
     body: ConfirmRequest,
@@ -1121,11 +1135,7 @@ def mfa_confirm(
     _check_can_enroll(actor, now)
     user = actor.user
     if user.mfa_pending_ciphertext is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="No enrollment in progress",
-            headers=NO_STORE,
-        )
+        raise _no_enrollment()
     subject = str(user.id)
     pending = user.mfa_pending_ciphertext
     # The slow work (transit, Argon2id) runs before the counter lock is taken.
@@ -1140,11 +1150,7 @@ def mfa_confirm(
     # checked against must still be the one in progress.
     if user.mfa_enabled_at is not None or user.mfa_pending_ciphertext != pending:
         session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="No enrollment in progress",
-            headers=NO_STORE,
-        )
+        raise _no_enrollment()
     if step is None:
         _record_failure(session, attempt, subject, now, "mfa_failure")
         raise _login_failed()

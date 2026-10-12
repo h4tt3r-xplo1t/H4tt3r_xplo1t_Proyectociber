@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from gateway.auth import ServiceBusy, log_service_busy
 from gateway.auth import router as auth_router
 from gateway.passwords import HashingBusy
+from gateway.transit import TransitError
 
 
 def create_app() -> FastAPI:
@@ -49,6 +50,11 @@ def create_app() -> FastAPI:
     @app.exception_handler(ServiceBusy)
     async def service_busy(request: Request, exc: ServiceBusy) -> JSONResponse:
         log_service_busy(exc.cause)
+        return JSONResponse(status_code=503, content=busy_body)
+
+    @app.exception_handler(TransitError)
+    async def transit_unavailable(request: Request, exc: TransitError) -> JSONResponse:
+        log_service_busy("transit_unavailable")
         return JSONResponse(status_code=503, content=busy_body)
 
     @app.get("/healthz")

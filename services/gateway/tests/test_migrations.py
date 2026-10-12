@@ -194,3 +194,87 @@ def test_session_tables_downgrade_to_0002_drops_only_them(migrated_db):
         tables = set(inspect(engine).get_table_names())
         assert {"refresh_tokens", "revoked_jtis"} <= tables
         engine.dispose()
+
+
+MFA_COLUMNS = {
+    "mfa_secret_ciphertext",
+    "mfa_pending_ciphertext",
+    "mfa_enabled_at",
+    "mfa_last_step",
+    "mfa_enroll_until",
+}
+
+
+def test_upgrade_adds_nullable_mfa_columns_to_users(migrated_db):
+    engine = create_engine(migrated_db)
+    try:
+        columns = {c["name"]: c for c in inspect(engine).get_columns("users")}
+    finally:
+        engine.dispose()
+
+    assert MFA_COLUMNS <= set(columns)
+    for name in MFA_COLUMNS:
+        assert columns[name]["nullable"] is True
+    assert str(columns["mfa_last_step"]["type"]) == "BIGINT"
+
+
+def test_new_user_has_no_mfa(db_engine):
+    with db_engine.begin() as conn:
+        row = conn.execute(
+            text(
+                "INSERT INTO users (id, username, password_hash) "
+                "VALUES (gen_random_uuid(), 'plain', 'x') "
+                "RETURNING mfa_secret_ciphertext, mfa_enabled_at, mfa_last_step"
+            )
+        ).first()
+
+    assert tuple(row) == (None, None, None)
+
+
+def test_upgrade_creates_recovery_codes(migrated_db):
+    engine = create_engine(migrated_db)
+    try:
+        inspector = inspect(engine)
+        columns = {c["name"]: c for c in inspector.get_columns("recovery_codes")}
+        indexes = inspector.get_indexes("recovery_codes")
+    finally:
+        engine.dispose()
+
+    assert set(columns) == {"id", "user_id", "code_hash", "used_at", "created_at"}
+    assert columns["code_hash"]["nullable"] is False
+    assert columns["used_at"]["nullable"] is True
+    assert any(i["column_names"] == ["user_id"] for i in indexes)
+
+
+def test_recovery_codes_cascade_with_the_user(db_engine):
+    with db_engine.begin() as conn:
+        user_id = conn.execute(
+            text(
+                "INSERT INTO users (id, username, password_hash) "
+                "VALUES (gen_random_uuid(), 'owner', 'x') RETURNING id"
+            )
+        ).scalar_one()
+        conn.execute(
+            text("INSERT INTO recovery_codes (user_id, code_hash) VALUES (:u, 'h')"),
+            {"u": user_id},
+        )
+    with db_engine.begin() as conn:
+        conn.execute(text("DELETE FROM users"))
+        remaining = conn.execute(text("SELECT count(*) FROM recovery_codes")).scalar()
+
+    assert remaining == 0
+
+
+def test_mfa_downgrade_to_0003_removes_only_the_mfa_schema(migrated_db):
+    cfg = alembic_config()
+    engine = create_engine(migrated_db)
+    try:
+        command.downgrade(cfg, "0003")
+        inspector = inspect(engine)
+        assert "recovery_codes" not in inspector.get_table_names()
+        assert not MFA_COLUMNS & {c["name"] for c in inspector.get_columns("users")}
+        assert "revoked_jtis" in inspector.get_table_names()
+    finally:
+        command.upgrade(cfg, "head")
+        assert "recovery_codes" in inspect(engine).get_table_names()
+        engine.dispose()

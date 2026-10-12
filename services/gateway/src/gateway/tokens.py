@@ -18,6 +18,12 @@ from gateway.settings import get_jwt_audience, get_jwt_issuer
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_TTL = timedelta(minutes=15)
+# Limited-purpose tokens (ADR 0004, decision 11). Their `scope` claim makes
+# every endpoint but their own refuse them.
+SCOPE_ENROLL_MFA = "enroll-mfa"
+SCOPE_MFA_PENDING = "mfa-pending"
+ENROLL_TOKEN_TTL = timedelta(minutes=10)
+MFA_PENDING_TTL = timedelta(minutes=5)
 LEEWAY_SECONDS = 30
 REQUIRED_CLAIMS = ("sub", "role", "sid", "jti", "iat", "nbf", "exp", "iss", "aud")
 
@@ -31,13 +37,21 @@ class InvalidToken(Exception):
 
 
 def issue_access_token(
-    user_id: uuid.UUID, role: str, sid: str, keys: GatewayKeys, now: datetime
+    user_id: uuid.UUID,
+    role: str,
+    sid: str,
+    keys: GatewayKeys,
+    now: datetime,
+    *,
+    scope: str | None = None,
+    ttl: timedelta = ACCESS_TOKEN_TTL,
 ) -> tuple[str, dict]:
     """Return a signed access token and its claims.
 
     `sid` is the id of the session (refresh family) the token belongs to; a
     refresh keeps it, a new login creates a new one (ASVS 7.2.4). The `jti` is
-    new on every call.
+    new on every call. A `scope` marks a limited-purpose token (enrollment or
+    second factor): it has its own random `sid` and a shorter `ttl`.
     """
     issued_at = int(now.timestamp())
     claims = {
@@ -47,10 +61,12 @@ def issue_access_token(
         "jti": secrets.token_urlsafe(16),
         "iat": issued_at,
         "nbf": issued_at,
-        "exp": issued_at + int(ACCESS_TOKEN_TTL.total_seconds()),
+        "exp": issued_at + int(ttl.total_seconds()),
         "iss": get_jwt_issuer(),
         "aud": get_jwt_audience(),
     }
+    if scope is not None:
+        claims["scope"] = scope
     token = jwt.encode(
         claims, keys.jwt_key, algorithm=ALGORITHM, headers={"kid": keys.jwt_kid}
     )

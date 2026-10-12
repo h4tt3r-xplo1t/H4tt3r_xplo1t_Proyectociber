@@ -1295,3 +1295,75 @@ def test_a_transit_failure_logs_a_fixed_cause_and_nothing_sensitive(
     assert "cause=transit_failed " in busy[0]
     for sensitive in (secret, ciphertext, "tampered", "vault:v1"):
         assert sensitive not in caplog.text
+
+
+# --- rechecks under the lock (compare-and-set) ----------------------------
+
+
+class Interfere:
+    """Runs `change` right after a slow step, as a concurrent request would.
+
+    Wrapped around the last slow call before the lock is taken, so the change
+    lands exactly between "prepare" and "consume".
+    """
+
+    def __init__(self, real, change):
+        self.real = real
+        self.change = change
+
+    def __call__(self, *args, **kwargs):
+        result = self.real(*args, **kwargs)
+        self.change()
+        return result
+
+
+def run_sql(db_engine, sql, **params):
+    with db_engine.begin() as conn:
+        conn.execute(text(sql), params)
+
+
+COUNTS = {
+    "recovery_codes": "SELECT count(*) FROM recovery_codes",
+    "refresh_families": "SELECT count(*) FROM refresh_families",
+}
+
+
+def count(db_engine, table):
+    with db_engine.connect() as conn:
+        return conn.execute(text(COUNTS[table])).scalar()
+
+
+def test_enroll_encrypts_outside_the_lock_for_a_full_session(
+    client, db_engine, clock, monkeypatch
+):
+    register(client)
+    login(client)
+    tables = ("login_attempts", "users")
+    probe = LockProbe(db_engine, auth.encrypt_totp_secret, tables)
+    monkeypatch.setattr(auth, "encrypt_totp_secret", probe)
+
+    response = post(client, ENROLL, {"current_password": GOOD})
+
+    assert response.status_code == 200
+    probe.assert_nothing_held()
+    assert user_row(db_engine)["mfa_pending_ciphertext"] is not None
+
+
+def test_enroll_from_a_full_session_is_refused_if_mfa_got_enabled_meanwhile(
+    client, db_engine, clock, monkeypatch
+):
+    register(client)
+    login(client)
+    monkeypatch.setattr(
+        auth,
+        "encrypt_totp_secret",
+        Interfere(
+            auth.encrypt_totp_secret,
+            lambda: run_sql(db_engine, "UPDATE users SET mfa_enabled_at = now()"),
+        ),
+    )
+
+    response = post(client, ENROLL, {"current_password": GOOD})
+
+    assert response.status_code == 409
+    assert user_row(db_engine)["mfa_pending_ciphertext"] is None

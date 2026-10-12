@@ -1060,6 +1060,15 @@ def _check_can_enroll(actor: CurrentUser, now: datetime) -> None:
         )
 
 
+def _recheck_can_enroll(session: Session, actor: CurrentUser, now: datetime) -> None:
+    """`_check_can_enroll` again, under the lock; release the lock if it refuses."""
+    try:
+        _check_can_enroll(actor, now)
+    except HTTPException:
+        session.rollback()
+        raise
+
+
 @router.post("/mfa/enroll", dependencies=[Depends(require_same_origin)])
 def mfa_enroll(
     actor: Annotated[CurrentUser, Depends(enrollment_actor)],
@@ -1080,7 +1089,8 @@ def mfa_enroll(
     """
     _check_can_enroll(actor, now)
     user = actor.user
-    if "scope" not in actor.claims:
+    full_session = "scope" not in actor.claims
+    if full_session:
         attempt = _lock_second_factor(session, user, keys, now)
         password = body.current_password if body is not None else None
         if password is None:
@@ -1090,9 +1100,16 @@ def mfa_enroll(
         if not verified:
             _record_failure(session, attempt, str(user.id), now, "mfa_failure")
             raise _login_failed()
+        # Password checked: release the counter lock before the transit call.
+        session.commit()
     secret = new_totp_secret()
     # A transit failure raises TransitError (fixed 503) before anything is saved.
-    user.mfa_pending_ciphertext = encrypt_totp_secret(secret.encode(), user.id)
+    ciphertext = encrypt_totp_secret(secret.encode(), user.id)
+    if full_session:
+        # Back under the lock, with the user reloaded: it must still be eligible.
+        _lock_second_factor(session, user, keys, now)
+        _recheck_can_enroll(session, actor, now)
+    user.mfa_pending_ciphertext = ciphertext
     session.commit()
     response.headers.update(NO_STORE)
     _log_event("mfa_enrollment_started", str(user.id), now)
@@ -1146,7 +1163,8 @@ def mfa_confirm(
     hashes = [hash_password(code) for code in codes]
 
     attempt = _lock_second_factor(session, user, keys, now)
-    # Under the lock, with the user reloaded: the enrollment this code was
+    # Under the lock, with the user reloaded: the user must still be eligible
+    # (window, role, MFA not active yet) and the enrollment this code was
     # checked against must still be the one in progress.
     if user.mfa_enabled_at is not None or user.mfa_pending_ciphertext != pending:
         session.rollback()

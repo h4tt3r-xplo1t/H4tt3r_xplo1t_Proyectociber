@@ -368,11 +368,12 @@ def test_session_limits_by_role():
 
 def test_an_editor_gets_the_shorter_refresh_cookie_lifetime(client, db_engine):
     # A privileged role cannot get a session from the password alone (it needs
-    # MFA), so the role changes after login and the refresh sets the cookies.
+    # MFA), so the role changes (with MFA already active) after login and the
+    # refresh sets the cookies.
     register(client)
     login(client)
     with db_engine.begin() as conn:
-        conn.execute(text("UPDATE users SET role = 'editor'"))
+        conn.execute(text("UPDATE users SET role = 'editor', mfa_enabled_at = now()"))
 
     response = client.post(
         "/api/auth/refresh",

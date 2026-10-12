@@ -492,11 +492,12 @@ def test_logout_still_works_after_the_access_jwt_expired_in_the_browser(
 
 def test_the_access_cookie_lifetime_follows_the_role(client, db_engine):
     # A privileged role cannot get a session from the password alone (it needs
-    # MFA), so the role changes after login and the refresh sets the cookies.
+    # MFA), so the role changes (with MFA already active) after login and the
+    # refresh sets the cookies.
     register(client)
     login(client)
     with db_engine.begin() as conn:
-        conn.execute(text("UPDATE users SET role = 'editor'"))
+        conn.execute(text("UPDATE users SET role = 'editor', mfa_enabled_at = now()"))
 
     response = client.post(
         "/api/auth/refresh",

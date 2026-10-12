@@ -238,7 +238,9 @@ def test_a_deleted_user_is_401(client, db_engine):
 def test_idle_limit_by_role(client, db_engine, clock, role, idle):
     session = start(client)
     with db_engine.begin() as conn:
-        conn.execute(text("UPDATE users SET role = :r"), {"r": role})
+        conn.execute(
+            text("UPDATE users SET role = :r, mfa_enabled_at = now()"), {"r": role}
+        )
 
     clock.offset = idle - timedelta(seconds=5)
     ok = refresh(client, session.refresh, session.csrf)
@@ -259,7 +261,9 @@ def test_idle_limit_by_role(client, db_engine, clock, role, idle):
 def test_absolute_limit_by_role(client, db_engine, role, absolute):
     session = start(client)
     with db_engine.begin() as conn:
-        conn.execute(text("UPDATE users SET role = :r"), {"r": role})
+        conn.execute(
+            text("UPDATE users SET role = :r, mfa_enabled_at = now()"), {"r": role}
+        )
 
     def age_family(age):
         # Only the total age may trip the limit: last_used_at stays recent.
@@ -291,7 +295,7 @@ def test_absolute_limit_by_role(client, db_engine, role, absolute):
 def test_the_role_is_read_from_the_database_at_refresh_time(client, db_engine, clock):
     session = start(client)  # a lector: 24 h idle
     with db_engine.begin() as conn:
-        conn.execute(text("UPDATE users SET role = 'editor'"))
+        conn.execute(text("UPDATE users SET role = 'editor', mfa_enabled_at = now()"))
     clock.offset = timedelta(hours=1)
 
     response = refresh(client, session.refresh, session.csrf)
@@ -302,7 +306,7 @@ def test_the_role_is_read_from_the_database_at_refresh_time(client, db_engine, c
 def test_the_refreshed_access_token_carries_the_current_role(client, db_engine):
     session = start(client)
     with db_engine.begin() as conn:
-        conn.execute(text("UPDATE users SET role = 'editor'"))
+        conn.execute(text("UPDATE users SET role = 'editor', mfa_enabled_at = now()"))
 
     response = refresh(client, session.refresh, session.csrf)
 

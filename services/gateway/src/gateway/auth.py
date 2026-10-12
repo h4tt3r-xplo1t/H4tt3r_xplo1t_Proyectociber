@@ -610,6 +610,11 @@ def _session_denied() -> HTTPException:
     )
 
 
+def _lacks_required_mfa(user: User) -> bool:
+    """A privileged role without an active second factor has no full session."""
+    return user.role in PRIVILEGED_ROLES and user.mfa_enabled_at is None
+
+
 def _refresh_failed(reason: str, subject: str, now: datetime) -> None:
     # The clients all see the same 401; the reason is for the security log only.
     # `subject` is a user id or "unknown", never the token.
@@ -715,6 +720,13 @@ def refresh(
     # the live sessions too. Truncated to the second, like current_user does.
     if family.created_at < user.tokens_valid_since.replace(microsecond=0):
         _refresh_failed("invalidated", subject, now)
+        raise _session_denied()
+    if _lacks_required_mfa(user):
+        # Promoted (or already privileged) without a second factor: the session
+        # must not be renewed, and its family ends here for good.
+        family.revoked_at = now
+        session.commit()
+        _refresh_failed("mfa_required", subject, now)
         raise _session_denied()
     limits = session_limits(user.role)
     if now - family.last_used_at > limits.idle:
@@ -930,8 +942,16 @@ def current_user(
     session: Annotated[Session, Depends(get_session)],
     keys: Annotated[GatewayKeys, Depends(get_keys)],
 ) -> CurrentUser:
-    """The user of a full session. Any token with a `scope` claim is refused."""
-    return _authenticate(request, session, keys, FULL_SESSION)
+    """The user of a full session. Any token with a `scope` claim is refused.
+
+    A privileged role without MFA is refused too, whatever its token says: the
+    role comes from the database, so a promotion or a session opened before MFA
+    was required ends on the next request (ADR 0004, decision 4).
+    """
+    actor = _authenticate(request, session, keys, FULL_SESSION)
+    if _lacks_required_mfa(actor.user):
+        raise _session_denied()
+    return actor
 
 
 def enrollment_actor(

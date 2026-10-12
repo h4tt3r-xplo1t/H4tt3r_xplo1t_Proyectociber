@@ -40,3 +40,4 @@ Forecast ~400-600 authored changed lines (mostly tests). `single-pr`. Low-churn 
 ## Progress
 - 2026-10-12: issue #47 created by Claude at the person's request (the person's attempts #47/#48 were not found in the repo; GitHub assigned #47). Branch `fix/47-seguimiento-revision-45` from `8ab9ce6`.
 - 2026-10-12: writer T1-T3 (3 commits), 626 passed; parent spot check 626 passed; ruff clean. Decisions: distinct exit code 5 for uncertain destroy; shared `busy_guard` (rollback only when a session is passed). Out of scope, added to Pendientes: login counter lock still translates only `LOCK_NOT_AVAILABLE`. T4 docs inline. Next: revisor-seguridad, Gentle AI.
+- 2026-10-12: revisor-seguridad: ready for PR, 0 critical/high/medium; 1 low (5xx/transport failure on the DELETE itself still reported DESTROY_FAILED) fixed inline in one round (RED: 5 parametrized cases; GREEN); only 4xx counts as a definite rejection. 631 passed, ruff clean. Next: Gentle AI review.

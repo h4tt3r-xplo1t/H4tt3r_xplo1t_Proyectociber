@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 
 import hvac
 import pytest
+import requests
 from sqlalchemy import text
 
 from gateway import bootstrap
@@ -176,6 +177,33 @@ def test_destroy_failure_rolls_the_creation_back_and_keeps_the_secret(
     assert err.strip() == bootstrap.DESTROY_FAILED
     assert "secret-url" not in err
     assert fake.logged_out is True
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        hvac.exceptions.InternalServerError("http://secret-url"),
+        hvac.exceptions.BadGateway("http://secret-url"),
+        hvac.exceptions.VaultDown("http://secret-url"),
+        requests.exceptions.Timeout("http://secret-url"),
+        requests.exceptions.ConnectionError("http://secret-url"),
+    ],
+    ids=["500", "502", "503", "timeout", "connection"],
+)
+def test_a_delete_without_a_definite_answer_is_uncertain(
+    db_engine, monkeypatch, capsys, error
+):
+    # A 5xx or a transport failure during the delete may come after OpenBao
+    # applied it: the message must not claim that the secret is intact.
+    fake = FakeBao(destroy_error=error)
+    monkeypatch.setattr(bootstrap, "login_client", lambda: fake)
+
+    assert run("--username", USERNAME) == bootstrap.EXIT_DESTROY_UNCERTAIN
+
+    assert users(db_engine) == []
+    err = capsys.readouterr().err
+    assert err.strip() == bootstrap.DESTROY_UNCERTAIN
+    assert "secret-url" not in err
 
 
 def test_an_uncertain_destroy_rolls_back_and_does_not_promise_the_secret(

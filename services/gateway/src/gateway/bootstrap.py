@@ -11,7 +11,8 @@ Order of the steps, and why. The account is created and the secret destroyed as
 one step: the user row is flushed under a database lock, the destroy runs, and
 only then the transaction commits. If the destroy fails, the creation rolls back
 (nothing exists and the secret is intact, so a rerun is safe). If the delete may
-have applied but could not be verified (timeout, 5xx, dropped connection), the
+have applied but OpenBao gave no definite answer to it or to the verification
+read (timeout, 5xx, dropped connection), the
 creation also rolls back, but the secret may be gone: the person checks it and
 reseeds before rerunning. If the commit fails after the destroy, no account and
 no secret exist (the person seeds a new one).
@@ -71,12 +72,23 @@ DESTROY_UNCERTAIN = (
 )
 
 
+# OpenBao answered the delete with a 4xx: it refused, nothing was deleted.
+DEFINITE_REJECTIONS = (
+    hvac.exceptions.InvalidRequest,
+    hvac.exceptions.Unauthorized,
+    hvac.exceptions.Forbidden,
+    hvac.exceptions.InvalidPath,
+    hvac.exceptions.PreconditionFailed,
+    hvac.exceptions.RateLimitExceeded,
+)
+
+
 class DestroyFailed(RuntimeError):
     """The secret could not be destroyed or still answers a read."""
 
 
 class DestroyUncertain(DestroyFailed):
-    """The delete may have applied, but the verification read gave no answer."""
+    """The delete may have applied, but OpenBao gave no definite answer."""
 
 
 def login_client():
@@ -114,8 +126,11 @@ def _destroy(client) -> None:
         client.secrets.kv.v2.delete_metadata_and_all_versions(
             path=KV_PATH, mount_point=KV_MOUNT
         )
-    except Exception:
+    except DEFINITE_REJECTIONS:
         raise DestroyFailed from None
+    except Exception:
+        # A 5xx or a transport failure may come after the delete was applied.
+        raise DestroyUncertain from None
     try:
         client.secrets.kv.v2.read_secret_version(
             path=KV_PATH, mount_point=KV_MOUNT, raise_on_deleted_version=True

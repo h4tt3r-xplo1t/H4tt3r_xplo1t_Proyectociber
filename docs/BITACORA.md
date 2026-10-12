@@ -47,13 +47,14 @@ Rama `feat/45-administracion-gateway`. A3b se divide en A3b1 (este issue) y A3b2
 
 Rama `fix/47-seguimiento-revision-45`. Cierra los hallazgos no bloqueantes de la revisión de Gentle AI del PR #46. La persona pidió crear el issue con el borrador: sus intentos (#47 y #48) no aparecían en el repositorio y GitHub asignó el #47.
 
-- **Destrucción incierta del secreto del bootstrap (R4):** si el borrado se aplicó pero la lectura de verificación falla por algo distinto de `InvalidPath`, el comando revierte la creación y responde con un mensaje fijo propio y el código de salida 5: comprobar si el secreto existe, sembrar uno nuevo si no y repetir. Ya no promete que el secreto siga intacto.
+- **Destrucción incierta del secreto del bootstrap (R4):** si el borrado puede haberse aplicado sin respuesta clara de OpenBao (un 5xx o un fallo de transporte en el borrado, o una lectura de verificación que falla por algo distinto de `InvalidPath`), el comando revierte la creación y responde con un mensaje fijo propio y el código de salida 5: comprobar si el secreto existe, sembrar uno nuevo si no y repetir. Ya no promete que el secreto siga intacto.
 - **Un solo traductor de bloqueos a 503:** `busy_guard` (en `auth.py`) convierte cualquier SQLSTATE de `BUSY_SQLSTATES` en 503; lo usan `mfa_confirm` al bloquear la fila del usuario (con rollback) y las rutas de administración (sin rollback, como antes). Antes, un interbloqueo (40P01) o un fallo de serialización (40001) en esa fila daban 500.
 - **`bootstrap-seed` solo con entorno explícito (R1):** `scripts/openbao-dev-init.sh` lo crea solo con `CI=true` (GitHub Actions lo define) o `OPENBAO_DEV_BOOTSTRAP_SEED=1`; si no, lo omite y lo avisa. Sin cambios en el workflow. Las pruebas reales fallan con un mensaje claro si faltan sus archivos. **No verificado de extremo a extremo:** la rama solo corre en el primer arranque y no se recreó el volumen de OpenBao.
 - **Pruebas:** la prueba real de bootstraps simultáneos es determinista (una barrera hace que ambos lean el secreto antes de crear; 10 de 10 ejecuciones); la aserción tautológica de `test_bootstrap.py` comprueba el código exacto del perdedor; la comprobación final de `change_password` tiene dos pruebas con comprobación por mutación (pasaban sin cambios en el código, que ya era correcto).
 - **Legibilidad:** comentario de `change_password` corregido, `_locked_usernames`, un único `FrozenClock` compartido, sin el caso «placeholder» y docstring de `test_bootstrap.py` al día.
 - **Bitácora:** se quitó la entrada duplicada del #37 (la copia de `bitacora/2026-10-03_05.md` es más completa).
-- **TDD:** RED observado en el mensaje de destrucción incierta y en el 503 para 40P01 y 40001; de 621 a 626 pruebas.
+- **Revisión de seguridad (`revisor-seguridad`):** lista para PR, sin críticos, altos ni medios. Su único bajo (un 5xx o un fallo de transporte en el propio borrado seguía informándose como `DESTROY_FAILED`) se corrigió en una sola ronda: solo un 4xx de OpenBao cuenta como rechazo seguro.
+- **TDD:** RED observado en el mensaje de destrucción incierta (verificación y borrado) y en el 503 para 40P01 y 40001; de 621 a 631 pruebas.
 
 ## Pendientes
 

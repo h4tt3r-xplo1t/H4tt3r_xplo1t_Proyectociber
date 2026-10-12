@@ -269,7 +269,7 @@ class FailingLogoutClient:
 def test_failed_revoke_raises_nothing_and_drops_the_local_token():
     client = FailingLogoutClient()
 
-    secrets._revoke(client)
+    secrets.revoke(client)
 
     assert client.token is None
 

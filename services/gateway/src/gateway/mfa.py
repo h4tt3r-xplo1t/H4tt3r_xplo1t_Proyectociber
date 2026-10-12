@@ -8,7 +8,7 @@ calls and the lockout accounting. Every random value comes from a CSPRNG
 import hmac
 import re
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pyotp
 
@@ -16,6 +16,9 @@ ISSUER = "h4tt3r-1nf0rm4t1v0"
 # +-1 step of 30 s around the server's time (ADR 0004, decision 4).
 TOTP_WINDOW = 1
 TOTP_CODE = re.compile(r"[0-9]{6}")
+# How long a user may enroll the MFA after a privileged role is assigned (or the
+# bootstrap creates the account); an administrator can reissue it (decision 11).
+ENROLL_WINDOW = timedelta(hours=24)
 
 RECOVERY_CODE_COUNT = 10
 RECOVERY_GROUPS = 3

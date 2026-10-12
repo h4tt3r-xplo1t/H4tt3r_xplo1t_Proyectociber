@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from gateway.admin import router as admin_router
 from gateway.auth import ServiceBusy, log_service_busy
 from gateway.auth import router as auth_router
 from gateway.passwords import HashingBusy
@@ -25,6 +26,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(auth_router)
+    app.include_router(admin_router)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(

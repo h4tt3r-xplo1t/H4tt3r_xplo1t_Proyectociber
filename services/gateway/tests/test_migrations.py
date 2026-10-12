@@ -278,3 +278,55 @@ def test_mfa_downgrade_to_0003_removes_only_the_mfa_schema(migrated_db):
         command.upgrade(cfg, "head")
         assert "recovery_codes" in inspect(engine).get_table_names()
         engine.dispose()
+
+
+def test_upgrade_adds_password_and_pending_role_columns(migrated_db):
+    engine = create_engine(migrated_db)
+    try:
+        columns = {c["name"]: c for c in inspect(engine).get_columns("users")}
+    finally:
+        engine.dispose()
+
+    assert columns["must_change_password"]["nullable"] is False
+    assert columns["pending_role"]["nullable"] is True
+
+
+def test_new_user_does_not_have_to_change_password_and_has_no_pending_role(db_engine):
+    with db_engine.begin() as conn:
+        row = conn.execute(
+            text(
+                "INSERT INTO users (id, username, password_hash) "
+                "VALUES (gen_random_uuid(), 'plain', 'x') "
+                "RETURNING must_change_password, pending_role"
+            )
+        ).first()
+
+    assert tuple(row) == (False, None)
+
+
+def test_pending_role_constraint_accepts_exactly_the_model_roles_or_null(db_engine):
+    insert = text(
+        "INSERT INTO users (id, username, password_hash, pending_role) "
+        "VALUES (gen_random_uuid(), :u, 'x', :r)"
+    )
+    for index, role in enumerate((*ROLES, None)):
+        with db_engine.begin() as conn:
+            conn.execute(insert, {"u": f"pending-{index}", "r": role})
+
+    with pytest.raises(IntegrityError), db_engine.begin() as conn:
+        conn.execute(insert, {"u": "intruder", "r": "not-a-role"})
+
+
+def test_admin_columns_downgrade_to_0004_removes_only_them(migrated_db):
+    cfg = alembic_config()
+    engine = create_engine(migrated_db)
+    try:
+        command.downgrade(cfg, "0004")
+        names = {c["name"] for c in inspect(engine).get_columns("users")}
+        assert not {"must_change_password", "pending_role"} & names
+        assert MFA_COLUMNS <= names
+    finally:
+        command.upgrade(cfg, "head")
+        names = {c["name"] for c in inspect(engine).get_columns("users")}
+        assert {"must_change_password", "pending_role"} <= names
+        engine.dispose()

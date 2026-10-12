@@ -6,7 +6,14 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    field_validator,
+    model_validator,
+)
 from sqlalchemy import exists, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError, InvalidRequestError, OperationalError
@@ -31,6 +38,8 @@ from gateway.models import (
     User,
 )
 from gateway.passwords import (
+    PASSWORD_MAX_LENGTH,
+    PASSWORD_MIN_LENGTH,
     hash_password,
     normalize_password,
     verify_dummy,
@@ -196,8 +205,15 @@ def log_service_busy(cause: str) -> None:
     )
 
 
-# ADR 0004 decision 4: at least 15 characters (after NFC) and no composition rules.
-PASSWORD_MIN_LENGTH = 15
+def _long_enough_after_normalization(value: str) -> str:
+    # The hash is taken over the NFC form, so the minimum applies to it: a
+    # decomposed string can be longer raw than the password it stands for.
+    # The message is fixed; the value never goes into it.
+    if len(normalize_password(value)) < PASSWORD_MIN_LENGTH:
+        raise ValueError(
+            f"password must have at least {PASSWORD_MIN_LENGTH} characters"
+        )
+    return value
 
 
 class RegisterRequest(BaseModel):
@@ -207,19 +223,11 @@ class RegisterRequest(BaseModel):
         str, Field(min_length=3, max_length=32, pattern=r"^[a-z0-9_.-]+$")
     ]
     # The upper bound only limits the cost of hashing.
-    password: Annotated[str, Field(min_length=PASSWORD_MIN_LENGTH, max_length=128)]
+    password: Annotated[
+        str, Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
+    ]
 
-    @field_validator("password")
-    @classmethod
-    def long_enough_after_normalization(cls, value: str) -> str:
-        # The hash is taken over the NFC form, so the minimum applies to it: a
-        # decomposed string can be longer raw than the password it stands for.
-        # The message is fixed; the value never goes into it.
-        if len(normalize_password(value)) < PASSWORD_MIN_LENGTH:
-            raise ValueError(
-                f"password must have at least {PASSWORD_MIN_LENGTH} characters"
-            )
-        return value
+    _password_policy = field_validator("password")(_long_enough_after_normalization)
 
 
 class UserOut(BaseModel):
@@ -231,7 +239,9 @@ class UserOut(BaseModel):
 class StatusOut(BaseModel):
     """Login answer when the session is not issued yet: a second step is due."""
 
-    status: Literal["mfa_enrollment_required", "mfa_required"]
+    status: Literal[
+        "mfa_enrollment_required", "mfa_required", "password_change_required"
+    ]
 
 
 class EnrollRequest(BaseModel):
@@ -262,6 +272,35 @@ class MfaLoginRequest(BaseModel):
     code: Annotated[
         str, Field(min_length=6, max_length=32, pattern=r"^[0-9A-Za-z -]+$")
     ]
+
+
+class PasswordChangeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: Annotated[
+        str, Field(min_length=1, max_length=PASSWORD_MAX_LENGTH)
+    ]
+    new_password: Annotated[
+        str, Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
+    ]
+    close_other_sessions: StrictBool = False
+
+    _password_policy = field_validator("new_password")(_long_enough_after_normalization)
+
+    @model_validator(mode="after")
+    def differs_from_the_current_one(self) -> PasswordChangeRequest:
+        # Both values come from the request, so this leaks nothing; the message
+        # is fixed and neither value goes into it.
+        if normalize_password(self.new_password) == normalize_password(
+            self.current_password
+        ):
+            raise ValueError("the new password must differ from the current one")
+        return self
+
+
+class PasswordChangedOut(BaseModel):
+    # True when the user must still enroll the MFA before a full session exists.
+    mfa_enrollment_required: bool
 
 
 class ConfirmRequest(BaseModel):
@@ -585,18 +624,31 @@ def login(
         )
         return StatusOut(status="mfa_required")
 
-    if user.role in PRIVILEGED_ROLES:
+    privileged = user.role in PRIVILEGED_ROLES
+    window_open = user.mfa_enroll_until is not None and user.mfa_enroll_until > now
+    # A reader with a pending role is sent to the enrollment while the window is
+    # open (decision 11); once it has lapsed they are an ordinary reader until an
+    # administrator reissues it.
+    pending = user.pending_role is not None and window_open
+    if privileged or user.must_change_password or pending:
         # A privileged role cannot operate without MFA. Within the enrollment
         # window the user may enroll; outside it (or with no window) the answer
         # is the generic one, counted like any failed login.
-        if user.mfa_enroll_until is None or user.mfa_enroll_until <= now:
+        if privileged and not window_open:
             _record_failure(session, attempt, subject, now, "login_failure")
             raise _login_failed()
+        # Whoever must change the password (the bootstrap administrator, later a
+        # reset) gets the limited session and no other, whatever the role: it
+        # authorizes the password change and the MFA enrollment only.
         session.commit()
         _start_scoped_session(
             response, user, SCOPE_ENROLL_MFA, ENROLL_TOKEN_TTL, keys, now
         )
-        return StatusOut(status="mfa_enrollment_required")
+        return StatusOut(
+            status="password_change_required"
+            if user.must_change_password
+            else "mfa_enrollment_required"
+        )
 
     return _start_session(response, session, user, attempt, keys, now)
 
@@ -941,15 +993,29 @@ def current_user(
     request: Request,
     session: Annotated[Session, Depends(get_session)],
     keys: Annotated[GatewayKeys, Depends(get_keys)],
+    now: Annotated[datetime, Depends(get_now)],
 ) -> CurrentUser:
     """The user of a full session. Any token with a `scope` claim is refused.
 
     A privileged role without MFA is refused too, whatever its token says: the
     role comes from the database, so a promotion or a session opened before MFA
-    was required ends on the next request (ADR 0004, decision 4).
+    was required ends on the next request (ADR 0004, decision 4). So is a user
+    who still has to change the password (decision 11): that session only
+    reaches the password change. Both refusals leave a security event.
     """
     actor = _authenticate(request, session, keys, FULL_SESSION)
     if _lacks_required_mfa(actor.user):
+        _log_event(
+            "session_refused_mfa_required", str(actor.user.id), now, logging.WARNING
+        )
+        raise _session_denied()
+    if actor.user.must_change_password:
+        _log_event(
+            "session_refused_password_change_required",
+            str(actor.user.id),
+            now,
+            logging.WARNING,
+        )
         raise _session_denied()
     return actor
 
@@ -961,6 +1027,32 @@ def enrollment_actor(
 ) -> CurrentUser:
     """Who may enroll: an `enroll-mfa` token or a full session, with its CSRF."""
     actor = _authenticate(request, session, keys, ENROLLMENT_SESSIONS)
+    _require_session_csrf(request, actor.claims, keys)
+    return actor
+
+
+# The enroll-mfa token also reaches the password change, but only while the
+# password must be changed (ADR 0004, decision 11).
+PASSWORD_SESSIONS = frozenset({None, SCOPE_ENROLL_MFA})
+
+
+def password_actor(
+    request: Request,
+    session: Annotated[Session, Depends(get_session)],
+    keys: Annotated[GatewayKeys, Depends(get_keys)],
+) -> CurrentUser:
+    """Who may change the password: a full session, or enroll-mfa if it must change.
+
+    A full session is the user's own, so it needs the MFA a privileged role
+    requires; a user who must change the password may do it with the limited
+    session or with a full one (they have an MFA already).
+    """
+    actor = _authenticate(request, session, keys, PASSWORD_SESSIONS)
+    scoped = "scope" in actor.claims
+    if (scoped and not actor.user.must_change_password) or (
+        not scoped and _lacks_required_mfa(actor.user)
+    ):
+        raise _session_denied()
     _require_session_csrf(request, actor.claims, keys)
     return actor
 
@@ -1026,15 +1118,43 @@ def _lock_second_factor(
 ) -> LoginAttempt:
     """Lock the user's login counter; a locked account gets the generic 401.
 
-    Same row and same rules as the password step. Callers do their slow work
-    (transit, hashing) before this, so the lock covers only quick reads and
-    writes; whatever they decided from the user is rechecked after it.
+    Same row and same rules as the password step. /login/mfa and /mfa/confirm do
+    their slow work (transit, recovery-code hashing) before this, so the lock
+    covers only quick reads and writes; /mfa/enroll and /password check the
+    current password while holding it, as the login does. Whatever a caller
+    decided from the user is rechecked after the lock.
     """
     attempt = _lock_attempt(session, login_attempt_key(user.username, keys.csrf_key))
     _reload_user(session, user)
     if attempt.locked_until is not None and attempt.locked_until > now:
         raise _login_blocked(session, user, now)
     return attempt
+
+
+def _lock_user_row(session: Session, user: User) -> None:
+    """Lock the user's own row and re-read it, after the counter lock.
+
+    `assign_role` locks this row (after its advisory lock) before it changes the
+    role or the pending role. A caller that decides from those columns takes the
+    same row lock, so the two cannot interleave. Order: counter row, then user
+    row; no admin path takes them the other way round, so they cannot deadlock.
+    The wait is bounded by the `lock_timeout` the counter lock already set.
+    """
+    try:
+        locked = session.execute(
+            select(User)
+            .where(User.id == user.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+    except OperationalError as exc:
+        if getattr(exc.orig, "sqlstate", None) != LOCK_NOT_AVAILABLE:
+            raise
+        session.rollback()
+        raise ServiceBusy("user row is locked", "user_row_locked") from None
+    if locked is None:
+        session.rollback()
+        raise _session_denied()
 
 
 def _check_can_enroll(actor: CurrentUser, now: datetime) -> None:
@@ -1047,9 +1167,11 @@ def _check_can_enroll(actor: CurrentUser, now: datetime) -> None:
         )
     # The enroll token outlives its window by up to 10 minutes: the window
     # (ADR 0004, decision 11) is checked on every call, not only at login.
-    if "scope" in actor.claims and (
-        user.mfa_enroll_until is None or user.mfa_enroll_until <= now
-    ):
+    # The same holds for a reader with a pending role, also from a full session:
+    # the privileged role must not be reachable with the password alone after
+    # the window.
+    window_closed = user.mfa_enroll_until is None or user.mfa_enroll_until <= now
+    if ("scope" in actor.claims or user.pending_role is not None) and window_closed:
         raise _login_failed()
     # A full session may enroll only a reader: every other role must have been
     # through the limited enroll-mfa session (and cannot hold a full one without
@@ -1163,6 +1285,8 @@ def mfa_confirm(
     hashes = [hash_password(code) for code in codes]
 
     attempt = _lock_second_factor(session, user, keys, now)
+    # The pending role is read and applied below: hold the row `assign_role` locks.
+    _lock_user_row(session, user)
     # Under the lock, with the user reloaded: the user must still be eligible
     # (window, role, MFA not active yet) and the enrollment this code was
     # checked against must still be the one in progress.
@@ -1183,6 +1307,11 @@ def mfa_confirm(
     user.mfa_enabled_at = now
     user.mfa_last_step = step
     user.mfa_enroll_until = None
+    # A role that waited for the factor takes effect now (decision 11).
+    applied_role = user.pending_role
+    if applied_role is not None:
+        user.role = applied_role
+        user.pending_role = None
     # From the app clock, like every write of this column (see register).
     user.tokens_valid_since = now
     session.execute(
@@ -1195,7 +1324,125 @@ def mfa_confirm(
     _clear_session_cookies(response)
     response.headers.update(NO_STORE)
     _log_event("mfa_enabled", subject, now)
+    if applied_role is not None:
+        _log_event("pending_role_applied", subject, now)
     return RecoveryCodesOut(recovery_codes=codes, relogin_required=True)
+
+
+def _reissue_scoped_cookie(
+    response: Response, actor: CurrentUser, keys: GatewayKeys, now: datetime
+) -> None:
+    """Replace a limited session's access token by a fresh one of the same `sid`.
+
+    It survives a bump of `tokens_valid_since` this way: the new token is issued
+    at or after the cut-off. The CSRF cookie is bound to the `sid`, which does
+    not change.
+    """
+    user = actor.user
+    token, _ = issue_access_token(
+        user.id,
+        user.role,
+        actor.claims["sid"],
+        keys,
+        now,
+        scope=actor.claims["scope"],
+        ttl=ENROLL_TOKEN_TTL,
+    )
+    response.set_cookie(
+        ACCESS_COOKIE,
+        token,
+        max_age=int(ENROLL_TOKEN_TTL.total_seconds()),
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="strict",
+    )
+
+
+@router.post("/password", dependencies=[Depends(require_same_origin)])
+def change_password(
+    body: PasswordChangeRequest,
+    actor: Annotated[CurrentUser, Depends(password_actor)],
+    response: Response,
+    session: Annotated[Session, Depends(get_session)],
+    keys: Annotated[GatewayKeys, Depends(get_keys)],
+    now: Annotated[datetime, Depends(get_now)],
+) -> PasswordChangedOut:
+    """Change the password of the signed-in user; optionally end the other sessions.
+
+    The current password is checked again (a stolen session must not be able to
+    take the account over) and a wrong one counts in the login lockout. The new
+    one follows the registration policy. With `close_other_sessions` every other
+    session of the user ends (ASVS 7.4.3) and this one continues in a NEW
+    session: `tokens_valid_since` moves to now, which also ends this session's
+    own family, so a new family, refresh token and CSRF binding are issued
+    (the password was just proven again, so no further login is asked).
+    """
+    user = actor.user
+    subject = str(user.id)
+    scoped = "scope" in actor.claims
+    # Slow work (two hashes) runs outside the counter lock; what it decided is
+    # rechecked under the lock before anything is written.
+    _refuse_if_locked(session, user, keys, now)
+    attempt = _lock_second_factor(session, user, keys, now)
+    verified_hash = user.password_hash
+    if not verify_password(verified_hash, body.current_password):
+        _record_failure(session, attempt, subject, now, "password_change_failure")
+        raise _login_failed()
+    # Password checked: release the counter lock before hashing the new one.
+    session.commit()
+    new_hash = hash_password(body.new_password)
+
+    _lock_second_factor(session, user, keys, now)
+    if user.password_hash != verified_hash or (
+        scoped and not user.must_change_password
+    ):
+        # Changed (or the duty lifted) while this request was hashing.
+        session.rollback()
+        raise _session_denied()
+    user.password_hash = new_hash
+    user.must_change_password = False
+    closing = body.close_other_sessions
+    new_session = None
+    if closing:
+        # From the app clock, like every write of this column (see register).
+        user.tokens_valid_since = now
+        session.execute(
+            update(RefreshFamily)
+            .where(RefreshFamily.user_id == user.id, RefreshFamily.revoked_at.is_(None))
+            .values(revoked_at=now)
+        )
+        # The cut-off could spare the old token when it was issued in the same
+        # second as `now`, so it is denied by its id as well.
+        _deny_jti(session, actor.claims)
+        if not scoped:
+            family = RefreshFamily(
+                id=uuid.uuid4(), user_id=user.id, created_at=now, last_used_at=now
+            )
+            session.add(family)
+            access, claims = issue_access_token(
+                user.id, user.role, str(family.id), keys, now
+            )
+            refresh_token = new_refresh_token()
+            session.add(
+                RefreshToken(
+                    family_id=family.id,
+                    token_hash=hash_refresh_token(refresh_token),
+                    created_at=now,
+                )
+            )
+            new_session = (access, refresh_token, claims["sid"])
+    session.commit()
+    if new_session is not None:
+        access, refresh_token, sid = new_session
+        _set_session_cookies(response, access, refresh_token, sid, user.role, keys, now)
+    elif closing:
+        _reissue_scoped_cookie(response, actor, keys, now)
+    response.headers.update(NO_STORE)
+    _log_event("password_changed", subject, now)
+    if closing:
+        _log_event("other_sessions_closed", subject, now)
+    return PasswordChangedOut(mfa_enrollment_required=_lacks_required_mfa(user))
 
 
 @dataclass(frozen=True)

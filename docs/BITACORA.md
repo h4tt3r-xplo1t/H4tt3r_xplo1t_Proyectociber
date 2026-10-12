@@ -15,6 +15,7 @@ Las entradas de issues cerrados se mueven a `docs/bitacora/` para no superar el 
   - `sid` igual al `id` de la familia de refresh; la reutilización de un refresh revoca la familia sin periodo de gracia (riesgo aceptado).
   - Los 403 por origen o CSRF del logout no borran cookies.
   - `tokens_valid_since` sale del reloj de la aplicación (requisito de NTP).
+- [2026-10-05 a 2026-10-11](bitacora/2026-10-05_11.md): MFA con TOTP (issue #39) y cierre de A3a (issue #43). Decisiones que conviene conocer: el secreto TOTP se cifra con transit de OpenBao (ADR 0006), un rol con privilegios sin MFA solo recibe un JWT de alcance `enroll-mfa`, `current_user` y `refresh` rechazan la sesión con privilegios sin MFA, y el trabajo lento (transit, Argon2) se hace fuera del bloqueo de filas con una comprobación final.
 
 ## 2026-10-04 · Issue #37: mantenimiento de la sesión
 
@@ -36,49 +37,31 @@ Rama `chore/37-mantenimiento-sesion`. Cierra la deuda de sesión del #33 y del #
 - **Requisito de operación:** los relojes de las réplicas del gateway deben estar sincronizados (NTP). Con desfase, un token emitido en una réplica atrasada justo después de registrarse en otra adelantada se rechaza hasta que pase el desfase.
 - **Pruebas:** fixtures `clock` y `client` compartidos en `conftest.py`. TDD con RED observado en cada cambio de comportamiento; de 336 a 360 pruebas (354 antes de las correcciones de la revisión).
 
-## 2026-10-05 · Issue #39: MFA con TOTP (A3a)
+## 2026-10-12 · Issue #45: administración del gateway (A3b1)
 
-Rama `feat/39-mfa-gateway`. Primera parte de A3 (ADR 0004, decisiones 4, 8 y 11); la recuperación asistida, el primer administrador y el procedimiento de emergencia van en A3b.
+Rama `feat/45-administracion-gateway`. A3b se divide en A3b1 (este issue) y A3b2 (recuperación asistida, restablecimiento de MFA con dos administradores y procedimiento de emergencia). Sin ADR nuevo: sigue las decisiones 5 y 11 del ADR 0004.
 
-- **Cifrado del secreto TOTP con transit de OpenBao** (decisión de la persona, [ADR 0006](adr/0006-cifrado-secreto-totp.md)):
-  - Clave `totp`; la política del gateway solo permite cifrar y descifrar con ella.
-  - En la base de datos solo se guarda el texto cifrado.
-  - Si OpenBao cae, el login con MFA falla cerrado (503).
-- **`pyotp` 2.10.0**, verificada en PyPI (MIT, Andrey Kislyuk, sin dependencias); `uv audit`: 41 paquetes sin vulnerabilidades conocidas.
-- **Alta:** un rol con privilegios sin MFA solo recibe un JWT de 10 min con alcance `enroll-mfa`, y solo antes de su fecha límite de alta.
-  - `/mfa/enroll` muestra el secreto una vez.
-  - `/mfa/confirm` lo activa y muestra una vez 10 códigos de recuperación (Argon2id).
-  - El lector puede activarlo desde su sesión.
-- **Segundo factor:** con MFA, la contraseña solo da un JWT `mfa-pending` de 5 min; `/login/mfa` con un TOTP o un código de recuperación da la sesión completa por el mismo camino que el login.
-  - Ventana de ±1 paso; un paso ya usado se rechaza; los códigos de recuperación son de un solo uso.
-  - Los fallos de MFA cuentan en el bloqueo.
-- **Denegación por defecto de los alcances:** `current_user` rechaza cualquier token con `scope`.
-- **Desarrollo:** transit solo se configura en el primer arranque de OpenBao (después se revoca el token root), así que la pila local se recreó; en CI siempre arranca de cero.
-- **Revisión de seguridad (`revisor-seguridad`):** lista para PR, sin críticos ni altos; 2 medios y 5 bajos. Corregidos en una sola ronda:
-  - El token `mfa-pending` es de un solo uso aunque lleguen dos peticiones a la vez.
-  - El alta desde una sesión de lector exige la contraseña actual, y toda confirmación cierra las demás sesiones del usuario.
-  - La fecha límite del alta se comprueba también en el alta y en la confirmación.
-  - Las llamadas a transit tienen tiempo máximo.
-  - El texto cifrado queda ligado al usuario (`context` de transit con su id).
-- **Riesgo aceptado:** durante la ventana de alta (24 h), quien conozca la contraseña de un usuario con privilegios puede dar de alta su propio dispositivo (ADR 0004, decisión 11; anotado en la amenaza 43).
-- **Entornos de desarrollo existentes:** el script solo configura transit en el primer arranque. Hay que recrear el volumen de OpenBao y los archivos de `.local/openbao/`; sin eso, el MFA responde 503.
-- **TDD:** RED observado en cada tarea y en cada corrección; de 360 a 462 pruebas (448 antes de las correcciones de la revisión).
-- **Bitácora rotada:** las entradas del #33, el #35 y el #37 pasan a `docs/bitacora/2026-10-03_05.md`, con el cierre del #37 y el número de pruebas corregido (360).
-
-## 2026-10-11 · Issue #43: cierre de A3a
-
-Rama `fix/43-mfa-sesion-privilegiada`. Corrige lo que señaló la revisión de Gentle AI del #39 (PR #42, `28f63e8`), que no se pudo arreglar en ese PR para no hacer commits después de la aprobación.
-
-- **Cierre del #39:** la persona fusionó el PR #42 como `28f63e8`. Antes, al fusionar los PR #41 (SQLAlchemy 2.1.2) y #40 (ruff 0.16.10) de Dependabot, hubo que integrar `main` dos veces en la rama (`55dabed` y `a64f917`, con `uv lock` regenerado) y repetir dos veces la revisión de riesgo alto. **Decisión:** los PR de dependencias se fusionan antes de abrir el PR de una funcionalidad, o esperan a que esta se fusione. Además, la carpeta `.codex/` que apareció sin seguimiento (una copia del kit para Codex) se excluye en local con `.git/info/exclude`.
-- **Sesión con privilegios sin MFA:** `current_user` y `refresh` responden el 401 genérico cuando el usuario tiene un rol con privilegios y no tiene MFA, y el refresh revoca la familia. Cubre la sesión abierta antes del despliegue y la de un lector ascendido. Siete pruebas existentes que ascendían a un usuario ahora también le asignan MFA, sin aserciones debilitadas.
-- **Trabajo lento fuera del bloqueo:** en `login_mfa`, `mfa_confirm` y `mfa_enroll`, la llamada a transit y el Argon2 de los códigos de recuperación se hacen sin filas bloqueadas. Después, bajo el bloqueo, una comprobación final (compare-and-set) mantiene el uso único del paso TOTP y de cada código, y repite la elegibilidad del alta (ventana, rol y MFA ya activo).
-  - Pruebas sin tiempos: una sonda intenta `FOR UPDATE NOWAIT` desde otra conexión durante el trabajo lento.
-  - Cada comprobación final tiene una prueba que falla si se quita (comprobación por mutación).
-- **Transit:** los errores se registran con la causa fija `transit_failed`. La prueba de OpenBao lento pasaba sin probar nada si faltaban las variables de entorno; ahora falla sin el tiempo máximo. `transit.py` usa `secrets.login_from_env` y `secrets.revoke`, que ahora son públicas.
-- **Documentación:** el ADR 0006 pasa a Aceptado y describe la clave derivada con el id del usuario como `context`; las amenazas 1 y 43 recogen los controles nuevos.
-- **Revisión de seguridad (`revisor-seguridad`):** lista para PR, sin críticos, altos ni medios; 3 bajos y 4 informativos. Se corrigieron L2, L3 y la falta de pruebas de las comprobaciones finales (I1) en una sola ronda. L1 queda aceptado (ver Pendientes).
-- **Entorno de pruebas local:** `DOCKER_CONTEXT=default`; OpenBao con `docker compose` y PostgreSQL en un contenedor desechable con credenciales de prueba, igual que la CI, sin leer el `.env`.
-- **TDD:** RED observado en cada cambio de comportamiento; de 462 a 488 pruebas (480 antes de las correcciones de la revisión).
+- **Primer administrador:** `python -m gateway.bootstrap --username <nombre>`.
+  - La contraseña sale solo de OpenBao (`secret/bootstrap/admin`), nunca de la línea de comandos, y no se imprime ni se registra.
+  - AppRole `bootstrap` aparte: leer ese secreto y borrar sus metadatos; la política del gateway no recibe `secret/bootstrap/*`.
+  - Se niega si ya existe un administrador; un bloqueo asesor de la base de datos impide ejecuciones simultáneas.
+  - Crea la cuenta y destruye todas las versiones del secreto en un solo paso: si la destrucción falla, la creación se revierte.
+  - La cuenta nace con `must_change_password` y una ventana de 24 h para dar de alta el MFA. Errores con mensajes fijos y código de salida distinto de cero.
+- **Endpoints `/api/admin/...`:** exigen un administrador con sesión completa (que ya exige MFA) y revalidan el rol en la base de datos en cada petición.
+  - Listar usuarios, asignar rol, reabrir la ventana de alta del MFA, desbloquear una cuenta y cerrar sesiones; cada acción deja un evento de seguridad.
+  - **Rol pendiente:** un rol con privilegios para un usuario sin MFA no se aplica; el usuario sigue siendo lector con `pending_role` y una nueva ventana de 24 h, y el rol se aplica al confirmar el MFA. Resuelve el pendiente del usuario con privilegios que existía sin MFA (#43).
+  - **Separación de funciones:** un administrador no puede ser auditor (403 cuando el destino es hoy administrador, o es él mismo). Interpretación confirmada.
+  - **Último administrador:** la regla cuenta solo a los administradores con MFA activo; el último no puede perder el rol (409). Interpretación confirmada.
+- **Cambio de contraseña:** `POST /api/auth/password` exige la contraseña actual, aplica la política y cierra las demás sesiones. Mientras `must_change_password` esté activo, la sesión con alcance `enroll-mfa` solo llega a ese endpoint y al alta del MFA.
+- **AppRole `bootstrap-seed`:** solo para desarrollo y CI, con crear y actualizar sobre `secret/data/bootstrap/admin`; permite que las pruebas ejecuten el arranque real contra OpenBao. Aprobado por la persona. No debe aparecer en los manifiestos de E5.
+- **Arranque en desarrollo:**
+  1. Con `scripts/openbao-dev-init.sh` hecho, sembrar una contraseña aleatoria en `secret/bootstrap/admin` (en desarrollo, con el AppRole `bootstrap-seed`).
+  2. Ejecutar `python -m gateway.bootstrap --username <nombre>` con `GATEWAY_BOOTSTRAP_ROLE_ID_FILE` y `GATEWAY_BOOTSTRAP_SECRET_ID_FILE` apuntando a los archivos del AppRole `bootstrap` (`.local/openbao/`).
+  3. El administrador inicia sesión, cambia la contraseña y da de alta el MFA dentro de las 24 h.
+  - Un arranque rechazado (ya hay un administrador) deja el secreto sembrado: hay que borrarlo a mano (I1).
+- **Revisión de seguridad (`revisor-seguridad`):** lista para PR, sin críticos ni altos. M1 (carrera entre `mfa_confirm` y `assign_role`: ahora `mfa_confirm` bloquea la fila del usuario antes de aplicar el rol pendiente) y L3 (código de salida y mensaje del perdedor en la prueba de ejecuciones simultáneas) se corrigieron en una sola ronda (`4493982`). L1, L2, I1 e I2 quedan documentados (ver Pendientes y las amenazas 1, 43 y 47).
+- **Entorno de pruebas local:** `scripts/openbao-dev-init.sh` necesita `POSTGRES_USER`, `POSTGRES_PASSWORD` y `POSTGRES_DB` con valores ficticios, porque compose valida el archivo completo.
+- **TDD:** RED observado en cada cambio de comportamiento; de 488 a 621 pruebas.
 
 ## Pendientes
 
@@ -87,9 +70,13 @@ Rama `fix/43-mfa-sesion-privilegiada`. Corrige lo que señaló la revisión de G
 - [ ] Verificar las versiones del resto del stack (React, workers, PostgreSQL, RabbitMQ, Vault) antes de fijarlas; las del `gateway` se verificaron en el issue #25.
 - [ ] Revisar periódicamente las versiones de `uv`, gitleaks y actionlint fijadas por sha256 en CI: Dependabot no las actualiza (hallazgo del #25).
 - [ ] **E3:** elegir y verificar una lista de contraseñas filtradas y su licencia (ASVS 6.2.12, L2, pendiente hasta entonces).
-- [ ] **A3b:** recuperación asistida, arranque del primer administrador, procedimiento de emergencia, asignación pendiente de roles con privilegios y cambio de contraseña (ADR 0004, decisiones 10 y 11). Amenazas 45 a 47.
+- [ ] **A3b2:** recuperación asistida, restablecimiento de MFA con dos administradores y procedimiento de emergencia (ADR 0004, decisiones 10 y 11). Amenazas 45 a 47.
 - [ ] Límite de frecuencia propio en `/mfa/enroll`, y desactivar el MFA o regenerar los códigos de recuperación (#39).
-- [ ] **A3b:** un usuario con privilegios que ya existía sin MFA y sin fecha límite de alta no puede iniciar sesión ni darse de alta; se resuelve con la asignación pendiente de roles (revisión de Gentle AI del #39).
+- [x] **A3b:** un usuario con privilegios que ya existía sin MFA y sin fecha límite de alta no podía iniciar sesión ni darse de alta; resuelto con la asignación pendiente de roles (issue #45).
+- [ ] **A3b2:** el administrador de arranque queda bloqueado si caduca su ventana de alta de 24 h; reabrirla exige otro administrador, así que depende del procedimiento de emergencia (L1 de la revisión del #45).
+- [ ] `tokens_valid_since` tiene granularidad de un segundo: un token con alcance emitido en el mismo segundo que el cambio no queda anulado por él (L2 de la revisión del #45).
+- [ ] El arranque del primer administrador usa un bloqueo asesor y no una restricción única en la base de datos (I2 de la revisión del #45).
+- [ ] **E5:** mantener el AppRole `bootstrap-seed` (solo desarrollo y CI) fuera de los manifiestos.
 - [ ] Varias peticiones `/login/mfa` en paralelo con un token `mfa-pending` válido hacen su llamada a transit y su Argon2 a la vez, ya sin serializar; depende del límite de tasa por IP (E5) (L1 de la revisión del #43).
 - [ ] Rotación de la clave transit `totp` con `rewrap` de los textos cifrados (ADR 0006).
 - [ ] **E3:** implementar la renovación de sesión de un solo vuelo en el frontend.
@@ -154,6 +141,7 @@ Rama `fix/43-mfa-sesion-privilegiada`. Corrige lo que señaló la revisión de G
 - [x] **A2b (issue #35):** refresh con rotación y detección de reutilización, logout, denylist y `tokens_valid_since`; reinicio del contador tras emitir los tokens y longitud después de NFC.
 - [x] Mecanismo de cifrado del secreto TOTP: transit de OpenBao (ADR 0006, issue #39).
 - [x] **Issue #39 (PR #42, `28f63e8`):** MFA con TOTP y secreto cifrado con transit de OpenBao (ADR 0006).
+- [x] **Issue #45:** administración del gateway: primer administrador (`gateway.bootstrap`), endpoints `/api/admin/...` con rol pendiente y cambio de contraseña.
 - [x] **Issue #37:** purga de las tablas de sesión, reloj único para `tokens_valid_since` y logout que borra las cookies.
 - [x] Normalización Unicode de contraseñas (NFC) y tiempo máximo del semáforo de Argon2id (pendientes del #29, cerrados en el #33).
 - [x] **Issue #27 (PR #28):** `gateway` obligatorio en el ruleset (aplicado en GitHub el 2026-09-30 y verificado desde la API), documentación de la API desactivada por defecto y `httpx2`. ADR 0001 actualizado en el issue #29.

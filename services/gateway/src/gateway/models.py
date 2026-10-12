@@ -3,6 +3,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -30,6 +31,12 @@ class User(Base):
         CheckConstraint(
             "role IN (" + ", ".join(f"'{role}'" for role in ROLES) + ")",
             name="users_role_check",
+        ),
+        CheckConstraint(
+            "pending_role IS NULL OR pending_role IN ("
+            + ", ".join(f"'{role}'" for role in ROLES)
+            + ")",
+            name="users_pending_role_check",
         ),
     )
 
@@ -61,6 +68,13 @@ class User(Base):
     mfa_enroll_until: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Administration (ADR 0004 decisions 5 and 11). `must_change_password` is set
+    # by the bootstrap; `pending_role` is a privileged role that becomes `role`
+    # once the user confirms the MFA.
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false")
+    )
+    pending_role: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
 
 class RefreshFamily(Base):

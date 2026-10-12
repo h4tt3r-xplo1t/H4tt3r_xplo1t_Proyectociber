@@ -141,17 +141,22 @@ def login(addr: str, role_id: str, secret_id: str, timeout: float | None = None)
     return client
 
 
-def login_from_env(timeout: float | None = None):
+def login_from_env(
+    timeout: float | None = None,
+    *,
+    role_file_env: str = "GATEWAY_OPENBAO_ROLE_ID_FILE",
+    credential_file_env: str = "GATEWAY_OPENBAO_SECRET_ID_FILE",
+):
     """Log in with the OpenBao settings of the environment (see `login`).
 
     The address comes from GATEWAY_OPENBAO_ADDR and the AppRole credentials from
-    the files named by GATEWAY_OPENBAO_ROLE_ID_FILE and
-    GATEWAY_OPENBAO_SECRET_ID_FILE. Raises SecretsError, with a fixed message,
-    when a setting is missing or the login fails.
+    the files named by `role_file_env` and `credential_file_env` (the gateway's by
+    default; the bootstrap passes its own). Raises SecretsError, with a fixed
+    message, when a setting is missing or the login fails.
     """
     addr = _env("GATEWAY_OPENBAO_ADDR")
-    role_id = _read_file(_env("GATEWAY_OPENBAO_ROLE_ID_FILE"), "role_id")
-    secret_id = _read_file(_env("GATEWAY_OPENBAO_SECRET_ID_FILE"), "secret_id")
+    role_id = _read_file(_env(role_file_env), "role_id")
+    secret_id = _read_file(_env(credential_file_env), "secret_id")
     return login(addr, role_id, secret_id, timeout)
 
 

@@ -31,6 +31,8 @@ from gateway.models import (
     User,
 )
 from gateway.passwords import (
+    PASSWORD_MAX_LENGTH,
+    PASSWORD_MIN_LENGTH,
     hash_password,
     normalize_password,
     verify_dummy,
@@ -196,10 +198,6 @@ def log_service_busy(cause: str) -> None:
     )
 
 
-# ADR 0004 decision 4: at least 15 characters (after NFC) and no composition rules.
-PASSWORD_MIN_LENGTH = 15
-
-
 class RegisterRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -207,7 +205,9 @@ class RegisterRequest(BaseModel):
         str, Field(min_length=3, max_length=32, pattern=r"^[a-z0-9_.-]+$")
     ]
     # The upper bound only limits the cost of hashing.
-    password: Annotated[str, Field(min_length=PASSWORD_MIN_LENGTH, max_length=128)]
+    password: Annotated[
+        str, Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
+    ]
 
     @field_validator("password")
     @classmethod

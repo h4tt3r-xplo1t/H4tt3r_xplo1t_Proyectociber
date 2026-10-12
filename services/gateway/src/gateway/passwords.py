@@ -50,6 +50,24 @@ def normalize_password(password: str) -> str:
     return unicodedata.normalize("NFC", password)
 
 
+# ADR 0004 decision 4: at least 15 characters (after NFC) and no composition
+# rules. The upper bound only limits the cost of hashing.
+PASSWORD_MIN_LENGTH = 15
+PASSWORD_MAX_LENGTH = 128
+
+
+def meets_password_policy(password: str) -> bool:
+    """The registration policy, for callers that do not go through pydantic.
+
+    The minimum counts the NFC form (the one that is hashed), the maximum the
+    string as typed.
+    """
+    return (
+        len(normalize_password(password)) >= PASSWORD_MIN_LENGTH
+        and len(password) <= PASSWORD_MAX_LENGTH
+    )
+
+
 def hash_password(password: str) -> str:
     password = normalize_password(password)
     with _slot():

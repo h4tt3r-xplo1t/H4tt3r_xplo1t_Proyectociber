@@ -1415,3 +1415,106 @@ def test_confirm_rechecks_the_role_under_the_lock(
     assert response.status_code == 403
     assert user_row(db_engine)["mfa_enabled_at"] is None
     assert count(db_engine, "recovery_codes") == 0
+
+
+def test_two_confirms_with_the_same_code_activate_mfa_once(
+    client, db_engine, clock, monkeypatch
+):
+    make_user(client, db_engine, clock)
+    login(client)
+    secret = post(client, ENROLL).json()["secret"]
+    racers = [client, second_client(client)]
+    racers[1].cookies.set("__Host-access", client.cookies.get("__Host-access"))
+    racers[1].cookies.set("__Host-csrf", client.cookies.get("__Host-csrf"))
+    meeting = Meeting(auth.decrypt_totp_secret)
+    monkeypatch.setattr(auth, "decrypt_totp_secret", meeting)
+    code = totp(secret, clock)
+    statuses = []
+
+    def run(racer):
+        statuses.append(post(racer, CONFIRM, {"code": code}).status_code)
+
+    threads = [threading.Thread(target=run, args=(racer,)) for racer in racers]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(WAIT_SECONDS * 2)
+
+    assert not meeting.barrier.broken
+    assert sorted(statuses) == [200, 409]
+    assert count(db_engine, "recovery_codes") == 10
+
+
+def test_a_re_enroll_between_prepare_and_consume_activates_nothing(
+    client, db_engine, clock, monkeypatch
+):
+    make_user(client, db_engine, clock)
+    login(client)
+    secret = post(client, ENROLL).json()["secret"]
+    monkeypatch.setattr(
+        auth,
+        "decrypt_totp_secret",
+        Interfere(
+            auth.decrypt_totp_secret,
+            lambda: run_sql(
+                db_engine, "UPDATE users SET mfa_pending_ciphertext = 'vault:v1:new'"
+            ),
+        ),
+    )
+
+    response = post(client, CONFIRM, {"code": totp(secret, clock)})
+
+    assert response.status_code == 409
+    row = user_row(db_engine)
+    assert row["mfa_enabled_at"] is None
+    assert row["mfa_pending_ciphertext"] == "vault:v1:new"
+    assert count(db_engine, "recovery_codes") == 0
+
+
+def test_a_lockout_between_prepare_and_lock_gives_the_generic_401(
+    client, db_engine, clock, monkeypatch
+):
+    secret, _ = enroll(client, db_engine, clock)
+    to_pending(client)
+    clear_replay_guard(db_engine)
+    until = clock() + timedelta(hours=1)
+    monkeypatch.setattr(
+        auth,
+        "_prepare_second_factor",
+        Interfere(
+            auth._prepare_second_factor,
+            lambda: run_sql(
+                db_engine, "UPDATE login_attempts SET locked_until = :t", t=until
+            ),
+        ),
+    )
+
+    response = post(client, LOGIN_MFA, {"code": totp(secret, clock, 1)})
+
+    assert response.status_code == 401
+    assert response.json() == LOGIN_FAILED
+    assert count(db_engine, "refresh_families") == 0
+
+
+def test_a_secret_changed_between_prepare_and_consume_gives_no_session(
+    client, db_engine, clock, monkeypatch
+):
+    secret, _ = enroll(client, db_engine, clock)
+    to_pending(client)
+    clear_replay_guard(db_engine)
+    monkeypatch.setattr(
+        auth,
+        "_prepare_second_factor",
+        Interfere(
+            auth._prepare_second_factor,
+            lambda: run_sql(
+                db_engine, "UPDATE users SET mfa_secret_ciphertext = 'vault:v1:new'"
+            ),
+        ),
+    )
+
+    response = post(client, LOGIN_MFA, {"code": totp(secret, clock, 1)})
+
+    assert response.status_code == 401
+    assert response.json() == LOGIN_FAILED
+    assert count(db_engine, "refresh_families") == 0

@@ -994,7 +994,7 @@ WAIT_SECONDS = 10
 
 
 class Gate:
-    """Holds the first caller of `_check_second_factor` inside the counter lock."""
+    """Holds the first caller of `_consume_second_factor` inside the counter lock."""
 
     def __init__(self, real):
         self.real = real
@@ -1057,8 +1057,8 @@ def test_two_codes_in_parallel_consume_the_pending_token_once(
         bodies = [{"code": totp(secret, clock, 1)}, {"code": codes[attempt % 10]}]
         if attempt % 2:
             bodies.reverse()
-        gate = Gate(auth._check_second_factor)
-        monkeypatch.setattr(auth, "_check_second_factor", gate)
+        gate = Gate(auth._consume_second_factor)
+        monkeypatch.setattr(auth, "_consume_second_factor", gate)
         statuses = []
 
         def run(racer, body, results):
@@ -1103,3 +1103,168 @@ def test_a_ciphertext_copied_to_another_user_does_not_decrypt(client, db_engine,
 
     assert response.status_code == 503
     assert attempt_row(db_engine, "bob").failures == 0
+
+
+# --- slow work runs outside the row locks, single use is kept -------------
+
+LOCK_PROBES = {
+    "login_attempts": "SELECT 1 FROM login_attempts FOR UPDATE NOWAIT",
+    "recovery_codes": "SELECT 1 FROM recovery_codes FOR UPDATE NOWAIT",
+    "users": "SELECT 1 FROM users FOR UPDATE NOWAIT",
+}
+
+
+class LockProbe:
+    """Wraps a slow call and, while it runs, tries to lock the user's rows.
+
+    A separate connection asks for `FOR UPDATE NOWAIT` on every row the second
+    factor locks. If the request still held one of them, PostgreSQL would
+    refuse at once, so the probe needs no sleeping and cannot be flaky.
+    """
+
+    def __init__(self, db_engine, real, tables=tuple(LOCK_PROBES)):
+        self.db_engine = db_engine
+        self.real = real
+        self.tables = tables
+        self.calls = 0
+        self.held = []
+        self.rows_seen = {}
+
+    def __call__(self, *args, **kwargs):
+        self.calls += 1
+        for table in self.tables:
+            with self.db_engine.connect() as conn:
+                try:
+                    rows = conn.execute(text(LOCK_PROBES[table])).all()
+                except Exception as exc:
+                    self.held.append((table, type(exc.orig).__name__))
+                else:
+                    self.rows_seen[table] = len(rows)
+        return self.real(*args, **kwargs)
+
+    def assert_nothing_held(self):
+        assert self.calls >= 1, "the slow call never ran"
+        assert self.held == []
+        # A probe that finds no rows would pass without proving anything.
+        assert all(self.rows_seen[table] >= 1 for table in self.tables)
+
+
+def test_transit_decrypt_does_not_run_under_a_lock_at_login(
+    client, db_engine, clock, monkeypatch
+):
+    secret, _ = enroll(client, db_engine, clock)
+    to_pending(client)
+    clear_replay_guard(db_engine)
+    probe = LockProbe(db_engine, auth.decrypt_totp_secret)
+    monkeypatch.setattr(auth, "decrypt_totp_secret", probe)
+
+    response = post(client, LOGIN_MFA, {"code": totp(secret, clock, 1)})
+
+    assert response.status_code == 200
+    probe.assert_nothing_held()
+
+
+def test_the_recovery_hash_loop_does_not_run_under_a_lock(
+    client, db_engine, clock, monkeypatch
+):
+    _, codes = enroll(client, db_engine, clock)
+    to_pending(client)
+    probe = LockProbe(db_engine, auth.verify_password)
+    monkeypatch.setattr(auth, "verify_password", probe)
+
+    response = post(client, LOGIN_MFA, {"code": codes[0]})
+
+    assert response.status_code == 200
+    probe.assert_nothing_held()
+
+
+def test_confirm_does_not_decrypt_or_hash_under_a_lock(
+    client, db_engine, clock, monkeypatch
+):
+    make_user(client, db_engine, clock)
+    login(client)
+    secret = post(client, ENROLL).json()["secret"]
+    # No recovery codes exist before the confirmation: nothing to lock yet.
+    tables = ("login_attempts", "users")
+    decrypt = LockProbe(db_engine, auth.decrypt_totp_secret, tables)
+    hashing = LockProbe(db_engine, auth.hash_password, tables)
+    monkeypatch.setattr(auth, "decrypt_totp_secret", decrypt)
+    monkeypatch.setattr(auth, "hash_password", hashing)
+
+    response = post(client, CONFIRM, {"code": totp(secret, clock)})
+
+    assert response.status_code == 200
+    decrypt.assert_nothing_held()
+    hashing.assert_nothing_held()
+
+
+class Meeting:
+    """Lets every racer finish its slow work before any of them takes the lock."""
+
+    def __init__(self, real, parties=2):
+        self.real = real
+        self.barrier = threading.Barrier(parties, timeout=WAIT_SECONDS)
+
+    def __call__(self, *args, **kwargs):
+        prepared = self.real(*args, **kwargs)
+        self.barrier.wait()
+        return prepared
+
+
+def race_two_pending_sessions(client, db_engine, code, monkeypatch):
+    """Two logins of one user submit the same code at the same moment.
+
+    Each has its own pending token, so only the single use of the code itself
+    (TOTP step or recovery code) stands between them and two sessions.
+    """
+    racers = [second_client(client), second_client(client)]
+    for racer in racers:
+        assert login(racer).json() == {"status": "mfa_required"}
+    meeting = Meeting(auth._prepare_second_factor)
+    monkeypatch.setattr(auth, "_prepare_second_factor", meeting)
+    statuses = []
+
+    def run(racer):
+        statuses.append(post(racer, LOGIN_MFA, {"code": code}).status_code)
+
+    threads = [threading.Thread(target=run, args=(racer,)) for racer in racers]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(WAIT_SECONDS * 2)
+    assert not meeting.barrier.broken
+    with db_engine.connect() as conn:
+        families = conn.execute(text("SELECT count(*) FROM refresh_families")).scalar()
+    return sorted(statuses), families
+
+
+def test_one_totp_step_gives_one_session_under_concurrency(
+    client, db_engine, clock, monkeypatch
+):
+    secret, _ = enroll(client, db_engine, clock)
+    clear_replay_guard(db_engine)
+
+    statuses, families = race_two_pending_sessions(
+        client, db_engine, totp(secret, clock, 1), monkeypatch
+    )
+
+    assert statuses == [200, 401]
+    assert families == 1
+
+
+def test_one_recovery_code_gives_one_session_under_concurrency(
+    client, db_engine, clock, monkeypatch
+):
+    _, codes = enroll(client, db_engine, clock)
+
+    statuses, families = race_two_pending_sessions(
+        client, db_engine, codes[0], monkeypatch
+    )
+
+    assert statuses == [200, 401]
+    assert families == 1
+    with db_engine.connect() as conn:
+        used = conn.execute(
+            text("SELECT count(*) FROM recovery_codes WHERE used_at IS NOT NULL")
+        ).scalar()
+    assert used == 1

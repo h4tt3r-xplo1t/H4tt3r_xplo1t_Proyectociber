@@ -20,6 +20,7 @@ from sqlalchemy import exists, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError, InvalidRequestError, OperationalError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import set_committed_value
 
 from gateway.db import get_session
 from gateway.mfa import (
@@ -537,7 +538,14 @@ def _start_session(
         id=uuid.uuid4(), user_id=user.id, created_at=now, last_used_at=now
     )
     session.add(family)
-    token, claims = issue_access_token(user.id, user.role, str(family.id), keys, now)
+    token, claims = issue_access_token(
+        user.id,
+        user.role,
+        str(family.id),
+        keys,
+        now,
+        generation=user.token_generation,
+    )
     refresh_token = new_refresh_token()
     session.add(
         RefreshToken(
@@ -576,7 +584,14 @@ def _start_scoped_session(
     """
     sid = str(uuid.uuid4())
     token, _ = issue_access_token(
-        user.id, user.role, sid, keys, now, scope=scope, ttl=ttl
+        user.id,
+        user.role,
+        sid,
+        keys,
+        now,
+        generation=user.token_generation,
+        scope=scope,
+        ttl=ttl,
     )
     max_age = int(ttl.total_seconds())
     response.set_cookie(
@@ -818,6 +833,8 @@ def refresh(
         raise _session_denied()
     # A password or role change moves `tokens_valid_since` forward and must end
     # the live sessions too. Truncated to the second, like current_user does.
+    # The generation is not compared here: a family carries none, and the access
+    # token issued below takes the user's current one, so it can never be stale.
     if family.created_at < user.tokens_valid_since.replace(microsecond=0):
         _refresh_failed("invalidated", subject, now)
         raise _session_denied()
@@ -846,7 +863,14 @@ def refresh(
         )
     )
     family.last_used_at = now
-    access, claims = issue_access_token(user.id, user.role, str(family.id), keys, now)
+    access, claims = issue_access_token(
+        user.id,
+        user.role,
+        str(family.id),
+        keys,
+        now,
+        generation=user.token_generation,
+    )
     session.commit()
     _set_session_cookies(
         response, access, new_refresh, claims["sid"], user.role, keys, now
@@ -984,9 +1008,10 @@ def _authenticate(
     """Authenticate from the access cookie and reload the user from the database.
 
     One query loads the user only if the token's `jti` is not denied (logout),
-    and the token was issued no earlier than `tokens_valid_since`. `iat` is whole
-    seconds while the column has microseconds, so the column is truncated to the
-    second: a token issued in the same second as the cut-off still passes.
+    its `gen` is the user's current `token_generation` (a change of credentials
+    ends every older token, even one issued in the same second) and it was
+    issued no earlier than `tokens_valid_since`. `iat` is whole seconds while
+    the column has microseconds, so the column is truncated to the second.
 
     `accepted` lists the scopes the caller takes; a token whose `scope` claim is
     not in it is refused (a token without the claim is the key `None`). A full
@@ -1008,6 +1033,10 @@ def _authenticate(
             conditions = [
                 User.id == uuid.UUID(claims["sub"]),
                 ~exists().where(RevokedJti.jti == claims["jti"]),
+                # The generation is the exact cut-off. The timestamp stays as a
+                # second line: `iat` is whole seconds, so it alone would spare a
+                # token issued in the same second as the change.
+                User.token_generation == claims["gen"],
                 func.date_trunc("second", User.tokens_valid_since)
                 <= func.to_timestamp(claims["iat"]),
             ]
@@ -1125,6 +1154,25 @@ def _deny_jti(session: Session, claims: dict) -> None:
         )
         .on_conflict_do_nothing(index_elements=["jti"])
     )
+
+
+def invalidate_tokens(session: Session, user: User, now: datetime) -> None:
+    """End every access token issued so far: move the cut-off and bump the generation.
+
+    The one place that writes `tokens_valid_since` after a user exists. The
+    increment happens in the database (waiting for any concurrent change on the
+    row), and the value it returns is what the caller must put in the tokens it
+    issues afterwards in the same request. The timestamp comes from the app
+    clock, like `iat` and `family.created_at` (see register).
+    """
+    generation = session.execute(
+        update(User)
+        .where(User.id == user.id)
+        .values(tokens_valid_since=now, token_generation=User.token_generation + 1)
+        .returning(User.token_generation)
+    ).scalar_one()
+    set_committed_value(user, "tokens_valid_since", now)
+    set_committed_value(user, "token_generation", generation)
 
 
 def _reload_user(session: Session, user: User) -> None:
@@ -1355,8 +1403,7 @@ def mfa_confirm(
     if applied_role is not None:
         user.role = applied_role
         user.pending_role = None
-    # From the app clock, like every write of this column (see register).
-    user.tokens_valid_since = now
+    invalidate_tokens(session, user, now)
     session.execute(
         update(RefreshFamily)
         .where(RefreshFamily.user_id == user.id, RefreshFamily.revoked_at.is_(None))
@@ -1377,8 +1424,8 @@ def _reissue_scoped_cookie(
 ) -> None:
     """Replace a limited session's access token by a fresh one of the same `sid`.
 
-    It survives a bump of `tokens_valid_since` this way: the new token is issued
-    at or after the cut-off. The CSRF cookie is bound to the `sid`, which does
+    It survives a bump of `tokens_valid_since` this way: the new token carries
+    the new `token_generation`. The CSRF cookie is bound to the `sid`, which does
     not change.
     """
     user = actor.user
@@ -1388,6 +1435,7 @@ def _reissue_scoped_cookie(
         actor.claims["sid"],
         keys,
         now,
+        generation=user.token_generation,
         scope=actor.claims["scope"],
         ttl=ENROLL_TOKEN_TTL,
     )
@@ -1450,8 +1498,7 @@ def change_password(
     closing = body.close_other_sessions
     new_session = None
     if closing:
-        # From the app clock, like every write of this column (see register).
-        user.tokens_valid_since = now
+        invalidate_tokens(session, user, now)
         session.execute(
             update(RefreshFamily)
             .where(RefreshFamily.user_id == user.id, RefreshFamily.revoked_at.is_(None))
@@ -1466,7 +1513,12 @@ def change_password(
             )
             session.add(family)
             access, claims = issue_access_token(
-                user.id, user.role, str(family.id), keys, now
+                user.id,
+                user.role,
+                str(family.id),
+                keys,
+                now,
+                generation=user.token_generation,
             )
             refresh_token = new_refresh_token()
             session.add(

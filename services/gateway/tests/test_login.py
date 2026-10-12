@@ -960,6 +960,7 @@ def forged_access(user_id, *, key=None, exp_delta=timedelta(minutes=15), **claim
         "sub": str(user_id),
         "role": "lector",
         "sid": "sid-1",
+        "gen": 0,
         "jti": "jti-1",
         "iat": int(now.timestamp()),
         "nbf": int(now.timestamp()),
@@ -997,6 +998,25 @@ def test_me_reads_the_role_from_the_database_not_from_the_token(client, db_engin
     response = client.get("/api/auth/me")
 
     assert response.json()["role"] == "lector"
+
+
+def test_a_login_issues_the_token_with_the_current_generation(client, db_engine):
+    register(client)
+    run_sql(db_engine, "UPDATE users SET token_generation = 7")
+
+    assert login(client).status_code == 200
+
+    claims = decode_access_token(client.cookies.get("__Host-access"), KEYS)
+    assert claims["gen"] == 7
+    assert client.get("/api/auth/me").status_code == 200
+
+
+def test_a_token_of_another_generation_is_refused(client, db_engine):
+    register(client)
+    assert login(client).status_code == 200
+    run_sql(db_engine, "UPDATE users SET token_generation = token_generation + 1")
+
+    assert client.get("/api/auth/me").status_code == 401
 
 
 def test_me_without_cookie_is_401_with_a_fixed_body(client):

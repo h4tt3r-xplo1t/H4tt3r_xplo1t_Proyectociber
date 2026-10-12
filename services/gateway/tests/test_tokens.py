@@ -37,6 +37,7 @@ def forge(claims=None, *, key=None, algorithm="HS256", headers=None, drop=()):
         "sub": str(USER_ID),
         "role": "lector",
         "sid": "sid-1",
+        "gen": 0,
         "jti": "jti-1",
         "iat": int(now().timestamp()),
         "nbf": int(now().timestamp()),
@@ -57,7 +58,9 @@ def forge(claims=None, *, key=None, algorithm="HS256", headers=None, drop=()):
 
 def test_issued_token_has_the_expected_header_and_claims():
     issued_at = now()
-    token, claims = issue_access_token(USER_ID, "editor", "sid-1", KEYS, issued_at)
+    token, claims = issue_access_token(
+        USER_ID, "editor", "sid-1", KEYS, issued_at, generation=3
+    )
 
     header = jwt.get_unverified_header(token)
     assert header["alg"] == "HS256"
@@ -66,6 +69,7 @@ def test_issued_token_has_the_expected_header_and_claims():
         "sub",
         "role",
         "sid",
+        "gen",
         "jti",
         "iat",
         "nbf",
@@ -73,6 +77,7 @@ def test_issued_token_has_the_expected_header_and_claims():
         "iss",
         "aud",
     }
+    assert claims["gen"] == 3
     assert claims["sub"] == str(USER_ID)
     assert claims["role"] == "editor"
     assert claims["iss"] == ISSUER
@@ -82,8 +87,10 @@ def test_issued_token_has_the_expected_header_and_claims():
 
 
 def test_the_token_carries_the_given_sid_and_a_new_jti_each_time():
-    _, first = issue_access_token(USER_ID, "lector", "sid-1", KEYS, now())
-    _, second = issue_access_token(USER_ID, "lector", "sid-1", KEYS, now())
+    _, first = issue_access_token(USER_ID, "lector", "sid-1", KEYS, now(), generation=0)
+    _, second = issue_access_token(
+        USER_ID, "lector", "sid-1", KEYS, now(), generation=0
+    )
 
     assert first["sid"] == second["sid"] == "sid-1"
     assert first["jti"] != second["jti"]
@@ -102,7 +109,9 @@ def test_refresh_tokens_are_random_and_only_their_sha256_is_kept():
 
 
 def test_decode_returns_the_claims_of_a_valid_token():
-    token, claims = issue_access_token(USER_ID, "lector", "sid-1", KEYS, now())
+    token, claims = issue_access_token(
+        USER_ID, "lector", "sid-1", KEYS, now(), generation=0
+    )
 
     assert decode_access_token(token, KEYS) == claims
 
@@ -186,6 +195,7 @@ def test_missing_kid_is_rejected():
             "sub": "x",
             "role": "lector",
             "sid": "s",
+            "gen": 0,
             "jti": "j",
             "iat": int(now().timestamp()),
             "nbf": int(now().timestamp()),
@@ -202,11 +212,17 @@ def test_missing_kid_is_rejected():
 
 
 @pytest.mark.parametrize(
-    "claim", ["sub", "role", "sid", "jti", "iat", "nbf", "exp", "iss", "aud"]
+    "claim", ["sub", "role", "sid", "gen", "jti", "iat", "nbf", "exp", "iss", "aud"]
 )
 def test_missing_required_claim_is_rejected(claim):
     with pytest.raises(InvalidToken):
         decode_access_token(forge(drop=[claim]), KEYS)
+
+
+@pytest.mark.parametrize("gen", ["0", None, True, 1.5, [0], -0.0], ids=repr)
+def test_a_generation_that_is_not_an_integer_is_rejected(gen):
+    with pytest.raises(InvalidToken):
+        decode_access_token(forge({"gen": gen}), KEYS)
 
 
 @pytest.mark.parametrize("garbage", ["", "abc", "a.b.c", "....", "é.é.é"])
@@ -224,7 +240,7 @@ def test_decode_never_asks_pyjwt_to_skip_the_signature(monkeypatch):
         return real(*args, **kwargs)
 
     monkeypatch.setattr(tokens.jwt, "decode", spy)
-    token, _ = issue_access_token(USER_ID, "lector", "sid-1", KEYS, now())
+    token, _ = issue_access_token(USER_ID, "lector", "sid-1", KEYS, now(), generation=0)
     decode_access_token(token, KEYS)
     decode_access_token(token, KEYS)
 
@@ -391,7 +407,7 @@ def test_csrf_with_a_malformed_issued_at_is_rejected(stamp):
 def test_missing_claim_settings_raise_a_server_error_not_invalid_token(
     name, monkeypatch
 ):
-    token, _ = issue_access_token(USER_ID, "lector", "sid-1", KEYS, now())
+    token, _ = issue_access_token(USER_ID, "lector", "sid-1", KEYS, now(), generation=0)
     monkeypatch.delenv(name)
 
     with pytest.raises(RuntimeError, match=f"^{name} is not set$"):

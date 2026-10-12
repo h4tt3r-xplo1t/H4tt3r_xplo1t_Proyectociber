@@ -206,7 +206,13 @@ def test_a_token_with_any_unknown_scope_is_not_a_session(client, db_engine, cloc
             {"i": family_id, "u": user["id"]},
         )
     token, _ = issue_access_token(
-        user["id"], "lector", str(family_id), KEYS, clock(), scope="other"
+        user["id"],
+        "lector",
+        str(family_id),
+        KEYS,
+        clock(),
+        generation=0,
+        scope="other",
     )
 
     client.cookies.clear()
@@ -546,6 +552,7 @@ def test_confirm_ends_every_session_of_the_user(client, db_engine, clock, role):
     assert response.status_code == 200
     assert response.json()["relogin_required"] is True
     assert user_row(db_engine)["tokens_valid_since"] == clock()
+    assert user_row(db_engine)["token_generation"] == 1
     # The presented token is denied and the cookies are cleared.
     cleared = [c for c in response.headers.get_list("set-cookie") if "Max-Age=0" in c]
     assert any(c.startswith("__Host-access=") for c in cleared)

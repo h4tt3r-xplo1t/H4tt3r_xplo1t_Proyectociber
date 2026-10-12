@@ -1367,3 +1367,51 @@ def test_enroll_from_a_full_session_is_refused_if_mfa_got_enabled_meanwhile(
 
     assert response.status_code == 409
     assert user_row(db_engine)["mfa_pending_ciphertext"] is None
+
+
+def test_confirm_rechecks_the_enroll_window_under_the_lock(
+    client, db_engine, clock, monkeypatch
+):
+    make_user(client, db_engine, clock)
+    login(client)
+    secret = post(client, ENROLL).json()["secret"]
+    closed = clock() - timedelta(hours=1)
+    monkeypatch.setattr(
+        auth,
+        "decrypt_totp_secret",
+        Interfere(
+            auth.decrypt_totp_secret,
+            lambda: run_sql(
+                db_engine, "UPDATE users SET mfa_enroll_until = :t", t=closed
+            ),
+        ),
+    )
+
+    response = post(client, CONFIRM, {"code": totp(secret, clock)})
+
+    assert response.status_code == 401
+    assert response.json() == LOGIN_FAILED
+    assert user_row(db_engine)["mfa_enabled_at"] is None
+    assert count(db_engine, "recovery_codes") == 0
+
+
+def test_confirm_rechecks_the_role_under_the_lock(
+    client, db_engine, clock, monkeypatch
+):
+    register(client)
+    login(client)
+    secret = post(client, ENROLL, {"current_password": GOOD}).json()["secret"]
+    monkeypatch.setattr(
+        auth,
+        "decrypt_totp_secret",
+        Interfere(
+            auth.decrypt_totp_secret,
+            lambda: run_sql(db_engine, "UPDATE users SET role = 'editor'"),
+        ),
+    )
+
+    response = post(client, CONFIRM, {"code": totp(secret, clock)})
+
+    assert response.status_code == 403
+    assert user_row(db_engine)["mfa_enabled_at"] is None
+    assert count(db_engine, "recovery_codes") == 0

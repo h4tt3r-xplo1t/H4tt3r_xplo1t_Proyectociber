@@ -1166,6 +1166,7 @@ def mfa_confirm(
     # Under the lock, with the user reloaded: the user must still be eligible
     # (window, role, MFA not active yet) and the enrollment this code was
     # checked against must still be the one in progress.
+    _recheck_can_enroll(session, actor, now)
     if user.mfa_enabled_at is not None or user.mfa_pending_ciphertext != pending:
         session.rollback()
         raise _no_enrollment()

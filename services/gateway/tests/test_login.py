@@ -9,6 +9,8 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import event, text
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 
 from gateway import auth, passwords
 from gateway.db import get_engine
@@ -20,6 +22,7 @@ from gateway.tokens import (
     decode_access_token,
     login_attempt_key,
 )
+from tests.helpers import DbError, Interfere, run_sql
 
 # Fake keys and passphrases used only by these tests.
 KEYS = GatewayKeys(jwt_kid="kid-1", jwt_key=b"j" * 32, csrf_key=b"c" * 32)
@@ -628,24 +631,23 @@ def wait_until_a_backend_waits_on_a_lock(db_engine, timeout=10):
 def test_a_login_waiting_on_the_row_lock_survives_a_successful_login(
     client, app, db_engine, monkeypatch
 ):
-    # A holds the row lock while it verifies the right password; B, a wrong
-    # password for the same user, queues on that lock. Events, not sleeps,
-    # order the steps: A signals when it holds the lock and stays inside the
-    # verification until B is seen waiting. When A then succeeds, the row must
-    # still be there for B: no 500, a consistent counter.
+    # A holds the row lock while it starts the session (the hash is over by
+    # then); B, a wrong password for the same user, queues on that lock. Events,
+    # not sleeps, order the steps: A signals when it holds the lock and stays
+    # there until B is seen waiting. When A then succeeds, the row must still be
+    # there for B: no 500, a consistent counter.
     register(client)
     login(client, password=OTHER)  # the counter row already exists, committed
-    real_verify = auth.verify_password
+    real_start = auth._start_session
     a_holds_the_lock = threading.Event()
     b_is_waiting = threading.Event()
 
-    def pause_inside_the_right_password(password_hash, password):
-        if password == GOOD:
-            a_holds_the_lock.set()
-            assert b_is_waiting.wait(10)
-        return real_verify(password_hash, password)
+    def pause_holding_the_lock(*args, **kwargs):
+        a_holds_the_lock.set()
+        assert b_is_waiting.wait(10)
+        return real_start(*args, **kwargs)
 
-    monkeypatch.setattr(auth, "verify_password", pause_inside_the_right_password)
+    monkeypatch.setattr(auth, "_start_session", pause_holding_the_lock)
     clients = [
         TestClient(app, base_url="https://testserver", raise_server_exceptions=False)
         for _ in range(2)
@@ -748,6 +750,181 @@ def test_both_503_causes_are_logged_and_look_the_same_to_the_client(
 
 def test_lock_timeout_is_two_seconds_by_default():
     assert auth.LOCK_TIMEOUT == "2s"
+
+
+@pytest.mark.parametrize("sqlstate", ["55P03", "40P01", "40001"])
+def test_login_answers_503_for_any_busy_error_on_the_counter_row(
+    client, db_engine, monkeypatch, sqlstate
+):
+    register(client)
+    login(client, password=OTHER)  # creates the counter row (failures = 1)
+    token = get_csrf(client)
+    real_execute = Session.execute
+
+    def execute(self, statement, *args, **kwargs):
+        sql = str(statement)
+        if "FROM login_attempts" in sql and "FOR UPDATE" in sql:
+            raise OperationalError("SELECT", {}, DbError(sqlstate))
+        return real_execute(self, statement, *args, **kwargs)
+
+    monkeypatch.setattr(Session, "execute", execute)
+
+    response = login(client, token=token)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Service busy; try again later"}
+    assert attempt_row(db_engine) == (1, None)  # nothing was counted
+
+
+# --- the hash runs without the counter lock -------------------------------
+
+
+def probe_counter_row_lock(db_engine, outcomes):
+    """Try to lock the counter row from another connection, without waiting."""
+    with db_engine.connect() as conn:
+        try:
+            conn.execute(
+                text(
+                    "SELECT 1 FROM login_attempts WHERE attempt_key = :k "
+                    "FOR UPDATE NOWAIT"
+                ),
+                {"k": attempt_key()},
+            )
+            outcomes.append("free")
+        except OperationalError:
+            outcomes.append("locked")
+        finally:
+            conn.rollback()
+
+
+@pytest.mark.parametrize("password", [GOOD, OTHER], ids=["right", "wrong"])
+def test_the_counter_row_is_not_locked_while_the_password_is_hashed(
+    client, db_engine, monkeypatch, password
+):
+    register(client)
+    login(client, password=OTHER)  # the counter row exists (failures = 1)
+    token = get_csrf(client)
+    outcomes = []
+    monkeypatch.setattr(
+        auth,
+        "verify_password",
+        Interfere(
+            auth.verify_password, lambda: probe_counter_row_lock(db_engine, outcomes)
+        ),
+    )
+
+    response = login(client, password=password, token=token)
+
+    assert outcomes == ["free"]
+    assert response.status_code == (200 if password == GOOD else 401)
+
+
+def test_the_counter_row_is_not_locked_while_an_unknown_user_is_hashed(
+    client, db_engine, monkeypatch
+):
+    login(client, username="alice", password=OTHER)  # creates the row (unknown user)
+    token = get_csrf(client)
+    outcomes = []
+    monkeypatch.setattr(
+        auth,
+        "verify_dummy",
+        Interfere(
+            auth.verify_dummy, lambda: probe_counter_row_lock(db_engine, outcomes)
+        ),
+    )
+
+    response = login(client, password=OTHER, token=token)
+
+    assert outcomes == ["free"]
+    assert response.status_code == 401
+
+
+def lock_account_during_the_hash(db_engine):
+    """What a burst of wrong guesses does to the row while one hash is running."""
+
+    def change():
+        with db_engine.begin() as conn:
+            conn.execute(text("SET LOCAL lock_timeout = '1s'"))
+            conn.execute(
+                text(
+                    "UPDATE login_attempts SET failures = 4, "
+                    "locked_until = now() + interval '1 minute'"
+                )
+            )
+
+    return change
+
+
+def test_an_account_locked_during_the_hash_refuses_the_right_password(
+    client, db_engine, monkeypatch
+):
+    register(client)
+    login(client, password=OTHER)  # the counter row exists
+    token = get_csrf(client)
+    monkeypatch.setattr(
+        auth,
+        "verify_password",
+        Interfere(auth.verify_password, lock_account_during_the_hash(db_engine)),
+    )
+
+    response = login(client, password=GOOD, token=token)
+
+    # The decision is taken again under the lock: a correct password does not
+    # open a locked account, and the lock is not extended.
+    assert response.status_code == 401
+    assert response.json() == LOGIN_FAILED
+    assert "__Host-access" not in response.headers.get("set-cookie", "")
+    failures, locked_until = attempt_row(db_engine)
+    assert failures == 4
+    assert locked_until is not None
+
+
+def test_a_password_changed_during_the_hash_does_not_open_a_session(
+    client, db_engine, monkeypatch
+):
+    register(client)
+    login(client, password=OTHER)  # failures = 1
+    token = get_csrf(client)
+    new_hash = passwords.hash_password("brand new passphrase for alice")
+    monkeypatch.setattr(
+        auth,
+        "verify_password",
+        Interfere(
+            auth.verify_password,
+            lambda: run_sql(
+                db_engine, "UPDATE users SET password_hash = :h", h=new_hash
+            ),
+        ),
+    )
+
+    # The right password for the hash that was read, but the hash is gone.
+    response = login(client, password=GOOD, token=token)
+
+    assert response.status_code == 401
+    assert response.json() == LOGIN_FAILED
+    assert "__Host-access" not in response.headers.get("set-cookie", "")
+    assert attempt_row(db_engine) == (2, None)  # counted like any failed login
+
+
+def test_a_user_removed_during_the_hash_is_a_failed_login_not_a_500(
+    client, db_engine, monkeypatch
+):
+    register(client)
+    login(client, password=OTHER)  # failures = 1
+    token = get_csrf(client)
+    monkeypatch.setattr(
+        auth,
+        "verify_password",
+        Interfere(
+            auth.verify_password, lambda: run_sql(db_engine, "DELETE FROM users")
+        ),
+    )
+
+    response = login(client, password=GOOD, token=token)
+
+    assert response.status_code == 401
+    assert response.json() == LOGIN_FAILED
+    assert attempt_row(db_engine) == (2, None)
 
 
 # --- hashing saturation ---------------------------------------------------

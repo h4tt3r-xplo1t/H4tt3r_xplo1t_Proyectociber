@@ -23,7 +23,7 @@ from gateway import auth, secrets
 from gateway.db import get_engine
 from gateway.main import create_app
 from gateway.tokens import decode_access_token, issue_access_token, make_csrf
-from tests.helpers import FrozenClock, Interfere, run_sql
+from tests.helpers import DbError, FrozenClock, Interfere, run_sql
 from tests.test_login import (
     GOOD,
     KEYS,
@@ -1385,11 +1385,6 @@ def test_confirm_rechecks_the_role_under_the_lock(
     assert response.status_code == 403
     assert user_row(db_engine)["mfa_enabled_at"] is None
     assert count(db_engine, "recovery_codes") == 0
-
-
-class DbError(Exception):
-    def __init__(self, sqlstate):
-        self.sqlstate = sqlstate
 
 
 @pytest.mark.parametrize("sqlstate", ["55P03", "40P01", "40001"])

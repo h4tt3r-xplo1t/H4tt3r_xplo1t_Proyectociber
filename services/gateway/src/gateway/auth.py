@@ -410,14 +410,16 @@ def _lock_attempt(session: Session, attempt_key: str) -> LoginAttempt:
     `attempt_key` is the keyed hash of the username, never the name itself.
 
     The row lock serializes concurrent attempts on the same name, so parallel
-    guesses cannot slip past the counter.
+    guesses cannot slip past the counter. Hold it only for quick reads and
+    writes: the login hashes the password before taking it.
     """
-    # The queue on the lock (held while Argon2id runs) must not wait forever.
-    # SET LOCAL lasts until this transaction ends.
+    # A queue on this lock must not wait forever. SET LOCAL lasts until this
+    # transaction ends.
     session.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
-    lock_failed = False
     attempt = None
-    try:
+    # A lock that stays taken, a deadlock or a serialization failure all answer
+    # like a saturated hasher (same 503); nothing is counted.
+    with busy_guard("attempt_row_locked", session):
         # A purge can delete the row between the insert and the lock; one retry
         # recreates it, and a second miss is answered like a busy service.
         for _ in range(2):
@@ -433,13 +435,6 @@ def _lock_attempt(session: Session, attempt_key: str) -> LoginAttempt:
             ).scalar_one_or_none()
             if attempt is not None:
                 break
-    except OperationalError as exc:
-        if getattr(exc.orig, "sqlstate", None) != LOCK_NOT_AVAILABLE:
-            raise
-        lock_failed = True
-    if lock_failed:
-        # Answered like a saturated hasher (same 503); nothing is counted.
-        raise ServiceBusy("login attempt row is locked", "attempt_row_locked")
     if attempt is None:
         session.rollback()
         raise ServiceBusy("login attempt row vanished", "attempt_row_vanished")
@@ -617,24 +612,52 @@ def login(
     now: Annotated[datetime, Depends(get_now)],
 ) -> UserOut | StatusOut:
     username = body.username
-    user = session.scalar(select(User).where(User.username == username))
     attempt_key = login_attempt_key(username, keys.csrf_key)
-    attempt = _lock_attempt(session, attempt_key)
+    user = session.scalar(select(User).where(User.username == username))
+    locked_until = session.scalar(
+        select(LoginAttempt.locked_until).where(LoginAttempt.attempt_key == attempt_key)
+    )
     # Never log the typed name of an unknown user (it may be a password): only
     # a short prefix of its keyed hash, enough to correlate repeated attempts.
     subject = str(user.id) if user else f"unknown:{attempt_key[:16]}"
+    password_hash = user.password_hash if user else None
+    # Plain reads, then the transaction ends: no connection, no row lock and no
+    # open transaction while Argon2id runs, so a queue of guesses never waits on
+    # a hash. What was read can be stale by then; it is checked again under the
+    # lock below, before anything is counted or any session starts.
+    session.rollback()
 
-    if attempt.locked_until is not None and attempt.locked_until > now:
+    if locked_until is not None and locked_until > now:
         # Locked: do not even look at the password, but spend the same time.
-        session.commit()
         verify_dummy(body.password)
         _log_event("login_blocked", subject, now, logging.WARNING)
         raise _login_failed()
 
-    if user is None:
+    if password_hash is None:
         verified = verify_dummy(body.password)
     else:
-        verified = verify_password(user.password_hash, body.password)
+        verified = verify_password(password_hash, body.password)
+
+    attempt = _lock_attempt(session, attempt_key)
+    if attempt.locked_until is not None and attempt.locked_until > now:
+        # Locked while this request was hashing (a burst of wrong guesses): the
+        # right password does not open a locked account, and nothing is counted,
+        # so the lock is not extended.
+        session.commit()
+        _log_event("login_blocked", subject, now, logging.WARNING)
+        raise _login_failed()
+    if user is not None:
+        try:
+            session.refresh(user)
+        except InvalidRequestError:
+            # The user is gone: the answer was for a hash that no longer exists.
+            verified = False
+        else:
+            # A password changed while this request was hashing makes the answer
+            # worthless in both directions: the old password must not open a
+            # session, and a miss against the old hash says nothing about the
+            # new one. Either way it is one failed login, with the generic 401.
+            verified = verified and user.password_hash == password_hash
 
     if not verified:
         _record_failure(session, attempt, subject, now, "login_failure")

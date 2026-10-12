@@ -36,3 +36,10 @@ class Interfere:
 def run_sql(db_engine, sql, **params):
     with db_engine.begin() as conn:
         conn.execute(text(sql), params)
+
+
+class DbError(Exception):
+    """Stands in for the driver's error: only the SQLSTATE is ever read."""
+
+    def __init__(self, sqlstate):
+        self.sqlstate = sqlstate

@@ -1268,3 +1268,30 @@ def test_one_recovery_code_gives_one_session_under_concurrency(
             text("SELECT count(*) FROM recovery_codes WHERE used_at IS NOT NULL")
         ).scalar()
     assert used == 1
+
+
+def test_a_transit_failure_logs_a_fixed_cause_and_nothing_sensitive(
+    client, db_engine, clock, caplog
+):
+    caplog.set_level(logging.DEBUG)
+    make_user(client, db_engine, clock)
+    login(client)
+    secret = post(client, ENROLL).json()["secret"]
+    ciphertext = user_row(db_engine)["mfa_pending_ciphertext"]
+    with db_engine.begin() as conn:
+        conn.execute(
+            text("UPDATE users SET mfa_pending_ciphertext = 'vault:v1:tampered'")
+        )
+    caplog.clear()
+
+    response = post(client, CONFIRM, {"code": totp(secret, clock)})
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Service busy; try again later"}
+    busy = [
+        r.getMessage() for r in caplog.records if "event=service_busy" in str(r.msg)
+    ]
+    assert len(busy) == 1
+    assert "cause=transit_failed " in busy[0]
+    for sensitive in (secret, ciphertext, "tampered", "vault:v1"):
+        assert sensitive not in caplog.text

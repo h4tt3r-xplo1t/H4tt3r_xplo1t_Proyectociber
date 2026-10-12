@@ -16,45 +16,36 @@ Las entradas de issues cerrados se mueven a `docs/bitacora/` para no superar el 
   - Los 403 por origen o CSRF del logout no borran cookies.
   - `tokens_valid_since` sale del reloj de la aplicación (requisito de NTP).
 - [2026-10-05 a 2026-10-11](bitacora/2026-10-05_11.md): MFA con TOTP (issue #39) y cierre de A3a (issue #43). Decisiones que conviene conocer: el secreto TOTP se cifra con transit de OpenBao (ADR 0006), un rol con privilegios sin MFA solo recibe un JWT de alcance `enroll-mfa`, `current_user` y `refresh` rechazan la sesión con privilegios sin MFA, y el trabajo lento (transit, Argon2) se hace fuera del bloqueo de filas con una comprobación final.
+- [2026-10-12](bitacora/2026-10-12.md): administración del gateway (issue #45, A3b1) y seguimiento de su revisión (issue #47). Decisiones que conviene conocer: el arranque del primer administrador lee su contraseña solo de OpenBao con un AppRole aparte y se niega si ya hay un administrador, `busy_guard` traduce los bloqueos a 503, y `bootstrap-seed` solo se crea con `CI=true` o `OPENBAO_DEV_BOOTSTRAP_SEED=1`.
 
-## 2026-10-12 · Issue #45: administración del gateway (A3b1)
+## 2026-10-12 · Issue #49: endurecimiento del gateway
 
-Rama `feat/45-administracion-gateway`. A3b se divide en A3b1 (este issue) y A3b2 (recuperación asistida, restablecimiento de MFA con dos administradores y procedimiento de emergencia). Sin ADR nuevo: sigue las decisiones 5 y 11 del ADR 0004.
+Rama `chore/49-endurecimiento-gateway`. Cierra pendientes del gateway que no dependen de E5 ni de otros servicios.
 
-- **Primer administrador:** `python -m gateway.bootstrap --username <nombre>`.
-  - La contraseña sale solo de OpenBao (`secret/bootstrap/admin`), nunca de la línea de comandos, y no se imprime ni se registra.
-  - AppRole `bootstrap` aparte: leer ese secreto y borrar sus metadatos; la política del gateway no recibe `secret/bootstrap/*`.
-  - Se niega si ya existe un administrador; un bloqueo asesor de la base de datos impide ejecuciones simultáneas.
-  - Crea la cuenta y destruye todas las versiones del secreto en un solo paso: si la destrucción falla, la creación se revierte.
-  - La cuenta nace con `must_change_password` y una ventana de 24 h para dar de alta el MFA. Errores con mensajes fijos y código de salida distinto de cero.
-- **Endpoints `/api/admin/...`:** exigen un administrador con sesión completa (que ya exige MFA) y revalidan el rol en la base de datos en cada petición.
-  - Listar usuarios, asignar rol, reabrir la ventana de alta del MFA, desbloquear una cuenta y cerrar sesiones; cada acción deja un evento de seguridad.
-  - **Rol pendiente:** un rol con privilegios para un usuario sin MFA no se aplica; el usuario sigue siendo lector con `pending_role` y una nueva ventana de 24 h, y el rol se aplica al confirmar el MFA. Resuelve el pendiente del usuario con privilegios que existía sin MFA (#43).
-  - **Separación de funciones:** un administrador no puede ser auditor (403 cuando el destino es hoy administrador, o es él mismo). Interpretación confirmada.
-  - **Último administrador:** la regla cuenta solo a los administradores con MFA activo; el último no puede perder el rol (409). Interpretación confirmada.
-- **Cambio de contraseña:** `POST /api/auth/password` exige la contraseña actual, aplica la política y cierra las demás sesiones. Mientras `must_change_password` esté activo, la sesión con alcance `enroll-mfa` solo llega a ese endpoint y al alta del MFA.
-- **AppRole `bootstrap-seed`:** solo para desarrollo y CI, con crear y actualizar sobre `secret/data/bootstrap/admin`; permite que las pruebas ejecuten el arranque real contra OpenBao. Aprobado por la persona. No debe aparecer en los manifiestos de E5.
-- **Arranque en desarrollo:**
-  1. Con `scripts/openbao-dev-init.sh` hecho, sembrar una contraseña aleatoria en `secret/bootstrap/admin` (en desarrollo, con el AppRole `bootstrap-seed`, que desde el #47 solo se crea con `OPENBAO_DEV_BOOTSTRAP_SEED=1` o en CI).
-  2. Ejecutar `python -m gateway.bootstrap --username <nombre>` con `GATEWAY_BOOTSTRAP_ROLE_ID_FILE` y `GATEWAY_BOOTSTRAP_SECRET_ID_FILE` apuntando a los archivos del AppRole `bootstrap` (`.local/openbao/`).
-  3. El administrador inicia sesión, cambia la contraseña y da de alta el MFA dentro de las 24 h.
-  - Un arranque rechazado (ya hay un administrador) deja el secreto sembrado: hay que borrarlo a mano (I1).
-- **Revisión de seguridad (`revisor-seguridad`):** lista para PR, sin críticos ni altos. M1 (carrera entre `mfa_confirm` y `assign_role`: ahora `mfa_confirm` bloquea la fila del usuario antes de aplicar el rol pendiente) y L3 (código de salida y mensaje del perdedor en la prueba de ejecuciones simultáneas) se corrigieron en una sola ronda (`4493982`). L1, L2, I1 e I2 quedan documentados (ver Pendientes y las amenazas 1, 43 y 47).
-- **Entorno de pruebas local:** `scripts/openbao-dev-init.sh` necesita `POSTGRES_USER`, `POSTGRES_PASSWORD` y `POSTGRES_DB` con valores ficticios, porque compose valida el archivo completo.
-- **TDD:** RED observado en cada cambio de comportamiento; de 488 a 621 pruebas.
-
-## 2026-10-12 · Issue #47: seguimiento de la revisión de Gentle AI del #45
-
-Rama `fix/47-seguimiento-revision-45`. Cierra los hallazgos no bloqueantes de la revisión de Gentle AI del PR #46. La persona pidió crear el issue con el borrador: sus intentos (#47 y #48) no aparecían en el repositorio y GitHub asignó el #47.
-
-- **Destrucción incierta del secreto del bootstrap (R4):** si el borrado puede haberse aplicado sin respuesta clara de OpenBao (un 5xx o un fallo de transporte en el borrado, o una lectura de verificación que falla por algo distinto de `InvalidPath`), el comando revierte la creación y responde con un mensaje fijo propio y el código de salida 5: comprobar si el secreto existe, sembrar uno nuevo si no y repetir. Ya no promete que el secreto siga intacto.
-- **Un solo traductor de bloqueos a 503:** `busy_guard` (en `auth.py`) convierte cualquier SQLSTATE de `BUSY_SQLSTATES` en 503; lo usan `mfa_confirm` al bloquear la fila del usuario (con rollback) y las rutas de administración (sin rollback, como antes). Antes, un interbloqueo (40P01) o un fallo de serialización (40001) en esa fila daban 500.
-- **`bootstrap-seed` solo con entorno explícito (R1):** `scripts/openbao-dev-init.sh` lo crea solo con `CI=true` (GitHub Actions lo define) o `OPENBAO_DEV_BOOTSTRAP_SEED=1`; si no, lo omite y lo avisa. Sin cambios en el workflow. Las pruebas reales fallan con un mensaje claro si faltan sus archivos. **No verificado de extremo a extremo:** la rama solo corre en el primer arranque y no se recreó el volumen de OpenBao.
-- **Pruebas:** la prueba real de bootstraps simultáneos es determinista (una barrera hace que ambos lean el secreto antes de crear; 10 de 10 ejecuciones); la aserción tautológica de `test_bootstrap.py` comprueba el código exacto del perdedor; la comprobación final de `change_password` tiene dos pruebas con comprobación por mutación (pasaban sin cambios en el código, que ya era correcto).
-- **Legibilidad:** comentario de `change_password` corregido, `_locked_usernames`, un único `FrozenClock` compartido, sin el caso «placeholder» y docstring de `test_bootstrap.py` al día.
-- **Bitácora:** se quitó la entrada duplicada del #37 (la copia de `bitacora/2026-10-03_05.md` es más completa).
-- **Revisión de seguridad (`revisor-seguridad`):** lista para PR, sin críticos, altos ni medios. Su único bajo (un 5xx o un fallo de transporte en el propio borrado seguía informándose como `DESTROY_FAILED`) se corrigió en una sola ronda: solo un 4xx de OpenBao cuenta como rechazo seguro.
-- **TDD:** RED observado en el mensaje de destrucción incierta (verificación y borrado) y en el 503 para 40P01 y 40001; de 621 a 631 pruebas.
+- **Revisión del #47:** el registro de la revisión de Gentle AI se guardó como primera tarea (T0, `6ee40f4`).
+- **Hallazgos avisados del #47 (T1):** ayudantes de prueba compartidos en `tests/helpers.py`; barreras de lectura en las dos pruebas de carrera; `DestroyError` como base de las excepciones de destrucción; `end_sessions` pasa la sesión a `busy_guard`.
+- **Login (T2):** la contraseña se verifica sin bloqueo de fila ni transacción.
+  - Después se bloquea el contador, se bloquea la fila del usuario con `FOR UPDATE` y se revisan `locked_until` y `password_hash` hasta que `_start_session` confirma.
+  - Si el hash cambió o el usuario se borró durante la verificación, cuenta como fallo con el 401 genérico; si se bloqueó durante ella, responde 401 sin contar.
+  - `_lock_attempt` usa `busy_guard`: 40P01 y 40001 dan 503, no 500.
+  - Los intentos en vuelo que pasan la comprobación previa antes del bloqueo quedan acotados por el semáforo de Argon2id (4); riesgo aceptado.
+  - Una prueba de concurrencia movió su pausa a `_start_session`.
+- **Contador de generación (T3), decisión de la persona:** migración 0006 con `users.token_generation` y una reclamación `gen` entera y obligatoria en cada JWT.
+  - `invalidate_tokens` la incrementa en `mfa_confirm`, `change_password`, `assign_role` y `end_sessions`.
+  - Los tokens existentes sin `gen` se rechazan una vez: hay que volver a iniciar sesión tras el despliegue.
+  - El refresh no compara la generación: su familia ya se valida con `tokens_valid_since`. Residual: una familia creada en el mismo segundo que un `assign_role` sobrevive; es inofensivo porque el rol se lee de la base de datos.
+  - `test_two_administrators_cannot_remove_each_other` acepta también 401 para el perdedor, con aserciones sobre el estado final.
+- **`/readyz` (T4):** responde 200 o 503 con cuerpo y línea de registro fijos según la base de datos; `/healthz` no cambia.
+- **Prueba de CSRF (T5):** recorre las rutas del esquema OpenAPI y falla si una ruta de sesión que cambia estado acepta una petición sin CSRF. Limitación: no ve rutas con `include_in_schema=False` (hoy ninguna).
+- **Decisiones:**
+  - El CSRF del #35 ya estaba completo; solo faltaba la prueba de guarda.
+  - I2 del #45 mantiene el bloqueo asesor: solo `assign_role` puede crear otro administrador y exige que ya exista uno.
+  - Se descartó la comprobación en CI de `bootstrap-seed`: la fixture `seed_files` falla si faltan los archivos.
+- **Revisión de seguridad (`revisor-seguridad`):** lista para PR, sin críticos, altos ni medios.
+  - L1 (un login en carrera con un cambio de contraseña en el mismo segundo abría una familia de refresh con la contraseña antigua) se corrigió en `8fc2eb7`.
+  - L2 (`/readyz` anónimo, hasta unos 5 s por sonda con la base caída, agota el threadpool) pasa a Pendientes de E5.
+  - L3 (una contraseña cambiada durante el hash cuenta como fallo) queda aceptado.
+- **TDD:** RED observado en cada cambio de comportamiento; de 631 a 673 pruebas.
 
 ## Pendientes
 
@@ -67,10 +58,10 @@ Rama `fix/47-seguimiento-revision-45`. Cierra los hallazgos no bloqueantes de la
 - [ ] Límite de frecuencia propio en `/mfa/enroll`, y desactivar el MFA o regenerar los códigos de recuperación (#39).
 - [x] **A3b:** un usuario con privilegios que ya existía sin MFA y sin fecha límite de alta no podía iniciar sesión ni darse de alta; resuelto con la asignación pendiente de roles (issue #45).
 - [ ] **A3b2:** el administrador de arranque queda bloqueado si caduca su ventana de alta de 24 h; reabrirla exige otro administrador, así que depende del procedimiento de emergencia (L1 de la revisión del #45).
-- [ ] `tokens_valid_since` tiene granularidad de un segundo: un token con alcance emitido en el mismo segundo que el cambio no queda anulado por él (L2 de la revisión del #45).
-- [ ] El arranque del primer administrador usa un bloqueo asesor y no una restricción única en la base de datos (I2 de la revisión del #45).
+- [x] `tokens_valid_since` tiene granularidad de un segundo: un token con alcance emitido en el mismo segundo que el cambio no queda anulado por él (L2 de la revisión del #45). Resuelto en el #49: contador de generación `gen`.
+- [x] El arranque del primer administrador usa un bloqueo asesor y no una restricción única en la base de datos (I2 de la revisión del #45). Resuelto en el #49: se mantiene el bloqueo asesor (decisión).
 - [ ] **E5:** mantener el AppRole `bootstrap-seed` (solo desarrollo y CI) fuera de los manifiestos.
-- [ ] El bloqueo del contador de intentos del login (`auth.py`) solo traduce `LOCK_NOT_AVAILABLE` a 503; valorar usar `busy_guard` también ahí (#47).
+- [x] El bloqueo del contador de intentos del login (`auth.py`) solo traduce `LOCK_NOT_AVAILABLE` a 503; valorar usar `busy_guard` también ahí (#47). Resuelto en el #49: `_lock_attempt` usa `busy_guard`.
 - [ ] Varias peticiones `/login/mfa` en paralelo con un token `mfa-pending` válido hacen su llamada a transit y su Argon2 a la vez, ya sin serializar; depende del límite de tasa por IP (E5) (L1 de la revisión del #43).
 - [ ] Rotación de la clave transit `totp` con `rewrap` de los textos cifrados (ADR 0006).
 - [ ] **E3:** implementar la renovación de sesión de un solo vuelo en el frontend.
@@ -78,14 +69,14 @@ Rama `fix/47-seguimiento-revision-45`. Cierra los hallazgos no bloqueantes de la
 
 ### E3: pendientes del registro (issue #29)
 - [ ] Límite de tasa en `POST /api/auth/register` y tope de tamaño del cuerpo (Ingress, E5); hoy solo hay el límite de 4 hashes simultáneos.
-- [ ] `readyz` que compruebe la base de datos (E5): sin `GATEWAY_DATABASE_URL`, `/healthz` responde pero la API falla.
+- [x] `readyz` que compruebe la base de datos (E5): sin `GATEWAY_DATABASE_URL`, `/healthz` responde pero la API falla. Resuelto en el #49: `GET /readyz`.
 
 ### Inicio de sesión (issue #33)
 - [ ] Bloqueo dirigido: cualquiera puede mantener bloqueada una cuenta ajena (4 fallos y luego uno cada 30 min). Lo acepta el ADR 0004 hasta que existan el límite por IP (E5) y la recuperación asistida (revisión de Gentle AI del #33).
-- [ ] El login mantiene la conexión a la base de datos y el bloqueo de fila durante la espera del hash (hasta 5 s más el hash). Valorar leer y bloquear el contador en una transacción corta separada del hash (revisión de Gentle AI del #33).
+- [x] El login mantiene la conexión a la base de datos y el bloqueo de fila durante la espera del hash (hasta 5 s más el hash). Valorar leer y bloquear el contador en una transacción corta separada del hash (revisión de Gentle AI del #33). Resuelto en el #49: el hash se verifica sin bloqueo ni transacción.
 - [ ] Saturación del threadpool: hasta 5 s de espera por el semáforo bloquean hilos de las rutas síncronas; depende del límite de tasa (E5) (L6 de la revisión del #33).
 - [ ] Programar la purga (`python -m gateway.maintenance purge`) como CronJob en E5 (#37).
-- [ ] Exigir el CSRF ligado al `sid` en las rutas que cambien estado después del login; `refresh` y `logout` ya lo exigen (#35).
+- [x] Exigir el CSRF ligado al `sid` en las rutas que cambien estado después del login; `refresh` y `logout` ya lo exigen (#35). Resuelto en el #49: ya estaba completo; una prueba de guarda lo comprueba.
 
 ### OpenBao (issue #31)
 - [ ] Llevar a OpenBao las credenciales de PostgreSQL (hoy en variables de entorno).
@@ -96,6 +87,7 @@ Rama `fix/47-seguimiento-revision-45`. Cierra los hallazgos no bloqueantes de la
 
 ### E5: plataforma, red y cifrado
 - [ ] ADR de cifrado dentro del clúster (TLS/mTLS para Vault, PostgreSQL y RabbitMQ), antes de E5.
+- [ ] **E5:** `/readyz` no debe exponerse fuera del clúster y debe quedar cubierto por el límite de tasa: es anónimo y, con la base caída, cada sonda tarda hasta unos 5 s y puede agotar el threadpool (L2 de la revisión del #49).
 
 ### E4/E7: CI/CD y cadena de suministro
 - [ ] Modelar la cadena de suministro de CI/CD (E4/E7).
@@ -140,3 +132,4 @@ Rama `fix/47-seguimiento-revision-45`. Cierra los hallazgos no bloqueantes de la
 - [x] **Issue #37:** purga de las tablas de sesión, reloj único para `tokens_valid_since` y logout que borra las cookies.
 - [x] Normalización Unicode de contraseñas (NFC) y tiempo máximo del semáforo de Argon2id (pendientes del #29, cerrados en el #33).
 - [x] **Issue #27 (PR #28):** `gateway` obligatorio en el ruleset (aplicado en GitHub el 2026-09-30 y verificado desde la API), documentación de la API desactivada por defecto y `httpx2`. ADR 0001 actualizado en el issue #29.
+- [x] **Issue #49:** endurecimiento del gateway: login sin bloqueo durante el hash, contador de generación de tokens, `/readyz` con comprobación de la base de datos, prueba de guarda del CSRF y hallazgos del #47.

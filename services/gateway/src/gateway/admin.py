@@ -382,7 +382,7 @@ def end_sessions(
     the tokens issued so far."""
     _begin_change(session)
     target = _lock_target(session, user_id)
-    with busy_guard("admin_families_locked"):
+    with busy_guard("admin_families_locked", session):
         revoked = session.execute(
             update(RefreshFamily)
             .where(

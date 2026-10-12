@@ -14,6 +14,7 @@ from gateway.main import create_app
 from gateway.models import User
 from gateway.passwords import verify_password
 from gateway.tokens import decode_access_token
+from tests.helpers import FrozenClock, Interfere, run_sql
 from tests.test_login import (
     GOOD,
     KEYS,
@@ -25,7 +26,6 @@ from tests.test_login import (
     refresh_cookie_value,
     register,
 )
-from tests.test_mfa import FrozenClock, Interfere, run_sql
 from tests.test_refresh import refresh, start
 
 URL = "/api/auth/password"

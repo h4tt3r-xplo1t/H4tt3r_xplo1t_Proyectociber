@@ -22,6 +22,7 @@ from gateway.db import get_engine
 from gateway.main import create_app
 from gateway.models import ROLES, User
 from gateway.tokens import decode_access_token
+from tests.helpers import FrozenClock
 from tests.test_login import (
     GOOD,
     KEYS,
@@ -32,7 +33,6 @@ from tests.test_login import (
     login,
     register,
 )
-from tests.test_mfa import FrozenClock
 from tests.test_refresh import refresh, refresh_cookie_value
 
 USERS = "/api/admin/users"

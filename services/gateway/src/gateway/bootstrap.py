@@ -83,11 +83,15 @@ DEFINITE_REJECTIONS = (
 )
 
 
-class DestroyFailed(RuntimeError):
+class DestroyError(RuntimeError):
+    """Base of the two ways the destroy step can fail; never raised itself."""
+
+
+class DestroyFailed(DestroyError):
     """The secret could not be destroyed or still answers a read."""
 
 
-class DestroyUncertain(DestroyFailed):
+class DestroyUncertain(DestroyError):
     """The delete may have applied, but OpenBao gave no definite answer."""
 
 

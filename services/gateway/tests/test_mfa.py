@@ -10,7 +10,7 @@ import re
 import threading
 import time
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 import pyotp
 import pytest
@@ -23,6 +23,7 @@ from gateway import auth, secrets
 from gateway.db import get_engine
 from gateway.main import create_app
 from gateway.tokens import decode_access_token, issue_access_token, make_csrf
+from tests.helpers import FrozenClock, Interfere, run_sql
 from tests.test_login import (
     GOOD,
     KEYS,
@@ -40,17 +41,6 @@ CONFIRM = "/api/auth/mfa/confirm"
 LOGIN_MFA = "/api/auth/login/mfa"
 NOT_AUTHENTICATED = {"detail": "Not authenticated"}
 RECOVERY_FORMAT = re.compile(r"^[A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{4}$")
-
-
-class FrozenClock:
-    """A 'now' that only moves when a test says so, set at the start of a step."""
-
-    def __init__(self):
-        real = datetime.now(UTC).replace(microsecond=0)
-        self.now = real - timedelta(seconds=int(real.timestamp()) % 30)
-
-    def __call__(self):
-        return self.now
 
 
 @pytest.fixture
@@ -1300,28 +1290,6 @@ def test_a_transit_failure_logs_a_fixed_cause_and_nothing_sensitive(
 
 
 # --- rechecks under the lock (compare-and-set) ----------------------------
-
-
-class Interfere:
-    """Runs `change` right after a slow step, as a concurrent request would.
-
-    Wrapped around the last slow call before the lock is taken, so the change
-    lands exactly between "prepare" and "consume".
-    """
-
-    def __init__(self, real, change):
-        self.real = real
-        self.change = change
-
-    def __call__(self, *args, **kwargs):
-        result = self.real(*args, **kwargs)
-        self.change()
-        return result
-
-
-def run_sql(db_engine, sql, **params):
-    with db_engine.begin() as conn:
-        conn.execute(text(sql), params)
 
 
 COUNTS = {

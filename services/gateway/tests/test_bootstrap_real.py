@@ -141,9 +141,18 @@ def test_real_simultaneous_runs_create_one_administrator(
 
     monkeypatch.setattr(bootstrap, "_read_password", read_then_wait)
 
+    errors = []
+
     def worker(name):
-        start.wait()
-        codes.append(bootstrap.main(["--username", name]))
+        try:
+            start.wait()
+            codes.append(bootstrap.main(["--username", name]))
+        except BaseException as error:
+            # Release the other run instead of leaving it to time out, so the
+            # failure shows its root cause.
+            errors.append(error)
+            start.abort()
+            read_done.abort()
 
     threads = [threading.Thread(target=worker, args=(f"racer-{i}",)) for i in range(2)]
     for thread in threads:
@@ -151,6 +160,7 @@ def test_real_simultaneous_runs_create_one_administrator(
     for thread in threads:
         thread.join()
 
+    assert errors == []
     assert len(admins(db_engine)) == 1
     # One run wins; the other is refused with the fixed message and nothing else.
     assert sorted(codes) == [0, bootstrap.EXIT_REFUSED]

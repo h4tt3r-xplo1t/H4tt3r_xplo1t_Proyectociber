@@ -147,3 +147,24 @@ def bootstrap_files(openbao_env) -> dict[str, str]:
             "bootstrap AppRole is created on the first setup)"
         )
     return files
+
+
+@pytest.fixture(scope="session")
+def seed_files(openbao_env) -> dict[str, str]:
+    """Paths of the DEV/CI-only `bootstrap-seed` AppRole credentials.
+
+    That role exists only so the tests can write `secret/bootstrap/admin`; in
+    production the responsible person writes it with their own credentials.
+    """
+    directory = Path(openbao_env["GATEWAY_OPENBAO_ROLE_ID_FILE"]).parent
+    files = {
+        "role_id": str(directory / "bootstrap-seed-role-id"),
+        "secret_id": str(directory / "bootstrap-seed-secret-id"),
+    }
+    missing = [name for name, path in files.items() if not Path(path).is_file()]
+    if missing:
+        pytest.fail(
+            "bootstrap-seed credential files not found next to the gateway "
+            "ones: recreate the dev OpenBao and run scripts/openbao-dev-init.sh"
+        )
+    return files

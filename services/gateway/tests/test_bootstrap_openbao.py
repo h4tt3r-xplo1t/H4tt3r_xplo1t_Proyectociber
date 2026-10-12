@@ -105,3 +105,46 @@ def test_bootstrap_role_cannot_use_transit_or_list(bootstrap_client):
 def test_gateway_policy_gained_nothing_for_the_bootstrap(gateway_client):
     assert _capabilities(gateway_client, "secret/data/gateway/jwt") == {"read"}
     assert _capabilities(gateway_client, "secret/data/bootstrap/admin") == set()
+
+
+@pytest.fixture
+def seed_client(openbao_env, seed_files):
+    return _client(
+        openbao_env["GATEWAY_OPENBAO_ADDR"],
+        seed_files["role_id"],
+        seed_files["secret_id"],
+    )
+
+
+def test_seed_role_can_only_create_and_update_the_bootstrap_secret(seed_client):
+    assert _capabilities(seed_client, DATA_PATH) == {"create", "update"}
+    assert _capabilities(seed_client, METADATA_PATH) == set()
+
+
+def test_seed_role_cannot_read_delete_list_or_reach_anything_else(seed_client):
+    with pytest.raises(hvac.exceptions.Forbidden):
+        seed_client.secrets.kv.v2.read_secret_version(
+            path="bootstrap/admin", mount_point="secret", raise_on_deleted_version=True
+        )
+    with pytest.raises(hvac.exceptions.Forbidden):
+        seed_client.secrets.kv.v2.delete_metadata_and_all_versions(
+            path="bootstrap/admin", mount_point="secret"
+        )
+    with pytest.raises(hvac.exceptions.Forbidden):
+        seed_client.secrets.kv.v2.read_secret_version(
+            path="gateway/jwt", mount_point="secret", raise_on_deleted_version=True
+        )
+    with pytest.raises(hvac.exceptions.Forbidden):
+        seed_client.secrets.kv.v2.create_or_update_secret(
+            path="gateway/jwt", secret={"key": "x"}, mount_point="secret"
+        )
+    with pytest.raises(hvac.exceptions.Forbidden):
+        seed_client.secrets.transit.encrypt_data(name="totp", plaintext="eA==")
+
+
+def test_gateway_and_bootstrap_roles_gained_nothing_from_the_seed_role(
+    gateway_client, bootstrap_client
+):
+    assert _capabilities(gateway_client, DATA_PATH) == set()
+    assert _capabilities(bootstrap_client, DATA_PATH) == {"read"}
+    assert _capabilities(bootstrap_client, METADATA_PATH) == {"delete"}

@@ -52,9 +52,12 @@ def create_app() -> FastAPI:
         log_service_busy(exc.cause)
         return JSONResponse(status_code=503, content=busy_body)
 
+    # TransitError covers every failed transit call (unreachable, timeout,
+    # refused, a ciphertext that does not decrypt), so the cause says "failed",
+    # not "unavailable". Its message is fixed and never reaches the log.
     @app.exception_handler(TransitError)
-    async def transit_unavailable(request: Request, exc: TransitError) -> JSONResponse:
-        log_service_busy("transit_unavailable")
+    async def transit_failed(request: Request, exc: TransitError) -> JSONResponse:
+        log_service_busy("transit_failed")
         return JSONResponse(status_code=503, content=busy_body)
 
     @app.get("/healthz")

@@ -141,7 +141,21 @@ def login(addr: str, role_id: str, secret_id: str, timeout: float | None = None)
     return client
 
 
-def _revoke(client) -> None:
+def login_from_env(timeout: float | None = None):
+    """Log in with the OpenBao settings of the environment (see `login`).
+
+    The address comes from GATEWAY_OPENBAO_ADDR and the AppRole credentials from
+    the files named by GATEWAY_OPENBAO_ROLE_ID_FILE and
+    GATEWAY_OPENBAO_SECRET_ID_FILE. Raises SecretsError, with a fixed message,
+    when a setting is missing or the login fails.
+    """
+    addr = _env("GATEWAY_OPENBAO_ADDR")
+    role_id = _read_file(_env("GATEWAY_OPENBAO_ROLE_ID_FILE"), "role_id")
+    secret_id = _read_file(_env("GATEWAY_OPENBAO_SECRET_ID_FILE"), "secret_id")
+    return login(addr, role_id, secret_id, timeout)
+
+
+def revoke(client) -> None:
     """Best effort: drop the token once the keys are read. No error text kept.
 
     A failed revoke must not replace keys already read nor leak hvac or
@@ -156,11 +170,8 @@ def _revoke(client) -> None:
 @lru_cache
 def get_gateway_keys() -> GatewayKeys:
     """Fetch the keys on first use, so the app starts without OpenBao."""
-    addr = _env("GATEWAY_OPENBAO_ADDR")
-    role_id = _read_file(_env("GATEWAY_OPENBAO_ROLE_ID_FILE"), "role_id")
-    secret_id = _read_file(_env("GATEWAY_OPENBAO_SECRET_ID_FILE"), "secret_id")
-    client = login(addr, role_id, secret_id)
+    client = login_from_env()
     try:
         return load_keys(client)
     finally:
-        _revoke(client)
+        revoke(client)

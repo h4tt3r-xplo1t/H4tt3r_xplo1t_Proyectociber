@@ -67,7 +67,6 @@ def test_tampered_ciphertext_fails_closed(openbao_env):
 
 def test_unreachable_openbao_fails_closed(openbao_env, monkeypatch):
     monkeypatch.setenv("GATEWAY_OPENBAO_ADDR", "http://127.0.0.1:1")
-    monkeypatch.setattr(secrets, "REQUEST_TIMEOUT_SECONDS", 1)
 
     with pytest.raises(TransitError):
         encrypt_totp_secret(PLAINTEXT, USER_A)
@@ -110,7 +109,9 @@ def test_token_is_revoked_after_each_call(openbao_env, monkeypatch):
     assert transit.TOTP_KEY == "totp"
 
 
-def test_a_slow_openbao_fails_fast_as_a_transit_error(monkeypatch):
+def test_a_slow_openbao_fails_fast_as_a_transit_error(openbao_env, monkeypatch):
+    # `openbao_env` makes missing settings fail the test: without them the call
+    # would raise TransitError before any request and pass without a timeout.
     monkeypatch.setattr(transit, "TRANSIT_TIMEOUT_SECONDS", 1)
     # Accepts connections at TCP level but never answers: only the client
     # timeout can end the request.
@@ -125,7 +126,15 @@ def test_a_slow_openbao_fails_fast_as_a_transit_error(monkeypatch):
         with pytest.raises(TransitError):
             encrypt_totp_secret(PLAINTEXT, USER_A)
 
-    assert time.monotonic() - started < 3
+        elapsed = time.monotonic() - started
+        # The request really reached the silent server (it is not a refusal).
+        silent.setblocking(False)
+        connection, _ = silent.accept()
+        connection.close()
+
+    # The configured timeout (1 s) ended it, well below the 5 s default of
+    # secrets.REQUEST_TIMEOUT_SECONDS that applies when none is passed.
+    assert 0.9 < elapsed < 3
 
 
 def test_a_ciphertext_is_bound_to_its_user(openbao_env):

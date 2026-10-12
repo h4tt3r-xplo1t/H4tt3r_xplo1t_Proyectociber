@@ -30,14 +30,7 @@ def _connect():
     """Return an AppRole client, or raise TransitError (no context kept)."""
     client = None
     try:
-        addr = secrets._env("GATEWAY_OPENBAO_ADDR")
-        role_id = secrets._read_file(
-            secrets._env("GATEWAY_OPENBAO_ROLE_ID_FILE"), "role_id"
-        )
-        secret_id = secrets._read_file(
-            secrets._env("GATEWAY_OPENBAO_SECRET_ID_FILE"), "secret_id"
-        )
-        client = secrets.login(addr, role_id, secret_id, TRANSIT_TIMEOUT_SECONDS)
+        client = secrets.login_from_env(TRANSIT_TIMEOUT_SECONDS)
     except Exception:
         client = None
     if client is None:
@@ -66,7 +59,7 @@ def encrypt_totp_secret(plaintext: bytes, user_id: uuid.UUID) -> str:
     except Exception:
         ciphertext = None
     finally:
-        secrets._revoke(client)
+        secrets.revoke(client)
     if not isinstance(ciphertext, str) or not ciphertext.startswith(CIPHERTEXT_PREFIX):
         raise TransitError(FAILED)
     return ciphertext
@@ -87,7 +80,7 @@ def decrypt_totp_secret(ciphertext: str, user_id: uuid.UUID) -> bytes:
     except Exception:
         plaintext = None
     finally:
-        secrets._revoke(client)
+        secrets.revoke(client)
     if plaintext is None:
         raise TransitError(FAILED)
     return plaintext

@@ -26,6 +26,14 @@ _RECOVERY_RAW = re.compile(
 )
 
 
+def _format_recovery_code(raw: str) -> str:
+    """Write 12 base32 characters as XXXX-XXXX-XXXX."""
+    return "-".join(
+        raw[i : i + RECOVERY_GROUP_LENGTH]
+        for i in range(0, len(raw), RECOVERY_GROUP_LENGTH)
+    )
+
+
 def new_totp_secret() -> str:
     """A random base32 secret (160 bits at pyotp's default length of 32)."""
     return pyotp.random_base32()
@@ -59,12 +67,7 @@ def new_recovery_codes() -> list[str]:
             secrets.choice(BASE32_ALPHABET)
             for _ in range(RECOVERY_GROUPS * RECOVERY_GROUP_LENGTH)
         )
-        codes.add(
-            "-".join(
-                raw[i : i + RECOVERY_GROUP_LENGTH]
-                for i in range(0, len(raw), RECOVERY_GROUP_LENGTH)
-            )
-        )
+        codes.add(_format_recovery_code(raw))
     return list(codes)
 
 
@@ -73,7 +76,4 @@ def normalize_recovery_code(value: str) -> str | None:
     raw = value.strip().replace("-", "").upper()
     if not _RECOVERY_RAW.fullmatch(raw):
         return None
-    return "-".join(
-        raw[i : i + RECOVERY_GROUP_LENGTH]
-        for i in range(0, len(raw), RECOVERY_GROUP_LENGTH)
-    )
+    return _format_recovery_code(raw)

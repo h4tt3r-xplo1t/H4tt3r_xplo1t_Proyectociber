@@ -610,6 +610,11 @@ def _session_denied() -> HTTPException:
     )
 
 
+def _lacks_required_mfa(user: User) -> bool:
+    """A privileged role without an active second factor has no full session."""
+    return user.role in PRIVILEGED_ROLES and user.mfa_enabled_at is None
+
+
 def _refresh_failed(reason: str, subject: str, now: datetime) -> None:
     # The clients all see the same 401; the reason is for the security log only.
     # `subject` is a user id or "unknown", never the token.
@@ -715,6 +720,13 @@ def refresh(
     # the live sessions too. Truncated to the second, like current_user does.
     if family.created_at < user.tokens_valid_since.replace(microsecond=0):
         _refresh_failed("invalidated", subject, now)
+        raise _session_denied()
+    if _lacks_required_mfa(user):
+        # Promoted (or already privileged) without a second factor: the session
+        # must not be renewed, and its family ends here for good.
+        family.revoked_at = now
+        session.commit()
+        _refresh_failed("mfa_required", subject, now)
         raise _session_denied()
     limits = session_limits(user.role)
     if now - family.last_used_at > limits.idle:
@@ -930,8 +942,16 @@ def current_user(
     session: Annotated[Session, Depends(get_session)],
     keys: Annotated[GatewayKeys, Depends(get_keys)],
 ) -> CurrentUser:
-    """The user of a full session. Any token with a `scope` claim is refused."""
-    return _authenticate(request, session, keys, FULL_SESSION)
+    """The user of a full session. Any token with a `scope` claim is refused.
+
+    A privileged role without MFA is refused too, whatever its token says: the
+    role comes from the database, so a promotion or a session opened before MFA
+    was required ends on the next request (ADR 0004, decision 4).
+    """
+    actor = _authenticate(request, session, keys, FULL_SESSION)
+    if _lacks_required_mfa(actor.user):
+        raise _session_denied()
+    return actor
 
 
 def enrollment_actor(
@@ -976,20 +996,44 @@ def _reload_user(session: Session, user: User) -> None:
         raise _session_denied() from None
 
 
+def _login_blocked(session: Session, user: User, now: datetime) -> HTTPException:
+    """End the transaction and log a locked account; the caller raises the 401."""
+    session.commit()
+    _log_event("login_blocked", str(user.id), now, logging.WARNING)
+    return _login_failed()
+
+
+def _refuse_if_locked(
+    session: Session, user: User, keys: GatewayKeys, now: datetime
+) -> None:
+    """Spare a locked account any slow work, without taking the counter lock.
+
+    A plain read: it can be stale by the time the slow work is done, so the
+    decision is taken again under the lock (`_lock_second_factor`). Its only job
+    is to keep a locked account from costing a transit call or a hash.
+    """
+    locked_until = session.scalar(
+        select(LoginAttempt.locked_until).where(
+            LoginAttempt.attempt_key == login_attempt_key(user.username, keys.csrf_key)
+        )
+    )
+    if locked_until is not None and locked_until > now:
+        raise _login_blocked(session, user, now)
+
+
 def _lock_second_factor(
     session: Session, user: User, keys: GatewayKeys, now: datetime
 ) -> LoginAttempt:
     """Lock the user's login counter; a locked account gets the generic 401.
 
-    Same row and same rules as the password step. A locked account is answered
-    before any code is looked at or any transit call is made.
+    Same row and same rules as the password step. Callers do their slow work
+    (transit, hashing) before this, so the lock covers only quick reads and
+    writes; whatever they decided from the user is rechecked after it.
     """
     attempt = _lock_attempt(session, login_attempt_key(user.username, keys.csrf_key))
     _reload_user(session, user)
     if attempt.locked_until is not None and attempt.locked_until > now:
-        session.commit()
-        _log_event("login_blocked", str(user.id), now, logging.WARNING)
-        raise _login_failed()
+        raise _login_blocked(session, user, now)
     return attempt
 
 
@@ -1016,6 +1060,15 @@ def _check_can_enroll(actor: CurrentUser, now: datetime) -> None:
         )
 
 
+def _recheck_can_enroll(session: Session, actor: CurrentUser, now: datetime) -> None:
+    """`_check_can_enroll` again, under the lock; release the lock if it refuses."""
+    try:
+        _check_can_enroll(actor, now)
+    except HTTPException:
+        session.rollback()
+        raise
+
+
 @router.post("/mfa/enroll", dependencies=[Depends(require_same_origin)])
 def mfa_enroll(
     actor: Annotated[CurrentUser, Depends(enrollment_actor)],
@@ -1036,7 +1089,8 @@ def mfa_enroll(
     """
     _check_can_enroll(actor, now)
     user = actor.user
-    if "scope" not in actor.claims:
+    full_session = "scope" not in actor.claims
+    if full_session:
         attempt = _lock_second_factor(session, user, keys, now)
         password = body.current_password if body is not None else None
         if password is None:
@@ -1046,13 +1100,34 @@ def mfa_enroll(
         if not verified:
             _record_failure(session, attempt, str(user.id), now, "mfa_failure")
             raise _login_failed()
+        # Password checked: release the counter lock before the transit call.
+        session.commit()
     secret = new_totp_secret()
     # A transit failure raises TransitError (fixed 503) before anything is saved.
-    user.mfa_pending_ciphertext = encrypt_totp_secret(secret.encode(), user.id)
+    ciphertext = encrypt_totp_secret(secret.encode(), user.id)
+    if full_session:
+        # Back under the lock, with the user reloaded: it must still be eligible.
+        _lock_second_factor(session, user, keys, now)
+        _recheck_can_enroll(session, actor, now)
+    user.mfa_pending_ciphertext = ciphertext
     session.commit()
     response.headers.update(NO_STORE)
     _log_event("mfa_enrollment_started", str(user.id), now)
     return EnrollOut(otpauth_uri=provisioning_uri(secret, user.username), secret=secret)
+
+
+def _no_enrollment() -> HTTPException:
+    """The 409 for a confirmation with nothing to confirm.
+
+    Raised twice on purpose: a cheap check before any slow work, and again under
+    the counter lock, because the enrollment can change in between (a concurrent
+    confirm or a new enroll).
+    """
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="No enrollment in progress",
+        headers=NO_STORE,
+    )
 
 
 @router.post("/mfa/confirm", dependencies=[Depends(require_same_origin)])
@@ -1077,31 +1152,31 @@ def mfa_confirm(
     _check_can_enroll(actor, now)
     user = actor.user
     if user.mfa_pending_ciphertext is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="No enrollment in progress",
-            headers=NO_STORE,
-        )
-    attempt = _lock_second_factor(session, user, keys, now)
+        raise _no_enrollment()
     subject = str(user.id)
     pending = user.mfa_pending_ciphertext
-    if user.mfa_enabled_at is not None or pending is None:
-        session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="No enrollment in progress",
-            headers=NO_STORE,
-        )
+    # The slow work (transit, Argon2id) runs before the counter lock is taken.
+    _refuse_if_locked(session, user, keys, now)
     secret = decrypt_totp_secret(pending, user.id).decode()
     step = matching_step(secret, body.code, now)
+    codes = new_recovery_codes() if step is not None else []
+    hashes = [hash_password(code) for code in codes]
+
+    attempt = _lock_second_factor(session, user, keys, now)
+    # Under the lock, with the user reloaded: the user must still be eligible
+    # (window, role, MFA not active yet) and the enrollment this code was
+    # checked against must still be the one in progress.
+    _recheck_can_enroll(session, actor, now)
+    if user.mfa_enabled_at is not None or user.mfa_pending_ciphertext != pending:
+        session.rollback()
+        raise _no_enrollment()
     if step is None:
         _record_failure(session, attempt, subject, now, "mfa_failure")
         raise _login_failed()
 
-    codes = new_recovery_codes()
     session.add_all(
-        RecoveryCode(user_id=user.id, code_hash=hash_password(code), created_at=now)
-        for code in codes
+        RecoveryCode(user_id=user.id, code_hash=code_hash, created_at=now)
+        for code_hash in hashes
     )
     user.mfa_secret_ciphertext = pending
     user.mfa_pending_ciphertext = None
@@ -1123,39 +1198,90 @@ def mfa_confirm(
     return RecoveryCodesOut(recovery_codes=codes, relogin_required=True)
 
 
-def _check_second_factor(
-    session: Session, user: User, code: str, now: datetime
-) -> Literal["totp", "recovery"] | None:
-    """Which kind of valid second factor `code` is, or None. Stages the changes.
+@dataclass(frozen=True)
+class PreparedTotp:
+    """A TOTP matched to its step, against the ciphertext it was decrypted from."""
 
-    A TOTP must fall in the window and in a step after the last accepted one
-    (replay, ASVS 6.5.1). A recovery code is compared against the unused hashes
-    and marked used.
+    ciphertext: str
+    step: int
+
+
+@dataclass(frozen=True)
+class PreparedRecovery:
+    """A recovery code that matched the hash of this (still unused) row."""
+
+    code_id: uuid.UUID
+
+
+# What the slow, lock-free part learned about a typed second factor. Nothing in
+# it is trusted yet: `_consume_second_factor` rechecks it against the reloaded
+# user under the lock before anything is spent.
+PreparedFactor = PreparedTotp | PreparedRecovery
+
+
+def _prepare_second_factor(
+    session: Session, user: User, code: str, now: datetime
+) -> PreparedFactor | None:
+    """Check `code` with no row locked: the transit call and the Argon2id loop.
+
+    A TOTP is decrypted and matched to its step; a recovery code is compared
+    against the hashes of the unused codes. Both can take long (a network call,
+    up to ten hashes), which is why they must not run under the counter lock.
     """
     if user.mfa_enabled_at is None or user.mfa_secret_ciphertext is None:
         return None
     if TOTP_CODE.fullmatch(code):
-        secret = decrypt_totp_secret(user.mfa_secret_ciphertext, user.id).decode()
+        ciphertext = user.mfa_secret_ciphertext
+        secret = decrypt_totp_secret(ciphertext, user.id).decode()
         step = matching_step(secret, code, now)
         if step is None:
             return None
-        if user.mfa_last_step is not None and step <= user.mfa_last_step:
-            return None
-        user.mfa_last_step = step
-        return "totp"
+        return PreparedTotp(ciphertext, step)
     recovery = normalize_recovery_code(code)
     if recovery is None:
         return None
-    unused = session.scalars(
-        select(RecoveryCode)
-        .where(RecoveryCode.user_id == user.id, RecoveryCode.used_at.is_(None))
-        .with_for_update()
+    unused = session.execute(
+        select(RecoveryCode.id, RecoveryCode.code_hash).where(
+            RecoveryCode.user_id == user.id, RecoveryCode.used_at.is_(None)
+        )
     ).all()
-    for row in unused:
-        if verify_password(row.code_hash, recovery):
-            row.used_at = now
-            return "recovery"
+    for code_id, code_hash in unused:
+        if verify_password(code_hash, recovery):
+            return PreparedRecovery(code_id)
     return None
+
+
+def _consume_second_factor(
+    session: Session, user: User, prepared: PreparedFactor, now: datetime
+) -> Literal["totp", "recovery"] | None:
+    """Spend a prepared factor, under the counter lock. Stages the changes.
+
+    Compare-and-set: a TOTP counts only if the secret it was checked against is
+    still the user's and its step is after the last accepted one (replay, ASVS
+    6.5.1); a recovery code only if its row is still unused once locked.
+    """
+    if user.mfa_enabled_at is None:
+        return None
+    if isinstance(prepared, PreparedTotp):
+        if user.mfa_secret_ciphertext != prepared.ciphertext:
+            return None
+        if user.mfa_last_step is not None and prepared.step <= user.mfa_last_step:
+            return None
+        user.mfa_last_step = prepared.step
+        return "totp"
+    row = session.scalar(
+        select(RecoveryCode)
+        .where(
+            RecoveryCode.id == prepared.code_id,
+            RecoveryCode.user_id == user.id,
+            RecoveryCode.used_at.is_(None),
+        )
+        .with_for_update()
+    )
+    if row is None:
+        return None
+    row.used_at = now
+    return "recovery"
 
 
 @router.post("/login/mfa", dependencies=[Depends(require_same_origin)])
@@ -1169,18 +1295,28 @@ def login_mfa(
 ) -> UserOut:
     """Finish a login with a TOTP or a recovery code, then issue the session."""
     user = actor.user
-    attempt = _lock_second_factor(session, user, keys, now)
     subject = str(user.id)
+    # Slow work first, with no row locked: a locked account is refused before
+    # any transit call or hash, and the code is checked against what the user
+    # looks like now. What it decides is rechecked under the lock below.
+    _refuse_if_locked(session, user, keys, now)
+    prepared = _prepare_second_factor(session, user, body.code, now)
+    attempt = _lock_second_factor(session, user, keys, now)
     # Single use under concurrency: the authentication above saw the denylist
     # before this request queued on the counter row's lock, so a request that
     # waited may hold a token the winner has just consumed. Re-check it here,
     # inside the lock. The jti is inserted only on success (still under this
     # lock, which serializes every attempt of the user), so a wrong code does
-    # not burn the token and can be retried within the lockout limits.
+    # not burn the token and can be retried within the lockout limits. The same
+    # goes for the code itself: its step or row is spent only after the lock.
     if session.scalar(select(exists().where(RevokedJti.jti == actor.claims["jti"]))):
         session.commit()
         raise _session_denied()
-    kind = _check_second_factor(session, user, body.code, now)
+    kind = (
+        _consume_second_factor(session, user, prepared, now)
+        if prepared is not None
+        else None
+    )
     if kind is None:
         _record_failure(session, attempt, subject, now, "mfa_failure")
         raise _login_failed()

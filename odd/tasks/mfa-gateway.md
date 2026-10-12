@@ -36,9 +36,10 @@ Forecast ~1500 lines. `single-pr`. Low-churn review workflow: single docs commit
 - [x] **T1b** (`427b563`): migration `0004`, models, conftest TRUNCATE. RED: missing columns; GREEN: 375 passed.
 - [x] **T1c + T1d** (`911d25d`, one commit: shared `auth.py` and fixtures): enrollment and second factor. RED: 67 failed; GREEN: 448 passed.
 - [x] **T2**: ADR 0006, BITACORA (rotation to `docs/bitacora/2026-10-03_05.md`, #37 closure, count fix, #39 entry), threats 43 and 44; one docs commit.
-- [ ] **T3**: `revisor-seguridad` ready (2 medium, 5 low); one fix round: `f225baf` transit timeout, `143da9a` enrollment window on every call, `51a11e1` password to enroll and end all sessions on confirm, `b778443` pending token single use under concurrency (20/20), `715109d` ciphertext bound to user (derived key). 462 passed, ruff clean. L2 and L5 documented. Gentle AI review: pending.
-- [ ] **T4**: push and PR (person request only).
+- [x] **T3**: `revisor-seguridad` ready (2 medium, 5 low); one fix round: `f225baf` transit timeout, `143da9a` enrollment window on every call, `51a11e1` password to enroll and end all sessions on confirm, `b778443` pending token single use under concurrency (20/20), `715109d` ciphertext bound to user (derived key). 462 passed, ruff clean. L2 and L5 documented. Gentle AI: `review-f1fe2c56fc998835` approved on `501fe32`, acknowledged 2026-10-11 (untracked `.codex/` excluded locally via `.git/info/exclude`). After the person merged Dependabot #41 and #40 into main, two merges of main (`55dabed` sqlalchemy 2.1.2, `a64f917` ruff 0.16.10, `uv lock` regenerated, `pyotp` hashes unchanged) were reviewed again: `review-bf87463d9b279c73` and `review-62cff8bff0bcf3d3`, both high, approved and acknowledged; their advisory findings went to issue #43. This closure is recorded in issue #43 because no commits are made after an approved review.
+- [x] **T4**: push and PR #42 (person request 2026-10-11); CI run 38199402157 green, 462 passed; merged by the person as `28f63e8` on 2026-10-11.
 
 ## Progress
 - 2026-10-05: T0 done.
 - 2026-10-05: T1, T2 and the revisor-seguridad fix round done; parent spot check 462 passed.
+- 2026-10-11: T3 and T4 done (PR #42 merged as `28f63e8`); closure written in issue #43.

@@ -18,7 +18,7 @@ dependencies = [
 dev = [
     "httpx2>=2.13.1",
     "pytest>=9.1.1",
-    "ruff>=0.16.9",
+    "ruff>=0.16.10",
 ]
 
 # Not built as a package: no build backend is needed, which keeps one less

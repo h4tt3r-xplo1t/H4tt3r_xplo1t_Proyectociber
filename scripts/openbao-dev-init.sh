@@ -12,6 +12,9 @@
 #   unseal-key  to unseal after a restart
 #   role-id     AppRole role_id of the gateway
 #   secret-id   AppRole secret_id of the gateway (no expiry in dev)
+#   bootstrap-role-id, bootstrap-secret-id  AppRole of the first-administrator
+#               bootstrap (python -m gateway.bootstrap): read and destroy of
+#               secret/bootstrap/admin only
 #   setup-complete  marker written after every first-setup step succeeded
 #
 # Recovery: if the setup is interrupted after init, the root token is gone.
@@ -105,7 +108,7 @@ done
 
 if [[ "$FIRST_SETUP" == "true" ]]; then
   export BAO_TOKEN="$ROOT_TOKEN"
-  echo "First setup: KV v2, transit, AppRole, policy and keys"
+  echo "First setup: KV v2, transit, AppRoles, policies and keys"
   bao secrets enable -path=secret -version=2 kv >/dev/null
   bao auth enable approle >/dev/null
   # Transit encrypts the TOTP secrets; the key never leaves OpenBao and the
@@ -122,6 +125,15 @@ if [[ "$FIRST_SETUP" == "true" ]]; then
     secret_id_ttl=0 secret_id_num_uses=0 >/dev/null
   bao read -field=role_id auth/approle/role/gateway/role-id >"$STATE_DIR/role-id"
   bao write -f -field=secret_id auth/approle/role/gateway/secret-id >"$STATE_DIR/secret-id"
+
+  # The bootstrap has its own AppRole and policy: it may only read and destroy
+  # secret/bootstrap/admin, and the gateway policy never gets that path.
+  bao policy write bootstrap - <deploy/openbao/bootstrap-policy.hcl >/dev/null
+  bao write auth/approle/role/bootstrap \
+    token_policies=bootstrap token_ttl=15m token_max_ttl=1h \
+    secret_id_ttl=0 secret_id_num_uses=0 >/dev/null
+  bao read -field=role_id auth/approle/role/bootstrap/role-id >"$STATE_DIR/bootstrap-role-id"
+  bao write -f -field=secret_id auth/approle/role/bootstrap/secret-id >"$STATE_DIR/bootstrap-secret-id"
 
   # Keys are created only if absent, and read from stdin (key=-) so they are
   # never on a command line or in the output.
@@ -145,6 +157,9 @@ else
   if [[ ! -s "$STATE_DIR/role-id" || ! -s "$STATE_DIR/secret-id" || ! -e "$STATE_DIR/setup-complete" ]]; then
     echo "Setup is incomplete and the root token is gone. Disposable stack: docker compose down -v, remove the files in $STATE_DIR, rerun. Otherwise generate a root token with 'bao operator generate-root'." >&2
     exit 1
+  fi
+  if [[ ! -s "$STATE_DIR/bootstrap-role-id" || ! -s "$STATE_DIR/bootstrap-secret-id" ]]; then
+    echo "NOTE: this OpenBao was set up before the bootstrap AppRole existed; recreate it (docker compose rm -s -f openbao, remove its volume and the files in $STATE_DIR, rerun) to get it" >&2
   fi
   echo "Already set up: nothing to do"
 fi

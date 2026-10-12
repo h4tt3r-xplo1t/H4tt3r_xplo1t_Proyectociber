@@ -124,3 +124,26 @@ def openbao_env() -> dict[str, str]:
             "variables to run the OpenBao tests"
         )
     return {name: os.environ[name] for name in ENV_VARS}
+
+
+@pytest.fixture(scope="session")
+def bootstrap_files(openbao_env) -> dict[str, str]:
+    """Paths of the bootstrap AppRole credentials, next to the gateway ones.
+
+    scripts/openbao-dev-init.sh writes both pairs into the same directory, so
+    the bootstrap tests need no extra environment (CI sets only the gateway
+    variables). Missing files fail the test, like the other OpenBao fixtures.
+    """
+    directory = Path(openbao_env["GATEWAY_OPENBAO_ROLE_ID_FILE"]).parent
+    files = {
+        "GATEWAY_BOOTSTRAP_ROLE_ID_FILE": str(directory / "bootstrap-role-id"),
+        "GATEWAY_BOOTSTRAP_SECRET_ID_FILE": str(directory / "bootstrap-secret-id"),
+    }
+    missing = [name for name, path in files.items() if not Path(path).is_file()]
+    if missing:
+        pytest.fail(
+            f"{', '.join(missing)} not found next to the gateway credentials: "
+            "recreate the dev OpenBao and run scripts/openbao-dev-init.sh (the "
+            "bootstrap AppRole is created on the first setup)"
+        )
+    return files

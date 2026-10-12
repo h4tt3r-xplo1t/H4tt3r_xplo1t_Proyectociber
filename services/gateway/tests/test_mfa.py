@@ -10,7 +10,7 @@ import re
 import threading
 import time
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 import pyotp
 import pytest
@@ -23,6 +23,7 @@ from gateway import auth, secrets
 from gateway.db import get_engine
 from gateway.main import create_app
 from gateway.tokens import decode_access_token, issue_access_token, make_csrf
+from tests.helpers import DbError, FrozenClock, Interfere, run_sql
 from tests.test_login import (
     GOOD,
     KEYS,
@@ -40,17 +41,6 @@ CONFIRM = "/api/auth/mfa/confirm"
 LOGIN_MFA = "/api/auth/login/mfa"
 NOT_AUTHENTICATED = {"detail": "Not authenticated"}
 RECOVERY_FORMAT = re.compile(r"^[A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{4}$")
-
-
-class FrozenClock:
-    """A 'now' that only moves when a test says so, set at the start of a step."""
-
-    def __init__(self):
-        real = datetime.now(UTC).replace(microsecond=0)
-        self.now = real - timedelta(seconds=int(real.timestamp()) % 30)
-
-    def __call__(self):
-        return self.now
 
 
 @pytest.fixture
@@ -216,7 +206,13 @@ def test_a_token_with_any_unknown_scope_is_not_a_session(client, db_engine, cloc
             {"i": family_id, "u": user["id"]},
         )
     token, _ = issue_access_token(
-        user["id"], "lector", str(family_id), KEYS, clock(), scope="other"
+        user["id"],
+        "lector",
+        str(family_id),
+        KEYS,
+        clock(),
+        generation=0,
+        scope="other",
     )
 
     client.cookies.clear()
@@ -556,6 +552,7 @@ def test_confirm_ends_every_session_of_the_user(client, db_engine, clock, role):
     assert response.status_code == 200
     assert response.json()["relogin_required"] is True
     assert user_row(db_engine)["tokens_valid_since"] == clock()
+    assert user_row(db_engine)["token_generation"] == 1
     # The presented token is denied and the cookies are cleared.
     cleared = [c for c in response.headers.get_list("set-cookie") if "Max-Age=0" in c]
     assert any(c.startswith("__Host-access=") for c in cleared)
@@ -1302,28 +1299,6 @@ def test_a_transit_failure_logs_a_fixed_cause_and_nothing_sensitive(
 # --- rechecks under the lock (compare-and-set) ----------------------------
 
 
-class Interfere:
-    """Runs `change` right after a slow step, as a concurrent request would.
-
-    Wrapped around the last slow call before the lock is taken, so the change
-    lands exactly between "prepare" and "consume".
-    """
-
-    def __init__(self, real, change):
-        self.real = real
-        self.change = change
-
-    def __call__(self, *args, **kwargs):
-        result = self.real(*args, **kwargs)
-        self.change()
-        return result
-
-
-def run_sql(db_engine, sql, **params):
-    with db_engine.begin() as conn:
-        conn.execute(text(sql), params)
-
-
 COUNTS = {
     "recovery_codes": "SELECT count(*) FROM recovery_codes",
     "refresh_families": "SELECT count(*) FROM refresh_families",
@@ -1417,11 +1392,6 @@ def test_confirm_rechecks_the_role_under_the_lock(
     assert response.status_code == 403
     assert user_row(db_engine)["mfa_enabled_at"] is None
     assert count(db_engine, "recovery_codes") == 0
-
-
-class DbError(Exception):
-    def __init__(self, sqlstate):
-        self.sqlstate = sqlstate
 
 
 @pytest.mark.parametrize("sqlstate", ["55P03", "40P01", "40001"])

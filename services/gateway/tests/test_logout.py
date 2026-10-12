@@ -287,16 +287,19 @@ def test_tokens_valid_since_in_the_future_invalidates_the_token(client, db_engin
     assert response.json() == NOT_AUTHENTICATED
 
 
-def test_a_token_issued_in_the_same_second_as_tokens_valid_since_still_works(
+def test_a_token_issued_in_the_same_second_as_a_change_of_credentials_is_refused(
     client, db_engine
 ):
     user = register(client)
     with db_engine.begin() as conn:
-        # Whole second of `iat`, microseconds in the column: a plain comparison
-        # would reject this token.
+        # A change of credentials, as `invalidate_tokens` writes it: the cut-off
+        # has microseconds and the generation moves. `iat` is a whole second, so
+        # the timestamp alone cannot tell a token issued just before the change
+        # from one issued just after it, within that second.
         conn.execute(
             text(
-                "UPDATE users SET tokens_valid_since = "
+                "UPDATE users SET token_generation = token_generation + 1, "
+                "tokens_valid_since = "
                 "date_trunc('second', now()) + interval '0.9 seconds'"
             )
         )
@@ -309,11 +312,15 @@ def test_a_token_issued_in_the_same_second_as_tokens_valid_since_still_works(
         ).scalar_one()
     iat = int(valid_since.timestamp())
 
-    same_second = forged_access(user["id"], iat=iat, nbf=iat, sid=str(sid))
-    earlier = forged_access(user["id"], iat=iat - 1, nbf=iat - 1, sid=str(sid))
+    old_generation = forged_access(user["id"], iat=iat, nbf=iat, sid=str(sid), gen=0)
+    new_generation = forged_access(user["id"], iat=iat, nbf=iat, sid=str(sid), gen=1)
+    earlier = forged_access(user["id"], iat=iat - 1, nbf=iat - 1, sid=str(sid), gen=1)
 
-    client.cookies.set("__Host-access", same_second)
+    client.cookies.set("__Host-access", old_generation)
+    assert client.get("/api/auth/me").status_code == 401
+    client.cookies.set("__Host-access", new_generation)
     assert client.get("/api/auth/me").status_code == 200
+    # The timestamp still applies on top of the generation.
     client.cookies.set("__Host-access", earlier)
     assert client.get("/api/auth/me").status_code == 401
 

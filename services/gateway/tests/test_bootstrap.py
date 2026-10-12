@@ -143,11 +143,32 @@ def test_simultaneous_runs_create_at_most_one_administrator(db_engine, monkeypat
     pending = list(clients)
     monkeypatch.setattr(bootstrap, "login_client", lambda: pending.pop())
     start = threading.Barrier(2)
+    # Both runs read the secret before either destroys it, so the loser always
+    # reaches the lock and is refused (not INPUT_UNAVAILABLE, which would be a
+    # different valid outcome of a lost race).
+    read_done = threading.Barrier(2, timeout=30)
+    read_password = bootstrap._read_password
+
+    def read_then_wait(client):
+        password = read_password(client)
+        read_done.wait()
+        return password
+
+    monkeypatch.setattr(bootstrap, "_read_password", read_then_wait)
     codes = []
 
+    errors = []
+
     def worker(name):
-        start.wait()
-        codes.append(run("--username", name))
+        try:
+            start.wait()
+            codes.append(run("--username", name))
+        except BaseException as error:
+            # Release the other run instead of leaving it to time out, so the
+            # failure shows its root cause.
+            errors.append(error)
+            start.abort()
+            read_done.abort()
 
     threads = [threading.Thread(target=worker, args=(f"racer-{i}",)) for i in range(2)]
     for thread in threads:
@@ -155,6 +176,7 @@ def test_simultaneous_runs_create_at_most_one_administrator(db_engine, monkeypat
     for thread in threads:
         thread.join()
 
+    assert errors == []
     assert len(users(db_engine)) == 1
     assert sorted(codes) == [0, bootstrap.EXIT_REFUSED]
     assert shared == {}
@@ -204,16 +226,25 @@ def test_a_delete_without_a_definite_answer_is_uncertain(
     err = capsys.readouterr().err
     assert err.strip() == bootstrap.DESTROY_UNCERTAIN
     assert "secret-url" not in err
+    assert fake.logged_out is True
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        hvac.exceptions.InternalServerError("http://secret-url"),
+        requests.exceptions.Timeout("http://secret-url"),
+        requests.exceptions.ConnectionError("http://secret-url"),
+    ],
+    ids=["500", "timeout", "connection"],
+)
 def test_an_uncertain_destroy_rolls_back_and_does_not_promise_the_secret(
-    db_engine, monkeypatch, capsys
+    db_engine, monkeypatch, capsys, error
 ):
-    # The delete was applied, then the verification read timed out: the secret
-    # may be gone, so the message must not claim that it is intact.
-    fake = FakeBao(
-        verify_error=hvac.exceptions.InternalServerError("http://secret-url")
-    )
+    # The delete was applied, then the verification read gave no definite
+    # answer (a 5xx or a transport failure): the secret may be gone, so the
+    # message must not claim that it is intact.
+    fake = FakeBao(verify_error=error)
     monkeypatch.setattr(bootstrap, "login_client", lambda: fake)
 
     assert run("--username", USERNAME) == bootstrap.EXIT_DESTROY_UNCERTAIN
@@ -222,7 +253,6 @@ def test_an_uncertain_destroy_rolls_back_and_does_not_promise_the_secret(
     assert users(db_engine) == []
     err = capsys.readouterr().err
     assert err.strip() == bootstrap.DESTROY_UNCERTAIN
-    assert bootstrap.DESTROY_UNCERTAIN != bootstrap.DESTROY_FAILED
     assert "intact" not in err
     assert "secret-url" not in err
     assert fake.logged_out is True

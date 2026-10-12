@@ -29,6 +29,7 @@ from gateway.auth import (
     current_user,
     get_keys,
     get_now,
+    invalidate_tokens,
     require_same_origin,
 )
 from gateway.db import get_session
@@ -289,8 +290,7 @@ def assign_role(
     target.pending_role = pending
     if pending is not None:
         target.mfa_enroll_until = now + ENROLL_WINDOW
-    # From the app clock, like every write of this column (see register).
-    target.tokens_valid_since = now
+    invalidate_tokens(session, target, now)
     session.commit()
     _log_admin_event(
         "role_assignment_pending" if pending else "role_assigned",
@@ -382,7 +382,7 @@ def end_sessions(
     the tokens issued so far."""
     _begin_change(session)
     target = _lock_target(session, user_id)
-    with busy_guard("admin_families_locked"):
+    with busy_guard("admin_families_locked", session):
         revoked = session.execute(
             update(RefreshFamily)
             .where(
@@ -390,8 +390,7 @@ def end_sessions(
             )
             .values(revoked_at=now)
         ).rowcount
-    # From the app clock, like every write of this column (see register).
-    target.tokens_valid_since = now
+    invalidate_tokens(session, target, now)
     session.commit()
     _log_admin_event(
         "sessions_ended", actor.user.id, target.id, now, detail=f"families={revoked}"

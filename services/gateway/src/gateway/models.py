@@ -54,6 +54,13 @@ class User(Base):
     tokens_valid_since: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # Bumped with every move of `tokens_valid_since` (see `invalidate_tokens`).
+    # Every access token carries the value it was issued under and is accepted
+    # only while it is still the current one: unlike the timestamp, which `iat`
+    # (whole seconds) can only compare to the second, this is exact.
+    token_generation: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

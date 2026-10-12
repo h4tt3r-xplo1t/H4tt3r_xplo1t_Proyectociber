@@ -1,14 +1,23 @@
+import logging
 import os
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from gateway.admin import router as admin_router
-from gateway.auth import ServiceBusy, log_service_busy
+from gateway.auth import NO_STORE, ServiceBusy, log_service_busy
 from gateway.auth import router as auth_router
+from gateway.db import get_engine
 from gateway.passwords import HashingBusy
 from gateway.transit import TransitError
+
+logger = logging.getLogger("gateway.main")
+
+# Longest the readiness query may run. Connecting is bounded separately by the
+# engine's connect_timeout, so a dead database answers 503 in a few seconds.
+READY_STATEMENT_TIMEOUT = "2s"
 
 
 def create_app() -> FastAPI:
@@ -66,6 +75,26 @@ def create_app() -> FastAPI:
     def healthz() -> dict[str, str]:
         """Liveness probe: answers without touching any dependency."""
         return {"status": "ok"}
+
+    @app.get("/readyz")
+    def readyz() -> JSONResponse:
+        """Readiness probe: ready only while the database answers a trivial query.
+
+        A failure is one fixed 503 and one fixed log line: the exception text can
+        carry the host, the user or the URL, so it is never logged or returned.
+        """
+        try:
+            with get_engine().connect() as conn:
+                conn.execute(
+                    text(f"SET LOCAL statement_timeout = '{READY_STATEMENT_TIMEOUT}'")
+                )
+                conn.execute(text("SELECT 1"))
+        except Exception:
+            logger.warning("event=readyz_failed cause=database_unavailable")
+            return JSONResponse(
+                status_code=503, content={"status": "unavailable"}, headers=NO_STORE
+            )
+        return JSONResponse(content={"status": "ready"}, headers=NO_STORE)
 
     return app
 

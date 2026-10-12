@@ -25,7 +25,20 @@ SCOPE_MFA_PENDING = "mfa-pending"
 ENROLL_TOKEN_TTL = timedelta(minutes=10)
 MFA_PENDING_TTL = timedelta(minutes=5)
 LEEWAY_SECONDS = 30
-REQUIRED_CLAIMS = ("sub", "role", "sid", "jti", "iat", "nbf", "exp", "iss", "aud")
+# `gen` is the user's `token_generation` when the token was issued: a token is
+# accepted only while it still equals the column (see `invalidate_tokens`).
+REQUIRED_CLAIMS = (
+    "sub",
+    "role",
+    "sid",
+    "gen",
+    "jti",
+    "iat",
+    "nbf",
+    "exp",
+    "iss",
+    "aud",
+)
 
 # Binding of the CSRF token issued before login, when there is no `sid` yet.
 # It differs from every real `sid`, so it cannot be replayed inside a session.
@@ -43,6 +56,7 @@ def issue_access_token(
     keys: GatewayKeys,
     now: datetime,
     *,
+    generation: int,
     scope: str | None = None,
     ttl: timedelta = ACCESS_TOKEN_TTL,
 ) -> tuple[str, dict]:
@@ -50,7 +64,9 @@ def issue_access_token(
 
     `sid` is the id of the session (refresh family) the token belongs to; a
     refresh keeps it, a new login creates a new one (ASVS 7.2.4). The `jti` is
-    new on every call. A `scope` marks a limited-purpose token (enrollment or
+    new on every call. `generation` is the user's current `token_generation`; it
+    is what lets a change of credentials end a token issued in the same second.
+    A `scope` marks a limited-purpose token (enrollment or
     second factor): it has its own random `sid` and a shorter `ttl`.
     """
     issued_at = int(now.timestamp())
@@ -58,6 +74,7 @@ def issue_access_token(
         "sub": str(user_id),
         "role": role,
         "sid": sid,
+        "gen": generation,
         "jti": secrets.token_urlsafe(16),
         "iat": issued_at,
         "nbf": issued_at,
@@ -112,7 +129,8 @@ def _decode(token: str, keys: GatewayKeys, *, verify_exp: bool) -> dict:
             )
     except jwt.PyJWTError:
         claims = None
-    if claims is None:
+    # An integer, not a bool or a string: it is compared with an INTEGER column.
+    if claims is None or type(claims["gen"]) is not int:
         raise InvalidToken
     return claims
 

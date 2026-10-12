@@ -14,6 +14,7 @@ from gateway.main import create_app
 from gateway.models import User
 from gateway.passwords import verify_password
 from gateway.tokens import decode_access_token
+from tests.helpers import FrozenClock, Interfere, run_sql
 from tests.test_login import (
     GOOD,
     KEYS,
@@ -25,7 +26,6 @@ from tests.test_login import (
     refresh_cookie_value,
     register,
 )
-from tests.test_mfa import FrozenClock, Interfere, run_sql
 from tests.test_refresh import refresh, start
 
 URL = "/api/auth/password"
@@ -261,6 +261,9 @@ def test_closing_other_sessions_ends_them_and_continues_in_a_new_session(
     assert client.cookies.get("__Host-access") != old_access
     assert claims_of(client)["sid"] != old_sid
     assert user_row(db_engine)["tokens_valid_since"] == clock()
+    # The new session was issued under the bumped generation.
+    assert user_row(db_engine)["token_generation"] == 1
+    assert claims_of(client)["gen"] == 1
     with db_engine.connect() as conn:
         live = conn.execute(
             text("SELECT id FROM refresh_families WHERE revoked_at IS NULL")
@@ -443,11 +446,29 @@ def test_the_enroll_token_changing_the_password_can_close_other_sessions(
 
     assert claims_of(client)["scope"] == "enroll-mfa"
     assert claims_of(client)["sid"] == decode_access_token(old_access, KEYS)["sid"]
+    assert claims_of(client)["gen"] == user_row(db_engine)["token_generation"] == 1
     assert post(client, ENROLL).status_code == 200
     stale = other_browser(client)
     stale.cookies.set("__Host-access", old_access)
     stale.cookies.set("__Host-csrf", client.cookies.get("__Host-csrf"))
     assert post(stale, ENROLL).status_code == 401
+
+
+def test_closing_other_sessions_ends_an_enroll_token_issued_in_the_same_second(
+    client, db_engine, clock
+):
+    register(client)
+    flag_must_change(db_engine, clock)
+    login(client)
+    elsewhere = other_browser(client)
+    login(elsewhere)
+    assert claims_of(elsewhere)["scope"] == "enroll-mfa"
+
+    # The clock is frozen: the change, both tokens and the new one share a second.
+    assert change(client, close=True).status_code == 200
+
+    assert post(elsewhere, ENROLL).status_code == 401
+    assert post(client, ENROLL).status_code == 200  # reissued with the new generation
 
 
 def test_a_session_token_of_the_second_factor_cannot_change_the_password(

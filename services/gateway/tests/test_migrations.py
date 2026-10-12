@@ -330,3 +330,37 @@ def test_admin_columns_downgrade_to_0004_removes_only_them(migrated_db):
         names = {c["name"] for c in inspect(engine).get_columns("users")}
         assert {"must_change_password", "pending_role"} <= names
         engine.dispose()
+
+
+def test_new_user_starts_at_token_generation_zero(db_engine):
+    with db_engine.begin() as conn:
+        generation = conn.execute(
+            text(
+                "INSERT INTO users (id, username, password_hash) "
+                "VALUES (gen_random_uuid(), 'plain', 'x') RETURNING token_generation"
+            )
+        ).scalar_one()
+        column = conn.execute(
+            text(
+                "SELECT is_nullable FROM information_schema.columns "
+                "WHERE table_name = 'users' AND column_name = 'token_generation'"
+            )
+        ).scalar_one()
+
+    assert generation == 0
+    assert column == "NO"
+
+
+def test_token_generation_downgrade_to_0005_removes_only_it(migrated_db):
+    cfg = alembic_config()
+    engine = create_engine(migrated_db)
+    try:
+        command.downgrade(cfg, "0005")
+        names = {c["name"] for c in inspect(engine).get_columns("users")}
+        assert "token_generation" not in names
+        assert {"must_change_password", "pending_role"} <= names
+    finally:
+        command.upgrade(cfg, "head")
+        names = {c["name"] for c in inspect(engine).get_columns("users")}
+        assert "token_generation" in names
+        engine.dispose()

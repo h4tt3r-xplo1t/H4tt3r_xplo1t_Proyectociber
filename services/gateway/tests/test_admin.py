@@ -22,6 +22,7 @@ from gateway.db import get_engine
 from gateway.main import create_app
 from gateway.models import ROLES, User
 from gateway.tokens import decode_access_token
+from tests.helpers import FrozenClock
 from tests.test_login import (
     GOOD,
     KEYS,
@@ -32,7 +33,6 @@ from tests.test_login import (
     login,
     register,
 )
-from tests.test_mfa import FrozenClock
 from tests.test_refresh import refresh, refresh_cookie_value
 
 USERS = "/api/admin/users"
@@ -332,6 +332,7 @@ def test_a_privileged_role_for_a_user_without_mfa_is_pending(
     assert (row["role"], row["pending_role"]) == ("lector", "auditor")
     assert row["mfa_enroll_until"] == clock() + timedelta(hours=24)
     assert row["tokens_valid_since"] == clock()
+    assert row["token_generation"] == 1
     assert target.get(ME).status_code == 401
     assert "event=role_assignment_pending" in caplog.text
     assert "role=auditor" in caplog.text
@@ -494,7 +495,11 @@ def test_two_administrators_cannot_remove_each_other(client, db_engine, clock):
         ).scalar()
     assert admins == 1
     assert sorted(codes)[0] == 200
-    assert sorted(codes)[1] in (403, 409)
+    # The loser is refused whichever way the race goes: 403/409 when it got to
+    # the lock first, 401 when the winner had already ended its session (the
+    # demotion bumps the token generation, so even a token issued in the same
+    # second is refused).
+    assert sorted(codes)[1] in (401, 403, 409)
 
 
 # --- the enrollment window -----------------------------------------------
@@ -640,6 +645,7 @@ def test_ending_sessions_revokes_every_family_and_the_tokens(
         ).scalar()
     assert live == 1  # the administrator's own
     assert user_row(db_engine, "target")["tokens_valid_since"] == clock()
+    assert user_row(db_engine, "target")["token_generation"] == 1
     assert login(browser(client), "target").status_code == 200
     assert "event=sessions_ended" in caplog.text
 

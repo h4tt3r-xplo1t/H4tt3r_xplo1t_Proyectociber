@@ -34,6 +34,7 @@ from gateway.mfa import (
 from gateway.models import (
     PRIVILEGED_ROLES,
     LoginAttempt,
+    MfaEnrollmentAttempt,
     RecoveryCode,
     RefreshFamily,
     RefreshToken,
@@ -85,6 +86,11 @@ PRE_SESSION_CSRF_MAX_AGE = 10 * 60
 # last value: 4th failure 1 min, 5th 5 min, 6th 15 min, 7th and later 30 min.
 FREE_FAILURES = 3
 LOCKOUT_MINUTES = (1, 5, 15, 30)
+
+# At most ENROLL_LIMIT enrollments per user in any ENROLL_WINDOW: each one costs
+# a transit call, and a stolen session could otherwise spin the secret forever.
+ENROLL_LIMIT = 5
+ENROLL_WINDOW = timedelta(hours=1)
 
 # How long a login waits for the counter row's lock before giving up (503).
 # Module-level so tests can shorten it; it is a fixed literal, never user input.
@@ -1297,6 +1303,39 @@ def _recheck_can_enroll(session: Session, actor: CurrentUser, now: datetime) -> 
         raise
 
 
+def _reserve_enrollment(
+    session: Session, user: User, now: datetime
+) -> HTTPException | None:
+    """Count this enrollment against the user's quota, or return the 429.
+
+    The user row lock makes the count and the insert one step per user, so
+    parallel requests cannot all see room for one more. The reservation is
+    committed before the transit call, which therefore holds no lock. A refusal
+    ends the transaction and costs no transit call.
+    """
+    session.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
+    _lock_user_row(session, user)
+    used = session.scalar(
+        select(func.count())
+        .select_from(MfaEnrollmentAttempt)
+        .where(
+            MfaEnrollmentAttempt.user_id == user.id,
+            MfaEnrollmentAttempt.created_at > now - ENROLL_WINDOW,
+        )
+    )
+    if used >= ENROLL_LIMIT:
+        session.rollback()
+        _log_event("mfa_enroll_rate_limited", str(user.id), now, logging.WARNING)
+        return HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many enrollment attempts; try later",
+            headers=NO_STORE,
+        )
+    session.add(MfaEnrollmentAttempt(user_id=user.id, created_at=now))
+    session.commit()
+    return None
+
+
 @router.post("/mfa/enroll", dependencies=[Depends(require_same_origin)])
 def mfa_enroll(
     actor: Annotated[CurrentUser, Depends(enrollment_actor)],
@@ -1313,7 +1352,9 @@ def mfa_enroll(
 
     From a full session (a reader) the current password is required again: a
     stolen session must not be able to attach the attacker's authenticator. A
-    wrong or missing password is a counted failure in the login lockout.
+    wrong or missing password is a counted failure in the login lockout. Each
+    user may enroll ENROLL_LIMIT times per ENROLL_WINDOW (429 after that); only
+    calls that passed the password check count.
     """
     _check_can_enroll(actor, now)
     user = actor.user
@@ -1328,8 +1369,10 @@ def mfa_enroll(
         if not verified:
             _record_failure(session, attempt, str(user.id), now, "mfa_failure")
             raise _login_failed()
-        # Password checked: release the counter lock before the transit call.
-        session.commit()
+    # Password checked (full session): the quota is taken under the counter lock,
+    # which the commit then releases before the transit call.
+    if (refusal := _reserve_enrollment(session, user, now)) is not None:
+        raise refusal
     secret = new_totp_secret()
     # A transit failure raises TransitError (fixed 503) before anything is saved.
     ciphertext = encrypt_totp_secret(secret.encode(), user.id)

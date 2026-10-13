@@ -13,9 +13,16 @@ from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-from gateway.auth import PRIVILEGED_LIMITS, READER_LIMITS
+from gateway.auth import ENROLL_WINDOW, PRIVILEGED_LIMITS, READER_LIMITS
 from gateway.db import get_engine
-from gateway.models import LoginAttempt, RefreshFamily, RefreshToken, RevokedJti, User
+from gateway.models import (
+    LoginAttempt,
+    MfaEnrollmentAttempt,
+    RefreshFamily,
+    RefreshToken,
+    RevokedJti,
+    User,
+)
 from gateway.tokens import LEEWAY_SECONDS
 
 # A failure counter that has not moved for this long is stale: lockouts last 30
@@ -79,6 +86,12 @@ def purge(session: Session, now: datetime) -> dict[str, int]:
             RevokedJti.expires_at < now - timedelta(seconds=LEEWAY_SECONDS)
         )
     )
+    # Older than the window, an enrollment no longer counts toward the limit.
+    enrollments = session.execute(
+        delete(MfaEnrollmentAttempt).where(
+            MfaEnrollmentAttempt.created_at <= now - ENROLL_WINDOW
+        )
+    )
     families = session.execute(
         delete(RefreshFamily).where(RefreshFamily.id.in_(family_ids))
     )
@@ -88,6 +101,7 @@ def purge(session: Session, now: datetime) -> dict[str, int]:
         "revoked_jtis": jtis.rowcount,
         "refresh_families": families.rowcount,
         "refresh_tokens": len(tokens),
+        "mfa_enrollment_attempts": enrollments.rowcount,
     }
 
 

@@ -531,3 +531,64 @@ def test_a_busy_user_row_is_a_503_and_counts_nothing(
     assert response.status_code == 503
     assert attempt_row(db_engine) is None or attempt_row(db_engine).failures == 0
     assert_codes_untouched(db_engine, before)
+
+
+def end_session_like_a_logout(client, db_engine, kind):
+    """What a concurrent logout leaves behind, whole or in part.
+
+    The generation is not touched: a logout denies the jti and revokes the
+    family, nothing else.
+    """
+    claims = auth.decode_access_token(client.cookies.get("__Host-access"), KEYS)
+    if kind in ("jti", "logout"):
+        run_sql(
+            db_engine,
+            "INSERT INTO revoked_jtis (jti, expires_at) "
+            "VALUES (:j, now() + interval '1 hour')",
+            j=claims["jti"],
+        )
+    if kind in ("family", "logout"):
+        run_sql(db_engine, "UPDATE refresh_families SET revoked_at = now()")
+
+
+@pytest.mark.parametrize("kind", ["jti", "family", "logout"])
+def test_a_logout_meanwhile_ends_the_request_and_changes_nothing(
+    client, db_engine, clock, monkeypatch, kind
+):
+    secret, _ = user_with_mfa(client, db_engine, clock)
+    before = stored_hashes(db_engine)
+    prepare_interference(
+        monkeypatch, lambda: end_session_like_a_logout(client, db_engine, kind)
+    )
+
+    response = post(client, REGENERATE, body(secret, clock))
+
+    assert response.status_code == 401
+    assert response.json() == NOT_AUTHENTICATED
+    assert_codes_untouched(db_engine, before)
+    row = attempt_row(db_engine)
+    assert row is None or row.failures == 0
+
+
+def test_a_replayed_step_is_refused_before_any_code_is_hashed(
+    client, db_engine, clock, monkeypatch
+):
+    secret, _ = user_with_mfa(client, db_engine, clock)
+    before = stored_hashes(db_engine)
+    run_sql(db_engine, "UPDATE users SET mfa_last_step = :s", s=current_step(clock))
+    hashed = []
+    real = auth.hash_password
+
+    def counting(*args, **kwargs):
+        hashed.append(args)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(auth, "hash_password", counting)
+
+    response = post(client, REGENERATE, body(secret, clock))
+
+    assert response.status_code == 401
+    assert response.json() == LOGIN_FAILED
+    assert attempt_row(db_engine).failures == 1
+    assert_codes_untouched(db_engine, before)
+    assert hashed == []

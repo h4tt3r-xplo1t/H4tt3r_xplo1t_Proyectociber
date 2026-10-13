@@ -1687,6 +1687,10 @@ def _prepare_second_factor(
         step = matching_step(secret, code, now)
         if step is None:
             return None
+        # A replay is refused before any further work (the ten hashes of a
+        # regeneration); `_consume_second_factor` repeats it under the lock.
+        if user.mfa_last_step is not None and step <= user.mfa_last_step:
+            return None
         return PreparedTotp(ciphertext, step)
     recovery = normalize_recovery_code(code)
     if recovery is None:
@@ -1779,6 +1783,30 @@ def login_mfa(
     return _start_session(response, session, user, attempt, keys, now)
 
 
+def _session_still_valid(session: Session, user: User, claims: dict) -> bool:
+    """Whether a full session accepted earlier is still alive; call it under lock.
+
+    `_authenticate` checked this when the request came in. A logout since then
+    denies the jti and revokes the family without touching `token_generation`,
+    so all three are looked at again: a request that outlived its session must
+    not open a new one.
+    """
+    if user.token_generation != claims["gen"]:
+        return False
+    if session.scalar(select(exists().where(RevokedJti.jti == claims["jti"]))):
+        return False
+    return bool(
+        session.scalar(
+            select(
+                exists().where(
+                    RefreshFamily.id == uuid.UUID(claims["sid"]),
+                    RefreshFamily.revoked_at.is_(None),
+                )
+            )
+        )
+    )
+
+
 def _require_mfa_enabled(user: User) -> None:
     if user.mfa_enabled_at is None:
         raise HTTPException(
@@ -1830,8 +1858,9 @@ def mfa_disable(
     attempt = _lock_second_factor(session, user, keys, now)
     _lock_user_row(session, user)
     # The session was valid when the request came in; credentials that changed
-    # since (password, factor, "end sessions") end it before anything is spent.
-    if user.token_generation != actor.claims["gen"]:
+    # since (password, factor, "end sessions") or a logout end it before
+    # anything is spent.
+    if not _session_still_valid(session, user, actor.claims):
         session.rollback()
         raise _session_denied()
     try:
@@ -1902,7 +1931,7 @@ def mfa_recovery_codes(
 
     attempt = _lock_second_factor(session, user, keys, now)
     _lock_user_row(session, user)
-    if user.token_generation != actor.claims["gen"]:
+    if not _session_still_valid(session, user, actor.claims):
         session.rollback()
         raise _session_denied()
     try:

@@ -543,3 +543,46 @@ def test_a_busy_user_row_is_a_503_and_counts_nothing(
     assert response.status_code == 503
     assert attempt_row(db_engine).failures == 0
     assert_mfa_untouched(db_engine)
+
+
+def end_session_like_a_logout(client, db_engine, kind):
+    """What a concurrent logout leaves behind, whole or in part.
+
+    The generation is not touched: a logout denies the jti and revokes the
+    family, nothing else.
+    """
+    claims = auth.decode_access_token(client.cookies.get("__Host-access"), KEYS)
+    if kind in ("jti", "logout"):
+        run_sql(
+            db_engine,
+            "INSERT INTO revoked_jtis (jti, expires_at) "
+            "VALUES (:j, now() + interval '1 hour')",
+            j=claims["jti"],
+        )
+    if kind in ("family", "logout"):
+        run_sql(db_engine, "UPDATE refresh_families SET revoked_at = now()")
+
+
+@pytest.mark.parametrize("kind", ["jti", "family", "logout"])
+def test_a_logout_meanwhile_ends_the_request_and_opens_no_session(
+    client, db_engine, clock, monkeypatch, kind
+):
+    secret, _ = reader_with_mfa(client, db_engine, clock)
+    families = count(db_engine, "refresh_families")
+    monkeypatch.setattr(
+        auth,
+        "_prepare_second_factor",
+        Interfere(
+            auth._prepare_second_factor,
+            lambda: end_session_like_a_logout(client, db_engine, kind),
+        ),
+    )
+
+    response = post(client, DISABLE, body(secret, clock))
+
+    assert response.status_code == 401
+    assert response.json() == NOT_AUTHENTICATED
+    assert_mfa_untouched(db_engine)
+    assert count(db_engine, "refresh_families") == families
+    row = attempt_row(db_engine)
+    assert row is None or row.failures == 0

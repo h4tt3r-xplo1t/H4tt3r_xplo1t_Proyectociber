@@ -45,6 +45,12 @@ CASES = {
         {"current_password": GOOD, "code": "123456"},
         409,  # no MFA to disable: past the CSRF check, refused for its own reason
     ),
+    ("POST", "/api/auth/mfa/recovery-codes"): (
+        "reader",
+        "/api/auth/mfa/recovery-codes",
+        {"current_password": GOOD, "code": "123456"},
+        409,  # no MFA to regenerate: past the CSRF check, refused for its own reason
+    ),
     ("POST", "/api/auth/password"): (
         "reader",
         "/api/auth/password",

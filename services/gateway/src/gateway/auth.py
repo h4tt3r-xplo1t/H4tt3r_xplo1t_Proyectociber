@@ -291,8 +291,9 @@ class EnrollOut(BaseModel):
 
 class RecoveryCodesOut(BaseModel):
     recovery_codes: list[str]
-    # Always True: every session of the user ends and a normal login, which
-    # now asks for the second factor, follows.
+    # True when MFA has just been enabled: every session of the user ends and a
+    # normal login, which now asks for the second factor, follows. False when
+    # only the codes were replaced and the session goes on.
     relogin_required: bool
 
 
@@ -310,6 +311,17 @@ class MfaDisableRequest(MfaLoginRequest):
     current_password: Annotated[
         str, Field(min_length=1, max_length=PASSWORD_MAX_LENGTH)
     ]
+
+
+class RecoveryCodesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: Annotated[
+        str, Field(min_length=1, max_length=PASSWORD_MAX_LENGTH)
+    ]
+    # A TOTP only: a recovery code must not be able to mint the next list, so
+    # the shape of one is refused by the schema (422, nothing verified).
+    code: Annotated[str, Field(pattern=r"^[0-9]{6}$")]
 
 
 class PasswordChangeRequest(BaseModel):
@@ -1177,7 +1189,7 @@ def disable_mfa_actor(
     session: Annotated[Session, Depends(get_session)],
     keys: Annotated[GatewayKeys, Depends(get_keys)],
 ) -> CurrentUser:
-    """Who may remove the second factor: a full session, with its CSRF."""
+    """Who may change the second factor: a full session, with its CSRF."""
     actor = _authenticate(request, session, keys, FULL_SESSION)
     if actor.user.must_change_password or _lacks_required_mfa(actor.user):
         raise _session_denied()
@@ -1767,18 +1779,22 @@ def login_mfa(
     return _start_session(response, session, user, attempt, keys, now)
 
 
-def _check_can_disable_mfa(user: User) -> None:
-    """Only a reader with an active second factor may remove it (ADR 0004)."""
-    if user.role in PRIVILEGED_ROLES:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden", headers=NO_STORE
-        )
+def _require_mfa_enabled(user: User) -> None:
     if user.mfa_enabled_at is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="MFA is not enabled",
             headers=NO_STORE,
         )
+
+
+def _check_can_disable_mfa(user: User) -> None:
+    """Only a reader with an active second factor may remove it (ADR 0004)."""
+    if user.role in PRIVILEGED_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden", headers=NO_STORE
+        )
+    _require_mfa_enabled(user)
 
 
 @router.post("/mfa/disable", dependencies=[Depends(require_same_origin)])
@@ -1848,6 +1864,71 @@ def mfa_disable(
         _log_event("recovery_code_used", subject, now, logging.WARNING)
     _log_event("mfa_disabled", subject, now)
     return UserOut(id=user.id, username=user.username, role=user.role)
+
+
+@router.post("/mfa/recovery-codes", dependencies=[Depends(require_same_origin)])
+def mfa_recovery_codes(
+    body: RecoveryCodesRequest,
+    actor: Annotated[CurrentUser, Depends(disable_mfa_actor)],
+    response: Response,
+    session: Annotated[Session, Depends(get_session)],
+    keys: Annotated[GatewayKeys, Depends(get_keys)],
+    now: Annotated[datetime, Depends(get_now)],
+) -> RecoveryCodesOut:
+    """Replace the recovery codes, after the password and a TOTP.
+
+    Any role with an active second factor may do it. The old codes, used or not,
+    stop working and the new ones are shown once. A failure counts in the login
+    lockout. The credentials do not change (same password, same secret), so the
+    sessions go on: whoever holds a session still needs the password and a
+    fresh TOTP to get here, and ending the sessions would not take back a list
+    already seen.
+
+    Like /mfa/confirm, the slow work (Argon2id, transit, ten hashes) runs before
+    any lock; under the counter and user row locks everything it relied on is
+    checked again.
+    """
+    user = actor.user
+    subject = str(user.id)
+    _require_mfa_enabled(user)
+    _refuse_if_locked(session, user, keys, now)
+    verified_hash = user.password_hash
+    password_ok = verify_password(verified_hash, body.current_password)
+    prepared = (
+        _prepare_second_factor(session, user, body.code, now) if password_ok else None
+    )
+    codes = new_recovery_codes() if prepared is not None else []
+    hashes = [hash_password(code) for code in codes]
+
+    attempt = _lock_second_factor(session, user, keys, now)
+    _lock_user_row(session, user)
+    if user.token_generation != actor.claims["gen"]:
+        session.rollback()
+        raise _session_denied()
+    try:
+        _require_mfa_enabled(user)
+    except HTTPException:
+        session.rollback()
+        raise
+    # A password that changed while it was being verified proves nothing now.
+    kind = (
+        _consume_second_factor(session, user, prepared, now)
+        if password_ok and user.password_hash == verified_hash and prepared is not None
+        else None
+    )
+    if kind is None:
+        _record_failure(session, attempt, subject, now, "mfa_failure")
+        raise _login_failed()
+
+    session.execute(delete(RecoveryCode).where(RecoveryCode.user_id == user.id))
+    session.add_all(
+        RecoveryCode(user_id=user.id, code_hash=code_hash, created_at=now)
+        for code_hash in hashes
+    )
+    session.commit()
+    response.headers.update(NO_STORE)
+    _log_event("recovery_codes_regenerated", subject, now)
+    return RecoveryCodesOut(recovery_codes=codes, relogin_required=False)
 
 
 @router.get("/me")

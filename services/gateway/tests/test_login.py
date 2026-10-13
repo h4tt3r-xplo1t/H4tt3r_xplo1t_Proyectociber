@@ -776,6 +776,43 @@ def test_login_answers_503_for_any_busy_error_on_the_counter_row(
     assert attempt_row(db_engine) == (1, None)  # nothing was counted
 
 
+@pytest.mark.parametrize("sqlstate", ["55P03", "40P01", "40001"])
+def test_login_answers_503_for_any_busy_error_on_the_user_row(
+    client, db_engine, monkeypatch, caplog, sqlstate
+):
+    register(client)
+    login(client, password=OTHER)  # creates the counter row (failures = 1)
+    token = get_csrf(client)
+    caplog.set_level(logging.INFO, logger="gateway.auth")
+    real_execute = Session.execute
+
+    def execute(self, statement, *args, **kwargs):
+        sql = str(statement)
+        if "FROM users" in sql and "FOR UPDATE" in sql:
+            raise OperationalError("SELECT", {}, DbError(sqlstate))
+        return real_execute(self, statement, *args, **kwargs)
+
+    monkeypatch.setattr(Session, "execute", execute)
+
+    response = login(client, token=token)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Service busy; try again later"}
+    busy = [
+        r.getMessage() for r in events(caplog) if "event=service_busy" in r.getMessage()
+    ]
+    assert len(busy) == 1
+    assert "cause=user_row_locked" in busy[0]
+    assert attempt_row(db_engine) == (1, None)  # nothing was counted
+
+    # The counter lock taken just before was released, not left behind.
+    monkeypatch.setattr(Session, "execute", real_execute)
+    outcomes: list[str] = []
+    probe_counter_row_lock(db_engine, outcomes)
+    assert outcomes == ["free"]
+    assert login(client, token=get_csrf(client)).status_code == 200
+
+
 # --- the hash runs without the counter lock -------------------------------
 
 

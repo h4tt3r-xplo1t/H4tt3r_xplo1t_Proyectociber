@@ -167,6 +167,9 @@ def send(c, method, path, body, *, header, cookie="keep"):
 
 
 def test_every_state_changing_route_has_a_csrf_case(client):
+    # This is a control, not a spot check: a new state-changing route without a
+    # case in CASES (or an entry in PRE_SESSION) fails the suite, so no route can
+    # skip the CSRF guard unnoticed.
     assert discovered_routes(client.app) - PRE_SESSION == set(CASES)
 
 

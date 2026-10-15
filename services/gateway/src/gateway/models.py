@@ -214,3 +214,34 @@ class MfaEnrollmentAttempt(Base):
         ForeignKey("users.id", ondelete="CASCADE")
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PasswordResetCode(Base):
+    """The live reset code of a user, as an Argon2id hash (ADR 0004, decision 10).
+
+    One row per user: issuing a new code replaces it, using it deletes it.
+    """
+
+    __tablename__ = "password_reset_codes"
+    __table_args__ = (
+        CheckConstraint(
+            "expires_at > created_at", name="password_reset_codes_expiry_check"
+        ),
+        Index("ix_password_reset_codes_expires_at", "expires_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), unique=True
+    )
+    code_hash: Mapped[str] = mapped_column(Text)
+    issued_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

@@ -24,6 +24,7 @@ TABLES = (
     "refresh_families",
     "refresh_tokens",
     "mfa_enrollment_attempts",
+    "password_reset_codes",
 )
 
 
@@ -101,6 +102,34 @@ def test_purge_attempts_keeps_recent_and_locked_rows(db_engine):
     assert column(db_engine, "SELECT attempt_key FROM login_attempts") == {
         "old-still-locked",
         "recent",
+    }
+
+
+# --- password_reset_codes -------------------------------------------------------
+
+
+def test_purge_reset_codes_deletes_only_the_expired_ones(db_engine):
+    with db_engine.begin() as conn:
+        users = [add_user(conn, name) for name in ("a", "b", "c")]
+        for user, offset in zip(
+            users,
+            (timedelta(seconds=-1), timedelta(0), timedelta(minutes=1)),
+            strict=True,
+        ):
+            conn.execute(
+                text(
+                    "INSERT INTO password_reset_codes "
+                    "(user_id, code_hash, created_at, expires_at) "
+                    "VALUES (:u, 'h', :c, :e)"
+                ),
+                {"u": user, "c": NOW - timedelta(minutes=15), "e": NOW + offset},
+            )
+
+    counts = run_purge(db_engine)
+
+    assert counts["password_reset_codes"] == 2
+    assert column(db_engine, "SELECT user_id::text FROM password_reset_codes") == {
+        str(users[2])
     }
 
 
@@ -229,6 +258,7 @@ def test_purge_is_idempotent(db_engine):
         "refresh_families": 1,
         "refresh_tokens": 1,
         "mfa_enrollment_attempts": 0,
+        "password_reset_codes": 0,
     }
     assert second == dict.fromkeys(TABLES, 0)
 
@@ -294,6 +324,7 @@ def test_cli_purge_prints_counts_only_and_exits_zero(db_engine):
         "refresh_families=1",
         "refresh_tokens=1",
         "mfa_enrollment_attempts=0",
+        "password_reset_codes=0",
     ]
     for line in result.stdout.splitlines():
         assert re.fullmatch(r"[a-z_]+=\d+", line)

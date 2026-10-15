@@ -16,7 +16,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import func, select, text, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.orm import Session
 
 from gateway.auth import (
@@ -37,9 +37,12 @@ from gateway.mfa import ENROLL_WINDOW
 from gateway.models import (
     PRIVILEGED_ROLES,
     LoginAttempt,
+    PasswordResetCode,
     RefreshFamily,
     User,
 )
+from gateway.passwords import hash_password
+from gateway.recovery import RESET_CODE_TTL, new_reset_code
 from gateway.secrets import GatewayKeys
 from gateway.tokens import login_attempt_key
 
@@ -79,6 +82,13 @@ class RoleRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     role: Role
+
+
+class ResetCodeOut(BaseModel):
+    """The code is shown once, here; only its hash is stored."""
+
+    code: str
+    expires_at: datetime
 
 
 def _forbidden() -> HTTPException:
@@ -337,6 +347,46 @@ def reissue_enrollment_window(
     _log_admin_event("enrollment_window_reissued", actor.user.id, target.id, now)
     response.headers.update(NO_STORE)
     return _out_one(session, target, keys, now)
+
+
+@router.post("/users/{user_id}/reset-code", dependencies=[Depends(require_same_origin)])
+def issue_reset_code(
+    user_id: uuid.UUID,
+    actor: Annotated[CurrentUser, Depends(administrator_writer)],
+    response: Response,
+    session: Annotated[Session, Depends(get_session)],
+    now: Annotated[datetime, Depends(get_now)],
+) -> ResetCodeOut:
+    """Issue a one-use password reset code for a user (ADR 0004, decision 10).
+
+    The administrator hands it to the user out of band. It expires after 15
+    minutes and replaces any earlier code of that user. Issuing it changes
+    nothing else: the password, the sessions and the lockout stay as they are.
+    """
+    if user_id == actor.user.id:
+        _log_admin_event("admin_denied", actor.user.id, user_id, now, logging.WARNING)
+        raise _forbidden()
+    # The slow hash goes before any lock (a saturated hasher answers 503).
+    code = new_reset_code()
+    code_hash = hash_password(code)
+    _begin_change(session)
+    target = _lock_target(session, user_id)
+    session.execute(
+        delete(PasswordResetCode).where(PasswordResetCode.user_id == target.id)
+    )
+    session.add(
+        PasswordResetCode(
+            user_id=target.id,
+            code_hash=code_hash,
+            issued_by=actor.user.id,
+            created_at=now,
+            expires_at=now + RESET_CODE_TTL,
+        )
+    )
+    session.commit()
+    _log_admin_event("password_reset_code_issued", actor.user.id, target.id, now)
+    response.headers.update(NO_STORE)
+    return ResetCodeOut(code=code, expires_at=now + RESET_CODE_TTL)
 
 
 @router.post("/users/{user_id}/unlock", dependencies=[Depends(require_same_origin)])

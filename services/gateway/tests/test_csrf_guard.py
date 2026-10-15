@@ -75,6 +75,12 @@ CASES = {
         None,
         409,
     ),
+    ("POST", f"{USERS}/{{user_id}}/reset-code"): (
+        "admin",
+        f"{USERS}/{{target}}/reset-code",
+        None,
+        200,
+    ),
     ("POST", f"{USERS}/{{user_id}}/unlock"): (
         "admin",
         f"{USERS}/{{target}}/unlock",
@@ -96,6 +102,7 @@ SNAPSHOT = {
     "revoked_jtis": "SELECT * FROM revoked_jtis",
     "login_attempts": "SELECT * FROM login_attempts",
     "recovery_codes": "SELECT * FROM recovery_codes",
+    "password_reset_codes": "SELECT * FROM password_reset_codes",
 }
 
 

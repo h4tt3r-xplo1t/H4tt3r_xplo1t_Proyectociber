@@ -422,3 +422,100 @@ def test_enrollment_attempts_downgrade_to_0006_removes_only_it(migrated_db):
         command.upgrade(cfg, "head")
         assert "mfa_enrollment_attempts" in inspect(engine).get_table_names()
         engine.dispose()
+
+
+def test_upgrade_creates_password_reset_codes(migrated_db):
+    engine = create_engine(migrated_db)
+    try:
+        insp = inspect(engine)
+        columns = {c["name"]: c for c in insp.get_columns("password_reset_codes")}
+        indexes = insp.get_indexes("password_reset_codes")
+        uniques = insp.get_unique_constraints("password_reset_codes")
+        foreign_keys = {
+            fk["constrained_columns"][0]: fk
+            for fk in insp.get_foreign_keys("password_reset_codes")
+        }
+    finally:
+        engine.dispose()
+
+    assert set(columns) == {
+        "id",
+        "user_id",
+        "code_hash",
+        "issued_by",
+        "created_at",
+        "expires_at",
+    }
+    assert columns["issued_by"]["nullable"] is True
+    for name in ("user_id", "code_hash", "created_at", "expires_at"):
+        assert columns[name]["nullable"] is False
+    assert any(u["column_names"] == ["user_id"] for u in uniques)
+    assert any(i["column_names"] == ["expires_at"] for i in indexes)
+    assert foreign_keys["user_id"]["options"]["ondelete"] == "CASCADE"
+    assert foreign_keys["issued_by"]["options"]["ondelete"] == "SET NULL"
+
+
+def test_a_reset_code_cannot_expire_before_it_is_created(db_engine):
+    with db_engine.begin() as conn:
+        user_id = conn.execute(
+            text(
+                "INSERT INTO users (username, password_hash) "
+                "VALUES ('someone', 'x') RETURNING id"
+            )
+        ).scalar_one()
+    with pytest.raises(IntegrityError), db_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO password_reset_codes "
+                "(user_id, code_hash, created_at, expires_at) "
+                "VALUES (:u, 'h', now(), now())"
+            ),
+            {"u": user_id},
+        )
+
+
+def test_one_live_reset_code_per_user_and_deleting_users_cascades(db_engine):
+    insert = text(
+        "INSERT INTO password_reset_codes "
+        "(user_id, code_hash, issued_by, created_at, expires_at) "
+        "VALUES (:u, 'h', :i, now(), now() + interval '15 minutes')"
+    )
+    with db_engine.begin() as conn:
+        user_id, admin_id = (
+            conn.execute(
+                text(
+                    "INSERT INTO users (username, password_hash) "
+                    "VALUES (:n, 'x') RETURNING id"
+                ),
+                {"n": name},
+            ).scalar_one()
+            for name in ("someone", "issuer")
+        )
+        conn.execute(insert, {"u": user_id, "i": admin_id})
+    with pytest.raises(IntegrityError), db_engine.begin() as conn:
+        conn.execute(insert, {"u": user_id, "i": admin_id})
+    with db_engine.begin() as conn:
+        conn.execute(text("DELETE FROM users WHERE id = :i"), {"i": admin_id})
+        issued_by = conn.execute(
+            text("SELECT issued_by FROM password_reset_codes")
+        ).scalar_one()
+        assert issued_by is None
+        conn.execute(text("DELETE FROM users WHERE id = :u"), {"u": user_id})
+        assert (
+            conn.execute(text("SELECT count(*) FROM password_reset_codes")).scalar_one()
+            == 0
+        )
+
+
+def test_reset_codes_downgrade_to_0007_removes_only_that_table(migrated_db):
+    cfg = alembic_config()
+    engine = create_engine(migrated_db)
+    try:
+        command.downgrade(cfg, "0007")
+        tables = set(inspect(engine).get_table_names())
+        assert "password_reset_codes" not in tables
+        assert "mfa_enrollment_attempts" in tables
+    finally:
+        command.upgrade(cfg, "head")
+        assert "password_reset_codes" in inspect(engine).get_table_names()
+        engine.dispose()

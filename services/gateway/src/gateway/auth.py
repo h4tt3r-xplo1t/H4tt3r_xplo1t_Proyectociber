@@ -16,7 +16,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from sqlalchemy import exists, func, select, text, update
+from sqlalchemy import delete, exists, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError, InvalidRequestError, OperationalError
 from sqlalchemy.orm import Session
@@ -34,6 +34,7 @@ from gateway.mfa import (
 from gateway.models import (
     PRIVILEGED_ROLES,
     LoginAttempt,
+    MfaEnrollmentAttempt,
     RecoveryCode,
     RefreshFamily,
     RefreshToken,
@@ -85,6 +86,11 @@ PRE_SESSION_CSRF_MAX_AGE = 10 * 60
 # last value: 4th failure 1 min, 5th 5 min, 6th 15 min, 7th and later 30 min.
 FREE_FAILURES = 3
 LOCKOUT_MINUTES = (1, 5, 15, 30)
+
+# At most ENROLL_LIMIT enrollments per user in any ENROLL_WINDOW: each one costs
+# a transit call, and a stolen session could otherwise spin the secret forever.
+ENROLL_LIMIT = 5
+ENROLL_WINDOW = timedelta(hours=1)
 
 # How long a login waits for the counter row's lock before giving up (503).
 # Module-level so tests can shorten it; it is a fixed literal, never user input.
@@ -285,8 +291,9 @@ class EnrollOut(BaseModel):
 
 class RecoveryCodesOut(BaseModel):
     recovery_codes: list[str]
-    # Always True: every session of the user ends and a normal login, which
-    # now asks for the second factor, follows.
+    # True when MFA has just been enabled: every session of the user ends and a
+    # normal login, which now asks for the second factor, follows. False when
+    # only the codes were replaced and the session goes on.
     relogin_required: bool
 
 
@@ -298,6 +305,23 @@ class MfaLoginRequest(BaseModel):
     code: Annotated[
         str, Field(min_length=6, max_length=32, pattern=r"^[0-9A-Za-z -]+$")
     ]
+
+
+class MfaDisableRequest(MfaLoginRequest):
+    current_password: Annotated[
+        str, Field(min_length=1, max_length=PASSWORD_MAX_LENGTH)
+    ]
+
+
+class RecoveryCodesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: Annotated[
+        str, Field(min_length=1, max_length=PASSWORD_MAX_LENGTH)
+    ]
+    # A TOTP only: a recovery code must not be able to mint the next list, so
+    # the shape of one is refused by the schema (422, nothing verified).
+    code: Annotated[str, Field(pattern=r"^[0-9]{6}$")]
 
 
 class PasswordChangeRequest(BaseModel):
@@ -1160,6 +1184,19 @@ def second_factor_actor(
     return actor
 
 
+def disable_mfa_actor(
+    request: Request,
+    session: Annotated[Session, Depends(get_session)],
+    keys: Annotated[GatewayKeys, Depends(get_keys)],
+) -> CurrentUser:
+    """Who may change the second factor: a full session, with its CSRF."""
+    actor = _authenticate(request, session, keys, FULL_SESSION)
+    if actor.user.must_change_password or _lacks_required_mfa(actor.user):
+        raise _session_denied()
+    _require_session_csrf(request, actor.claims, keys)
+    return actor
+
+
 def _deny_jti(session: Session, claims: dict) -> None:
     """Deny the token's `jti` until it would have expired anyway."""
     session.execute(
@@ -1297,6 +1334,39 @@ def _recheck_can_enroll(session: Session, actor: CurrentUser, now: datetime) -> 
         raise
 
 
+def _reserve_enrollment(
+    session: Session, user: User, now: datetime
+) -> HTTPException | None:
+    """Count this enrollment against the user's quota, or return the 429.
+
+    The user row lock makes the count and the insert one step per user, so
+    parallel requests cannot all see room for one more. The reservation is
+    committed before the transit call, which therefore holds no lock. A refusal
+    ends the transaction and costs no transit call.
+    """
+    session.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
+    _lock_user_row(session, user)
+    used = session.scalar(
+        select(func.count())
+        .select_from(MfaEnrollmentAttempt)
+        .where(
+            MfaEnrollmentAttempt.user_id == user.id,
+            MfaEnrollmentAttempt.created_at > now - ENROLL_WINDOW,
+        )
+    )
+    if used >= ENROLL_LIMIT:
+        session.rollback()
+        _log_event("mfa_enroll_rate_limited", str(user.id), now, logging.WARNING)
+        return HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many enrollment attempts; try later",
+            headers=NO_STORE,
+        )
+    session.add(MfaEnrollmentAttempt(user_id=user.id, created_at=now))
+    session.commit()
+    return None
+
+
 @router.post("/mfa/enroll", dependencies=[Depends(require_same_origin)])
 def mfa_enroll(
     actor: Annotated[CurrentUser, Depends(enrollment_actor)],
@@ -1313,7 +1383,9 @@ def mfa_enroll(
 
     From a full session (a reader) the current password is required again: a
     stolen session must not be able to attach the attacker's authenticator. A
-    wrong or missing password is a counted failure in the login lockout.
+    wrong or missing password is a counted failure in the login lockout. Each
+    user may enroll ENROLL_LIMIT times per ENROLL_WINDOW (429 after that); only
+    calls that passed the password check count.
     """
     _check_can_enroll(actor, now)
     user = actor.user
@@ -1328,8 +1400,10 @@ def mfa_enroll(
         if not verified:
             _record_failure(session, attempt, str(user.id), now, "mfa_failure")
             raise _login_failed()
-        # Password checked: release the counter lock before the transit call.
-        session.commit()
+    # Password checked (full session): the quota is taken under the counter lock,
+    # which the commit then releases before the transit call.
+    if (refusal := _reserve_enrollment(session, user, now)) is not None:
+        raise refusal
     secret = new_totp_secret()
     # A transit failure raises TransitError (fixed 503) before anything is saved.
     ciphertext = encrypt_totp_secret(secret.encode(), user.id)
@@ -1465,6 +1539,52 @@ def _reissue_scoped_cookie(
     )
 
 
+def _end_every_session(
+    session: Session, user: User, actor: CurrentUser, now: datetime
+) -> None:
+    """End every session of the user, the one that made this request included."""
+    invalidate_tokens(session, user, now)
+    session.execute(
+        update(RefreshFamily)
+        .where(RefreshFamily.user_id == user.id, RefreshFamily.revoked_at.is_(None))
+        .values(revoked_at=now)
+    )
+    # The cut-off could spare the old token when it was issued in the same
+    # second as `now`, so it is denied by its id as well.
+    _deny_jti(session, actor.claims)
+
+
+def _open_session(
+    session: Session, user: User, keys: GatewayKeys, now: datetime
+) -> tuple[str, str, str]:
+    """Stage a new family, access token and refresh token; return them with the sid.
+
+    Call it after `_end_every_session`, so the token carries the new generation.
+    The caller commits and sets the cookies.
+    """
+    family = RefreshFamily(
+        id=uuid.uuid4(), user_id=user.id, created_at=now, last_used_at=now
+    )
+    session.add(family)
+    access, claims = issue_access_token(
+        user.id,
+        user.role,
+        str(family.id),
+        keys,
+        now,
+        generation=user.token_generation,
+    )
+    refresh_token = new_refresh_token()
+    session.add(
+        RefreshToken(
+            family_id=family.id,
+            token_hash=hash_refresh_token(refresh_token),
+            created_at=now,
+        )
+    )
+    return access, refresh_token, claims["sid"]
+
+
 @router.post("/password", dependencies=[Depends(require_same_origin)])
 def change_password(
     body: PasswordChangeRequest,
@@ -1513,37 +1633,9 @@ def change_password(
     closing = body.close_other_sessions
     new_session = None
     if closing:
-        invalidate_tokens(session, user, now)
-        session.execute(
-            update(RefreshFamily)
-            .where(RefreshFamily.user_id == user.id, RefreshFamily.revoked_at.is_(None))
-            .values(revoked_at=now)
-        )
-        # The cut-off could spare the old token when it was issued in the same
-        # second as `now`, so it is denied by its id as well.
-        _deny_jti(session, actor.claims)
+        _end_every_session(session, user, actor, now)
         if not scoped:
-            family = RefreshFamily(
-                id=uuid.uuid4(), user_id=user.id, created_at=now, last_used_at=now
-            )
-            session.add(family)
-            access, claims = issue_access_token(
-                user.id,
-                user.role,
-                str(family.id),
-                keys,
-                now,
-                generation=user.token_generation,
-            )
-            refresh_token = new_refresh_token()
-            session.add(
-                RefreshToken(
-                    family_id=family.id,
-                    token_hash=hash_refresh_token(refresh_token),
-                    created_at=now,
-                )
-            )
-            new_session = (access, refresh_token, claims["sid"])
+            new_session = _open_session(session, user, keys, now)
     session.commit()
     if new_session is not None:
         access, refresh_token, sid = new_session
@@ -1594,6 +1686,10 @@ def _prepare_second_factor(
         secret = decrypt_totp_secret(ciphertext, user.id).decode()
         step = matching_step(secret, code, now)
         if step is None:
+            return None
+        # A replay is refused before any further work (the ten hashes of a
+        # regeneration); `_consume_second_factor` repeats it under the lock.
+        if user.mfa_last_step is not None and step <= user.mfa_last_step:
             return None
         return PreparedTotp(ciphertext, step)
     recovery = normalize_recovery_code(code)
@@ -1685,6 +1781,183 @@ def login_mfa(
         _log_event("recovery_code_used", subject, now, logging.WARNING)
     _log_event("mfa_success", subject, now)
     return _start_session(response, session, user, attempt, keys, now)
+
+
+def _session_still_valid(session: Session, user: User, claims: dict) -> bool:
+    """Whether a full session accepted earlier is still alive; call it under lock.
+
+    `_authenticate` checked this when the request came in. A logout since then
+    denies the jti and revokes the family without touching `token_generation`,
+    so all three are looked at again: a request that outlived its session must
+    not open a new one.
+    """
+    if user.token_generation != claims["gen"]:
+        return False
+    if session.scalar(select(exists().where(RevokedJti.jti == claims["jti"]))):
+        return False
+    return bool(
+        session.scalar(
+            select(
+                exists().where(
+                    RefreshFamily.id == uuid.UUID(claims["sid"]),
+                    RefreshFamily.revoked_at.is_(None),
+                )
+            )
+        )
+    )
+
+
+def _require_mfa_enabled(user: User) -> None:
+    if user.mfa_enabled_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="MFA is not enabled",
+            headers=NO_STORE,
+        )
+
+
+def _check_can_disable_mfa(user: User) -> None:
+    """Only a reader with an active second factor may remove it (ADR 0004)."""
+    if user.role in PRIVILEGED_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden", headers=NO_STORE
+        )
+    _require_mfa_enabled(user)
+
+
+@router.post("/mfa/disable", dependencies=[Depends(require_same_origin)])
+def mfa_disable(
+    body: MfaDisableRequest,
+    actor: Annotated[CurrentUser, Depends(disable_mfa_actor)],
+    response: Response,
+    session: Annotated[Session, Depends(get_session)],
+    keys: Annotated[GatewayKeys, Depends(get_keys)],
+    now: Annotated[datetime, Depends(get_now)],
+) -> UserOut:
+    """Remove the second factor of a reader, after the password and the factor.
+
+    The password and a TOTP or recovery code are checked again (a stolen session
+    must not be able to strip the account's protection) and a failure counts in
+    the login lockout. A privileged role keeps its MFA (403). Every session ends,
+    this one continues in a NEW session, as in /password. The secret, the pending
+    secret and the recovery codes are deleted.
+
+    The slow checks (Argon2id, transit) run before any lock; under the counter
+    and user row locks everything they relied on is checked again.
+    """
+    user = actor.user
+    subject = str(user.id)
+    _check_can_disable_mfa(user)
+    _refuse_if_locked(session, user, keys, now)
+    verified_hash = user.password_hash
+    password_ok = verify_password(verified_hash, body.current_password)
+    prepared = (
+        _prepare_second_factor(session, user, body.code, now) if password_ok else None
+    )
+
+    attempt = _lock_second_factor(session, user, keys, now)
+    _lock_user_row(session, user)
+    # The session was valid when the request came in; credentials that changed
+    # since (password, factor, "end sessions") or a logout end it before
+    # anything is spent.
+    if not _session_still_valid(session, user, actor.claims):
+        session.rollback()
+        raise _session_denied()
+    try:
+        _check_can_disable_mfa(user)
+    except HTTPException:
+        session.rollback()
+        raise
+    # A password that changed while it was being verified proves nothing now.
+    kind = (
+        _consume_second_factor(session, user, prepared, now)
+        if password_ok and user.password_hash == verified_hash and prepared is not None
+        else None
+    )
+    if kind is None:
+        _record_failure(session, attempt, subject, now, "mfa_failure")
+        raise _login_failed()
+
+    user.mfa_secret_ciphertext = None
+    user.mfa_pending_ciphertext = None
+    user.mfa_enabled_at = None
+    user.mfa_last_step = None
+    user.mfa_enroll_until = None
+    session.execute(delete(RecoveryCode).where(RecoveryCode.user_id == user.id))
+    _end_every_session(session, user, actor, now)
+    access, refresh_token, sid = _open_session(session, user, keys, now)
+    session.commit()
+    _set_session_cookies(response, access, refresh_token, sid, user.role, keys, now)
+    response.headers.update(NO_STORE)
+    if kind == "recovery":
+        _log_event("recovery_code_used", subject, now, logging.WARNING)
+    _log_event("mfa_disabled", subject, now)
+    return UserOut(id=user.id, username=user.username, role=user.role)
+
+
+@router.post("/mfa/recovery-codes", dependencies=[Depends(require_same_origin)])
+def mfa_recovery_codes(
+    body: RecoveryCodesRequest,
+    actor: Annotated[CurrentUser, Depends(disable_mfa_actor)],
+    response: Response,
+    session: Annotated[Session, Depends(get_session)],
+    keys: Annotated[GatewayKeys, Depends(get_keys)],
+    now: Annotated[datetime, Depends(get_now)],
+) -> RecoveryCodesOut:
+    """Replace the recovery codes, after the password and a TOTP.
+
+    Any role with an active second factor may do it. The old codes, used or not,
+    stop working and the new ones are shown once. A failure counts in the login
+    lockout. The credentials do not change (same password, same secret), so the
+    sessions go on: whoever holds a session still needs the password and a
+    fresh TOTP to get here, and ending the sessions would not take back a list
+    already seen.
+
+    Like /mfa/confirm, the slow work (Argon2id, transit, ten hashes) runs before
+    any lock; under the counter and user row locks everything it relied on is
+    checked again.
+    """
+    user = actor.user
+    subject = str(user.id)
+    _require_mfa_enabled(user)
+    _refuse_if_locked(session, user, keys, now)
+    verified_hash = user.password_hash
+    password_ok = verify_password(verified_hash, body.current_password)
+    prepared = (
+        _prepare_second_factor(session, user, body.code, now) if password_ok else None
+    )
+    codes = new_recovery_codes() if prepared is not None else []
+    hashes = [hash_password(code) for code in codes]
+
+    attempt = _lock_second_factor(session, user, keys, now)
+    _lock_user_row(session, user)
+    if not _session_still_valid(session, user, actor.claims):
+        session.rollback()
+        raise _session_denied()
+    try:
+        _require_mfa_enabled(user)
+    except HTTPException:
+        session.rollback()
+        raise
+    # A password that changed while it was being verified proves nothing now.
+    kind = (
+        _consume_second_factor(session, user, prepared, now)
+        if password_ok and user.password_hash == verified_hash and prepared is not None
+        else None
+    )
+    if kind is None:
+        _record_failure(session, attempt, subject, now, "mfa_failure")
+        raise _login_failed()
+
+    session.execute(delete(RecoveryCode).where(RecoveryCode.user_id == user.id))
+    session.add_all(
+        RecoveryCode(user_id=user.id, code_hash=code_hash, created_at=now)
+        for code_hash in hashes
+    )
+    session.commit()
+    response.headers.update(NO_STORE)
+    _log_event("recovery_codes_regenerated", subject, now)
+    return RecoveryCodesOut(recovery_codes=codes, relogin_required=False)
 
 
 @router.get("/me")

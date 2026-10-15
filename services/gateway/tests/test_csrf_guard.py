@@ -39,6 +39,18 @@ CASES = {
         {"code": "123456"},
         409,  # nothing to confirm: past the CSRF check, refused for its own reason
     ),
+    ("POST", "/api/auth/mfa/disable"): (
+        "reader",
+        "/api/auth/mfa/disable",
+        {"current_password": GOOD, "code": "123456"},
+        409,  # no MFA to disable: past the CSRF check, refused for its own reason
+    ),
+    ("POST", "/api/auth/mfa/recovery-codes"): (
+        "reader",
+        "/api/auth/mfa/recovery-codes",
+        {"current_password": GOOD, "code": "123456"},
+        409,  # no MFA to regenerate: past the CSRF check, refused for its own reason
+    ),
     ("POST", "/api/auth/password"): (
         "reader",
         "/api/auth/password",
@@ -167,6 +179,9 @@ def send(c, method, path, body, *, header, cookie="keep"):
 
 
 def test_every_state_changing_route_has_a_csrf_case(client):
+    # This is a control, not a spot check: a new state-changing route without a
+    # case in CASES (or an entry in PRE_SESSION) fails the suite, so no route can
+    # skip the CSRF guard unnoticed.
     assert discovered_routes(client.app) - PRE_SESSION == set(CASES)
 
 

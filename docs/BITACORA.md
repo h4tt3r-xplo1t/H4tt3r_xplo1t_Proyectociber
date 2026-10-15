@@ -47,6 +47,30 @@ Rama `chore/49-endurecimiento-gateway`. Cierra pendientes del gateway que no dep
   - L3 (una contraseña cambiada durante el hash cuenta como fallo) queda aceptado.
 - **TDD:** RED observado en cada cambio de comportamiento; de 631 a 673 pruebas.
 
+## 2026-10-12 · Issue #51: gestión del MFA
+
+Rama `feat/51-gestion-mfa`. Cierra el pendiente de #39: límite de altas del MFA y gestión del segundo factor por el propio usuario.
+
+- **Revisión del #49 (T0, `f49c1e2`):** el registro de la revisión de Gentle AI se guardó como primera tarea.
+- **Sugerencias del #49 (T1, `42d127f`):** pruebas de caracterización (refresh con generación mayor que 0; error de ocupado en el bloqueo de la fila del usuario en el login, con 503, nada contado y contador liberado) y comentario de control en la prueba de guarda del CSRF.
+- **Límite de altas (T2, `3d4bf67`):** 5 por hora móvil y por usuario en la tabla `mfa_enrollment_attempts` (migración 0007).
+  - Se cuenta y se reserva bajo el bloqueo de la fila del usuario y se confirma antes de llamar a transit; la sexta responde 429 antes de transit.
+  - La purga elimina las filas fuera de la ventana.
+- **`POST /api/auth/mfa/disable` (T3, `9d68f37`):** solo lectores (403 a los roles con privilegios, 409 sin MFA, sin contar).
+  - Pide contraseña y TOTP o código de recuperación; los fallos cuentan en el bloqueo progresivo.
+  - Borra secreto, secreto pendiente y códigos, cierra todas las sesiones y reabre la actual.
+- **`POST /api/auth/mfa/recovery-codes` (T4, `6ca5041`):** contraseña y TOTP; un código de recuperación llega como 422 por esquema (no cuenta), para que un código filtrado no genere una lista nueva.
+  - Reemplaza los 10 códigos en una transacción y no cierra sesiones.
+- **Decisiones:**
+  - El trabajo lento (transit, Argon2) va fuera de los bloqueos de fila, con comparación final bajo ellos, como en las rutas MFA existentes.
+  - Los fallos de ambas rutas cuentan en el bloqueo progresivo; el CSRF ligado a la sesión está cubierto por la prueba de guarda.
+- **Revisión de seguridad (`revisor-seguridad`):** lista para PR, sin críticos, altos ni medios.
+  - L1 (un logout entre la autenticación y el bloqueo no se revisaba y `/mfa/disable` abría una sesión nueva) y L2 (un paso TOTP repetido costaba 10 hashes antes del rechazo) se corrigieron en `8dba8dd`.
+  - L3 (los 10 hashes de la regeneración toman el semáforo uno a uno) y L4 (una cookie robada puede bloquear la cuenta por estas rutas) quedan aceptados; L3 pasa a Pendientes de E5 y L4 queda cubierto por el pendiente de bloqueo dirigido (#33).
+  - La cuota de altas se consume aunque transit falle: un usuario con privilegios en su ventana de 24 h podría agotarla durante 1 h (falla conservador, aceptado).
+- **Modelo de amenazas:** amenaza 48 nueva (abuso de la gestión del MFA con una sesión robada); actualizadas la 44 (límite de altas, regeneración) y la 35 (logout respetado bajo los bloqueos).
+- **TDD:** RED observado en cada cambio de comportamiento; de 673 a 763 pruebas.
+
 ## Pendientes
 
 ### E3: primer flujo (búsqueda por tema) y autenticación
@@ -55,7 +79,7 @@ Rama `chore/49-endurecimiento-gateway`. Cierra pendientes del gateway que no dep
 - [ ] Revisar periódicamente las versiones de `uv`, gitleaks y actionlint fijadas por sha256 en CI: Dependabot no las actualiza (hallazgo del #25).
 - [ ] **E3:** elegir y verificar una lista de contraseñas filtradas y su licencia (ASVS 6.2.12, L2, pendiente hasta entonces).
 - [ ] **A3b2:** recuperación asistida, restablecimiento de MFA con dos administradores y procedimiento de emergencia (ADR 0004, decisiones 10 y 11). Amenazas 45 a 47.
-- [ ] Límite de frecuencia propio en `/mfa/enroll`, y desactivar el MFA o regenerar los códigos de recuperación (#39).
+- [x] Límite de frecuencia propio en `/mfa/enroll`, y desactivar el MFA o regenerar los códigos de recuperación (#39). Resuelto en el #51.
 - [x] **A3b:** un usuario con privilegios que ya existía sin MFA y sin fecha límite de alta no podía iniciar sesión ni darse de alta; resuelto con la asignación pendiente de roles (issue #45).
 - [ ] **A3b2:** el administrador de arranque queda bloqueado si caduca su ventana de alta de 24 h; reabrirla exige otro administrador, así que depende del procedimiento de emergencia (L1 de la revisión del #45).
 - [x] `tokens_valid_since` tiene granularidad de un segundo: un token con alcance emitido en el mismo segundo que el cambio no queda anulado por él (L2 de la revisión del #45). Resuelto en el #49: contador de generación `gen`.
@@ -75,7 +99,7 @@ Rama `chore/49-endurecimiento-gateway`. Cierra pendientes del gateway que no dep
 - [ ] Bloqueo dirigido: cualquiera puede mantener bloqueada una cuenta ajena (4 fallos y luego uno cada 30 min). Lo acepta el ADR 0004 hasta que existan el límite por IP (E5) y la recuperación asistida (revisión de Gentle AI del #33).
 - [x] El login mantiene la conexión a la base de datos y el bloqueo de fila durante la espera del hash (hasta 5 s más el hash). Valorar leer y bloquear el contador en una transacción corta separada del hash (revisión de Gentle AI del #33). Resuelto en el #49: el hash se verifica sin bloqueo ni transacción.
 - [ ] Saturación del threadpool: hasta 5 s de espera por el semáforo bloquean hilos de las rutas síncronas; depende del límite de tasa (E5) (L6 de la revisión del #33).
-- [ ] Programar la purga (`python -m gateway.maintenance purge`) como CronJob en E5 (#37).
+- [ ] Programar la purga (`python -m gateway.maintenance purge`) como CronJob en E5 (#37); desde el #51 también purga `mfa_enrollment_attempts`.
 - [x] Exigir el CSRF ligado al `sid` en las rutas que cambien estado después del login; `refresh` y `logout` ya lo exigen (#35). Resuelto en el #49: ya estaba completo; una prueba de guarda lo comprueba.
 
 ### OpenBao (issue #31)
@@ -88,6 +112,8 @@ Rama `chore/49-endurecimiento-gateway`. Cierra pendientes del gateway que no dep
 ### E5: plataforma, red y cifrado
 - [ ] ADR de cifrado dentro del clúster (TLS/mTLS para Vault, PostgreSQL y RabbitMQ), antes de E5.
 - [ ] **E5:** `/readyz` no debe exponerse fuera del clúster y debe quedar cubierto por el límite de tasa: es anónimo y, con la base caída, cada sonda tarda hasta unos 5 s y puede agotar el threadpool (L2 de la revisión del #49).
+- [ ] **E5:** los 10 hashes de `/mfa/recovery-codes` toman el semáforo de Argon2id uno a uno (hasta unos 10 × 5 s de hilo); misma clase que L6 del #33, depende del límite de tasa (L3 de la revisión del #51).
+- [ ] Prueba de concurrencia del límite de altas del MFA: lo cierra el bloqueo de la fila del usuario, sin prueba que lo demuestre (#51).
 
 ### E4/E7: CI/CD y cadena de suministro
 - [ ] Modelar la cadena de suministro de CI/CD (E4/E7).
@@ -133,3 +159,4 @@ Rama `chore/49-endurecimiento-gateway`. Cierra pendientes del gateway que no dep
 - [x] Normalización Unicode de contraseñas (NFC) y tiempo máximo del semáforo de Argon2id (pendientes del #29, cerrados en el #33).
 - [x] **Issue #27 (PR #28):** `gateway` obligatorio en el ruleset (aplicado en GitHub el 2026-09-30 y verificado desde la API), documentación de la API desactivada por defecto y `httpx2`. ADR 0001 actualizado en el issue #29.
 - [x] **Issue #49:** endurecimiento del gateway: login sin bloqueo durante el hash, contador de generación de tokens, `/readyz` con comprobación de la base de datos, prueba de guarda del CSRF y hallazgos del #47.
+- [x] **Issue #51:** límite de altas del MFA, desactivación del MFA para lectores, regeneración de los códigos de recuperación y amenaza 48 del modelo.

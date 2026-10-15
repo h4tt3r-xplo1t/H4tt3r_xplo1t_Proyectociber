@@ -364,3 +364,61 @@ def test_token_generation_downgrade_to_0005_removes_only_it(migrated_db):
         names = {c["name"] for c in inspect(engine).get_columns("users")}
         assert "token_generation" in names
         engine.dispose()
+
+
+def test_upgrade_creates_mfa_enrollment_attempts(migrated_db):
+    engine = create_engine(migrated_db)
+    try:
+        insp = inspect(engine)
+        columns = {c["name"]: c for c in insp.get_columns("mfa_enrollment_attempts")}
+        indexes = insp.get_indexes("mfa_enrollment_attempts")
+        foreign_keys = insp.get_foreign_keys("mfa_enrollment_attempts")
+    finally:
+        engine.dispose()
+
+    assert set(columns) == {"id", "user_id", "created_at"}
+    assert columns["user_id"]["nullable"] is False
+    assert columns["created_at"]["nullable"] is False
+    assert any(i["column_names"] == ["user_id", "created_at"] for i in indexes)
+    assert foreign_keys[0]["referred_table"] == "users"
+    assert foreign_keys[0]["options"]["ondelete"] == "CASCADE"
+
+
+def test_deleting_a_user_deletes_its_enrollment_attempts(db_engine):
+    with db_engine.begin() as conn:
+        user_id = conn.execute(
+            text(
+                "INSERT INTO users (username, password_hash) "
+                "VALUES ('someone', 'x') RETURNING id"
+            )
+        ).scalar_one()
+        conn.execute(
+            text(
+                "INSERT INTO mfa_enrollment_attempts (user_id, created_at) "
+                "VALUES (:u, now())"
+            ),
+            {"u": user_id},
+        )
+        conn.execute(text("DELETE FROM users WHERE id = :u"), {"u": user_id})
+        remaining = conn.execute(
+            text("SELECT count(*) FROM mfa_enrollment_attempts")
+        ).scalar_one()
+
+    assert remaining == 0
+
+
+def test_enrollment_attempts_downgrade_to_0006_removes_only_it(migrated_db):
+    cfg = alembic_config()
+    engine = create_engine(migrated_db)
+    try:
+        command.downgrade(cfg, "0006")
+        tables = set(inspect(engine).get_table_names())
+        assert "mfa_enrollment_attempts" not in tables
+        assert "users" in tables
+        assert "token_generation" in {
+            c["name"] for c in inspect(engine).get_columns("users")
+        }
+    finally:
+        command.upgrade(cfg, "head")
+        assert "mfa_enrollment_attempts" in inspect(engine).get_table_names()
+        engine.dispose()

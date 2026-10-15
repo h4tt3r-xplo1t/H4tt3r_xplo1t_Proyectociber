@@ -19,6 +19,7 @@ STATE_CHANGING = {"POST", "PUT", "PATCH", "DELETE"}
 PRE_SESSION = {
     ("POST", "/api/auth/register"),
     ("POST", "/api/auth/login"),
+    ("POST", "/api/auth/password-reset"),
 }
 
 USERS = "/api/admin/users"

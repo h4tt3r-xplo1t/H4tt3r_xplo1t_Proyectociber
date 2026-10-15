@@ -35,6 +35,7 @@ from gateway.models import (
     PRIVILEGED_ROLES,
     LoginAttempt,
     MfaEnrollmentAttempt,
+    PasswordResetCode,
     RecoveryCode,
     RefreshFamily,
     RefreshToken,
@@ -49,6 +50,7 @@ from gateway.passwords import (
     verify_dummy,
     verify_password,
 )
+from gateway.recovery import canonical_reset_code
 from gateway.secrets import GatewayKeys, get_gateway_keys
 from gateway.settings import get_allowed_origin
 from gateway.tokens import (
@@ -351,6 +353,33 @@ class PasswordChangeRequest(BaseModel):
 class PasswordChangedOut(BaseModel):
     # True when the user must still enroll the MFA before a full session exists.
     mfa_enrollment_required: bool
+
+
+class PasswordResetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Same username rules as login. The code may be typed grouped, ungrouped, in
+    # either case, so only the shape of the characters is checked here; the
+    # second factor has the shape of MfaLoginRequest.code.
+    username: Annotated[
+        str, Field(min_length=3, max_length=32, pattern=r"^[a-z0-9_.-]+$")
+    ]
+    code: Annotated[
+        str, Field(min_length=1, max_length=32, pattern=r"^[0-9A-Za-z -]+$")
+    ]
+    new_password: Annotated[
+        str, Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
+    ]
+    mfa_code: (
+        Annotated[str, Field(min_length=6, max_length=32, pattern=r"^[0-9A-Za-z -]+$")]
+        | None
+    ) = None
+
+    _password_policy = field_validator("new_password")(_long_enough_after_normalization)
+
+
+class PasswordResetOut(BaseModel):
+    status: Literal["password_reset"]
 
 
 class ConfirmRequest(BaseModel):
@@ -1738,6 +1767,138 @@ def _consume_second_factor(
         return None
     row.used_at = now
     return "recovery"
+
+
+def _second_factor_due(user: User) -> bool:
+    """MFA active or a privileged role (ADR 0004, decision 10), read as it is now."""
+    return user.mfa_enabled_at is not None or user.role in PRIVILEGED_ROLES
+
+
+@router.post(
+    "/password-reset",
+    dependencies=[Depends(require_same_origin), Depends(require_presession_csrf)],
+)
+def password_reset(
+    body: PasswordResetRequest,
+    response: Response,
+    session: Annotated[Session, Depends(get_session)],
+    keys: Annotated[GatewayKeys, Depends(get_keys)],
+    now: Annotated[datetime, Depends(get_now)],
+) -> PasswordResetOut:
+    """Set a new password with the one-use code an administrator handed over.
+
+    Anonymous, so guarded like login and with one generic 401 for every failure
+    (unknown user, wrong, expired, replaced or used code, missing or wrong second
+    factor), counted on the same login attempt key. A second factor is due when
+    the account has MFA active or a privileged role. A privileged account
+    without MFA therefore can never be reset with a code: it is recovered by an
+    administrator demoting it to reader (then a code-only reset) or, for an
+    administrator, by break-glass. A reader with a pending role is judged by its
+    current role. Success opens no session: every token and refresh family of
+    the user ends and the person signs in again.
+    """
+    username = body.username
+    attempt_key = login_attempt_key(username, keys.csrf_key)
+    user = session.scalar(select(User).where(User.username == username))
+    reset_hash = (
+        session.scalar(
+            select(PasswordResetCode.code_hash).where(
+                PasswordResetCode.user_id == user.id
+            )
+        )
+        if user is not None
+        else None
+    )
+    locked_until = session.scalar(
+        select(LoginAttempt.locked_until).where(LoginAttempt.attempt_key == attempt_key)
+    )
+    subject = str(user.id) if user else f"unknown:{attempt_key[:16]}"
+    user_id = user.id if user else None
+    factor_due = user is not None and _second_factor_due(user)
+    # Detached with its columns loaded: the slow steps below can read it with no
+    # transaction open, and the locked copy read later is the one that decides.
+    if user is not None:
+        session.expunge(user)
+    # Plain reads, then the transaction ends: no row lock and no open transaction
+    # while Argon2id and transit run. What was read is checked again under the
+    # locks before anything is counted or changed.
+    session.rollback()
+
+    typed = canonical_reset_code(body.code)
+    if locked_until is not None and locked_until > now:
+        # Locked: do not look at the code, but spend the same time.
+        verify_dummy(body.code)
+        _log_event("login_blocked", subject, now, logging.WARNING)
+        raise _login_failed()
+
+    if reset_hash is None or typed is None:
+        verified = verify_dummy(body.code)
+    else:
+        verified = verify_password(reset_hash, typed)
+    prepared = None
+    if verified and factor_due and body.mfa_code is not None:
+        prepared = _prepare_second_factor(session, user, body.mfa_code, now)
+        session.rollback()
+    # Hashed only for a code that verified: no Argon2id for garbage. Last of the
+    # slow steps, so nothing slow runs between here and the locks.
+    new_hash = hash_password(body.new_password) if verified else None
+
+    attempt = _lock_attempt(session, attempt_key)
+    locked_user = None
+    if user_id is not None:
+        # Counter row, then user row, the order of every other path.
+        with busy_guard("user_row_locked", session):
+            locked_user = session.execute(
+                select(User).where(User.id == user_id).with_for_update()
+            ).scalar_one_or_none()
+    if attempt.locked_until is not None and attempt.locked_until > now:
+        # Locked while this request was working: nothing is counted.
+        session.commit()
+        _log_event("login_blocked", subject, now, logging.WARNING)
+        raise _login_failed()
+
+    row = None
+    if verified and locked_user is not None:
+        with busy_guard("reset_code_row_locked", session):
+            row = session.execute(
+                select(PasswordResetCode)
+                .where(PasswordResetCode.user_id == user_id)
+                .with_for_update()
+            ).scalar_one_or_none()
+    # The row must be the one that was verified (not replaced or used since) and
+    # still live; the second factor is decided from the user as locked now.
+    usable = row is not None and row.code_hash == reset_hash and row.expires_at > now
+    kind = None
+    if usable and _second_factor_due(locked_user):
+        with busy_guard("recovery_row_locked", session):
+            kind = (
+                _consume_second_factor(session, locked_user, prepared, now)
+                if prepared is not None
+                else None
+            )
+        usable = kind is not None
+    if not usable:
+        _record_failure(session, attempt, subject, now, "password_reset_failure")
+        raise _login_failed()
+
+    locked_user.password_hash = new_hash
+    locked_user.must_change_password = False
+    session.delete(row)
+    invalidate_tokens(session, locked_user, now)
+    session.execute(
+        update(RefreshFamily)
+        .where(RefreshFamily.user_id == user_id, RefreshFamily.revoked_at.is_(None))
+        .values(revoked_at=now)
+    )
+    attempt.failures = 0
+    attempt.locked_until = None
+    attempt.updated_at = now
+    session.commit()
+    response.headers.update(NO_STORE)
+    if kind == "recovery":
+        _log_event("recovery_code_used", subject, now, logging.WARNING)
+    _log_event("password_reset", subject, now, logging.WARNING)
+    return PasswordResetOut(status="password_reset")
 
 
 @router.post("/login/mfa", dependencies=[Depends(require_same_origin)])

@@ -30,3 +30,21 @@ def new_reset_code() -> str:
 def normalize_reset_code(text: str) -> str:
     """What a person typed, without spaces or dashes and in uppercase."""
     return "".join(text.split()).replace("-", "").upper()
+
+
+def canonical_reset_code(text: str) -> str | None:
+    """The stored form (XXXXX-XXXXX-XXXXX-XXXXX) of what a person typed, if valid.
+
+    The issuing route hashes the grouped form, so the typed one is normalized and
+    regrouped before it is verified. None when it cannot be a code we issued
+    (wrong length or a symbol outside the alphabet): nothing to verify then.
+    """
+    plain = normalize_reset_code(text)
+    if len(plain) != RESET_GROUPS * RESET_GROUP_LENGTH or not set(plain) <= set(
+        RESET_ALPHABET
+    ):
+        return None
+    return "-".join(
+        plain[i : i + RESET_GROUP_LENGTH]
+        for i in range(0, len(plain), RESET_GROUP_LENGTH)
+    )

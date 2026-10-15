@@ -11,6 +11,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
     text,
 )
@@ -88,6 +89,31 @@ class User(Base):
     password_reset_notice_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # The first time the account got a privileged role or pending role. Never
+    # cleared: demotion keeps it, so an account that is or was privileged still
+    # needs two administrators to recover (ADR 0004, decision 10).
+    privileged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+def needs_two_administrators(user: User) -> bool:
+    """Whether recovering this account (MFA reset, reset code) needs two administrators.
+
+    True for an account that is privileged, has a pending privileged role, or
+    ever had either (`privileged_at`): a demotion does not lower the bar.
+    """
+    return (
+        user.role in PRIVILEGED_ROLES
+        or user.pending_role is not None
+        or user.privileged_at is not None
+    )
+
+
+def mark_privileged(user: User, now: datetime) -> None:
+    """Record the first time the account got a privileged role (idempotent)."""
+    if user.privileged_at is None:
+        user.privileged_at = now
 
 
 class RefreshFamily(Base):
@@ -248,22 +274,36 @@ class PasswordResetCode(Base):
     issued_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )
+    # The second administrator of a code for an account that is or was privileged:
+    # `issued_by` asked, this one approved and received it. NULL for a code one
+    # administrator issued (never-privileged readers only) or if the approver
+    # was deleted, which the use-time check treats as not approved.
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class MfaResetRequest(Base):
-    """A pending request to reset the MFA of a privileged account.
+    """A pending request that a second administrator must approve.
 
-    One row per target. A second administrator approves it (ADR 0004, decision
-    10); approving or replacing it deletes the row. The requester's deletion
-    voids it.
+    `kind` is `mfa_reset` (reset the MFA of an account that is or was privileged)
+    or `reset_code` (issue it a password reset code). One row per target and
+    kind. A second administrator approves it (ADR 0004, decision 10); approving
+    or replacing it deletes the row. The requester's deletion voids it.
     """
 
     __tablename__ = "mfa_reset_requests"
     __table_args__ = (
         CheckConstraint(
             "expires_at > created_at", name="mfa_reset_requests_expiry_check"
+        ),
+        CheckConstraint(
+            "kind IN ('mfa_reset', 'reset_code')", name="mfa_reset_requests_kind_check"
+        ),
+        UniqueConstraint(
+            "target_user_id", "kind", name="mfa_reset_requests_target_user_id_kind_key"
         ),
         Index("ix_mfa_reset_requests_expires_at", "expires_at"),
     )
@@ -275,7 +315,10 @@ class MfaResetRequest(Base):
         server_default=text("gen_random_uuid()"),
     )
     target_user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), unique=True
+        ForeignKey("users.id", ondelete="CASCADE")
+    )
+    kind: Mapped[str] = mapped_column(
+        Text, default="mfa_reset", server_default="mfa_reset"
     )
     requested_by: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE")

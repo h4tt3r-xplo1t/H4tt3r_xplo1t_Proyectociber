@@ -42,9 +42,17 @@ from gateway.models import (
     RecoveryCode,
     RefreshFamily,
     User,
+    mark_privileged,
+    needs_two_administrators,
 )
 from gateway.passwords import hash_password
-from gateway.recovery import MFA_RESET_REQUEST_TTL, RESET_CODE_TTL, new_reset_code
+from gateway.recovery import (
+    MFA_RESET_KIND,
+    MFA_RESET_REQUEST_TTL,
+    RESET_CODE_KIND,
+    RESET_CODE_TTL,
+    new_reset_code,
+)
 from gateway.secrets import GatewayKeys
 from gateway.tokens import login_attempt_key
 
@@ -307,6 +315,15 @@ def assign_role(
             headers=NO_STORE,
         )
 
+    # The marker records the first privileged role or pending role, also for an
+    # account that got one outside this route, before a demotion hides it.
+    if (
+        effective in PRIVILEGED_ROLES
+        or pending is not None
+        or target.role in PRIVILEGED_ROLES
+        or target.pending_role is not None
+    ):
+        mark_privileged(target, now)
     target.role = effective
     target.pending_role = pending
     if pending is not None:
@@ -360,46 +377,6 @@ def reissue_enrollment_window(
     return _out_one(session, target, keys, now)
 
 
-@router.post("/users/{user_id}/reset-code", dependencies=[Depends(require_same_origin)])
-def issue_reset_code(
-    user_id: uuid.UUID,
-    actor: Annotated[CurrentUser, Depends(administrator_writer)],
-    response: Response,
-    session: Annotated[Session, Depends(get_session)],
-    now: Annotated[datetime, Depends(get_now)],
-) -> ResetCodeOut:
-    """Issue a one-use password reset code for a user (ADR 0004, decision 10).
-
-    The administrator hands it to the user out of band. It expires after 15
-    minutes and replaces any earlier code of that user. Issuing it changes
-    nothing else: the password, the sessions and the lockout stay as they are.
-    """
-    if user_id == actor.user.id:
-        _log_admin_event("admin_denied", actor.user.id, user_id, now, logging.WARNING)
-        raise _forbidden()
-    # The slow hash goes before any lock (a saturated hasher answers 503).
-    code = new_reset_code()
-    code_hash = hash_password(code)
-    _begin_change(session)
-    target = _lock_target(session, user_id)
-    session.execute(
-        delete(PasswordResetCode).where(PasswordResetCode.user_id == target.id)
-    )
-    session.add(
-        PasswordResetCode(
-            user_id=target.id,
-            code_hash=code_hash,
-            issued_by=actor.user.id,
-            created_at=now,
-            expires_at=now + RESET_CODE_TTL,
-        )
-    )
-    session.commit()
-    _log_admin_event("password_reset_code_issued", actor.user.id, target.id, now)
-    response.headers.update(NO_STORE)
-    return ResetCodeOut(code=code, expires_at=now + RESET_CODE_TTL)
-
-
 def _conflict(detail: str) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_409_CONFLICT, detail=detail, headers=NO_STORE
@@ -417,20 +394,26 @@ def _has_mfa(user: User) -> bool:
 def _apply_mfa_reset(session: Session, target: User, now: datetime) -> None:
     """Clear the MFA of `target` and end its sessions (caller holds the row lock).
 
-    A privileged account must enroll again within the usual 24 h window and until
-    then only gets an `enroll-mfa` session; a reader needs no window. Any pending
-    request for the target is spent with this reset.
+    A privileged account, or a reader with a pending privileged role, must enroll
+    again within the usual 24 h window and until then only gets an `enroll-mfa`
+    session; any other reader needs no window. Any pending MFA reset request for
+    the target is spent with this reset (a reset code request stays).
     """
     target.mfa_secret_ciphertext = None
     target.mfa_pending_ciphertext = None
     target.mfa_enabled_at = None
     target.mfa_last_step = None
     target.mfa_enroll_until = (
-        now + ENROLL_WINDOW if target.role in PRIVILEGED_ROLES else None
+        now + ENROLL_WINDOW
+        if target.role in PRIVILEGED_ROLES or target.pending_role is not None
+        else None
     )
     session.execute(delete(RecoveryCode).where(RecoveryCode.user_id == target.id))
     session.execute(
-        delete(MfaResetRequest).where(MfaResetRequest.target_user_id == target.id)
+        delete(MfaResetRequest).where(
+            MfaResetRequest.target_user_id == target.id,
+            MfaResetRequest.kind == MFA_RESET_KIND,
+        )
     )
     with busy_guard("admin_families_locked", session):
         session.execute(
@@ -443,13 +426,58 @@ def _apply_mfa_reset(session: Session, target: User, now: datetime) -> None:
     invalidate_tokens(session, target, now)
 
 
-def _lock_request(session: Session, target_id: uuid.UUID) -> MfaResetRequest | None:
+def _lock_request(
+    session: Session, target_id: uuid.UUID, kind: str
+) -> MfaResetRequest | None:
     with busy_guard("admin_mfa_reset_request_locked", session):
         return session.scalar(
             select(MfaResetRequest)
-            .where(MfaResetRequest.target_user_id == target_id)
+            .where(
+                MfaResetRequest.target_user_id == target_id,
+                MfaResetRequest.kind == kind,
+            )
             .with_for_update()
         )
+
+
+def _record_request(
+    session: Session,
+    target: User,
+    actor_user: User,
+    kind: str,
+    now: datetime,
+    *,
+    too_few: str,
+    already: str,
+) -> datetime:
+    """Store a request for a second administrator to approve; return its expiry.
+
+    The caller holds the target's row lock. At least two administrators other
+    than the target must exist (the requester and an approver), and a live
+    request of the same kind blocks a new one; an expired one is replaced.
+    """
+    if _administrators_left(session, target.id) < 2:
+        session.rollback()
+        raise _conflict(too_few)
+    pending = _lock_request(session, target.id, kind)
+    if pending is not None and pending.expires_at > now:
+        session.rollback()
+        raise _conflict(already)
+    if pending is not None:
+        session.delete(pending)
+        session.flush()
+    expires_at = now + MFA_RESET_REQUEST_TTL
+    session.add(
+        MfaResetRequest(
+            target_user_id=target.id,
+            requested_by=actor_user.id,
+            kind=kind,
+            created_at=now,
+            expires_at=expires_at,
+        )
+    )
+    session.commit()
+    return expires_at
 
 
 def _refuse_if_demoted(session: Session, actor: User) -> None:
@@ -474,8 +502,9 @@ def request_mfa_reset(
 ) -> MfaResetOut | MfaResetPendingOut:
     """Reset the MFA of a user (ADR 0004, decision 10).
 
-    A reader is reset at once. A privileged account needs a second administrator
-    to approve (`/mfa-reset/approve`), and at least two administrators other than
+    A reader that never was privileged is reset at once. An account that is or
+    was privileged (`needs_two_administrators`) needs a second administrator to
+    approve (`/mfa-reset/approve`), and at least two administrators other than
     the account itself must exist: nobody resets their own MFA.
     """
     actor_user = actor.user
@@ -489,33 +518,22 @@ def request_mfa_reset(
     if not _has_mfa(target):
         session.rollback()
         raise _conflict("The user has no MFA to reset")
-    if target.role not in PRIVILEGED_ROLES:
+    if not needs_two_administrators(target):
         _apply_mfa_reset(session, target, now)
         session.commit()
         _log_admin_event("mfa_reset", actor_user.id, target.id, now)
         return MfaResetOut(status="mfa_reset")
-    if _administrators_left(session, target.id) < 2:
-        session.rollback()
-        raise _conflict(
+    expires_at = _record_request(
+        session,
+        target,
+        actor_user,
+        MFA_RESET_KIND,
+        now,
+        too_few=(
             "Two administrators are required to reset the MFA of a privileged account"
-        )
-    pending = _lock_request(session, target.id)
-    if pending is not None and pending.expires_at > now:
-        session.rollback()
-        raise _conflict("An MFA reset request is already pending for this user")
-    if pending is not None:
-        session.delete(pending)
-        session.flush()
-    expires_at = now + MFA_RESET_REQUEST_TTL
-    session.add(
-        MfaResetRequest(
-            target_user_id=target.id,
-            requested_by=actor_user.id,
-            created_at=now,
-            expires_at=expires_at,
-        )
+        ),
+        already="An MFA reset request is already pending for this user",
     )
-    session.commit()
     _log_admin_event("mfa_reset_requested", actor_user.id, target.id, now)
     response.status_code = status.HTTP_202_ACCEPTED
     return MfaResetPendingOut(status="approval_required", expires_at=expires_at)
@@ -546,7 +564,7 @@ def approve_mfa_reset(
     target = _lock_target(session, user_id)
     _refuse_if_demoted(session, actor_user)
     response.headers.update(NO_STORE)
-    pending = _lock_request(session, target.id)
+    pending = _lock_request(session, target.id, MFA_RESET_KIND)
     if pending is None or pending.expires_at <= now:
         session.rollback()
         raise _conflict("No pending MFA reset request for this user")
@@ -574,6 +592,139 @@ def approve_mfa_reset(
     )
     _log_admin_event("mfa_reset", actor_user.id, target.id, now)
     return MfaResetOut(status="mfa_reset")
+
+
+@router.post("/users/{user_id}/reset-code", dependencies=[Depends(require_same_origin)])
+def issue_reset_code(
+    user_id: uuid.UUID,
+    actor: Annotated[CurrentUser, Depends(administrator_writer)],
+    response: Response,
+    session: Annotated[Session, Depends(get_session)],
+    now: Annotated[datetime, Depends(get_now)],
+) -> ResetCodeOut | MfaResetPendingOut:
+    """Issue a one-use password reset code for a user (ADR 0004, decision 10).
+
+    A reader that never was privileged gets it from this administrator alone: the
+    code is handed over out of band, expires after 15 minutes and replaces any
+    earlier code of that user. For an account that is or was privileged
+    (`needs_two_administrators`) no code is made here: a request is recorded and
+    a second administrator approves it (`/reset-code/approve`) and receives the
+    code. Issuing changes nothing else: the password, the sessions and the
+    lockout stay as they are.
+    """
+    actor_user = actor.user
+    if user_id == actor_user.id:
+        _log_admin_event("admin_denied", actor_user.id, user_id, now, logging.WARNING)
+        raise _forbidden()
+    # The slow hash goes before any lock (a saturated hasher answers 503). It is
+    # wasted when the target turns out to need a second administrator.
+    code = new_reset_code()
+    code_hash = hash_password(code)
+    _begin_change(session)
+    target = _lock_target(session, user_id)
+    _refuse_if_demoted(session, actor_user)
+    response.headers.update(NO_STORE)
+    if needs_two_administrators(target):
+        expires_at = _record_request(
+            session,
+            target,
+            actor_user,
+            RESET_CODE_KIND,
+            now,
+            too_few=(
+                "Two administrators are required to issue a reset code for this account"
+            ),
+            already="A reset code request is already pending for this user",
+        )
+        _log_admin_event("reset_code_requested", actor_user.id, target.id, now)
+        response.status_code = status.HTTP_202_ACCEPTED
+        return MfaResetPendingOut(status="approval_required", expires_at=expires_at)
+    _store_reset_code(session, target, code_hash, actor_user.id, None, now)
+    session.commit()
+    _log_admin_event("password_reset_code_issued", actor_user.id, target.id, now)
+    return ResetCodeOut(code=code, expires_at=now + RESET_CODE_TTL)
+
+
+def _store_reset_code(
+    session: Session,
+    target: User,
+    code_hash: str,
+    issued_by: uuid.UUID,
+    approved_by: uuid.UUID | None,
+    now: datetime,
+) -> None:
+    """Replace the target's code with a new one (caller commits)."""
+    session.execute(
+        delete(PasswordResetCode).where(PasswordResetCode.user_id == target.id)
+    )
+    session.add(
+        PasswordResetCode(
+            user_id=target.id,
+            code_hash=code_hash,
+            issued_by=issued_by,
+            approved_by=approved_by,
+            created_at=now,
+            expires_at=now + RESET_CODE_TTL,
+        )
+    )
+
+
+@router.post(
+    "/users/{user_id}/reset-code/approve", dependencies=[Depends(require_same_origin)]
+)
+def approve_reset_code(
+    user_id: uuid.UUID,
+    actor: Annotated[CurrentUser, Depends(administrator_writer)],
+    response: Response,
+    session: Annotated[Session, Depends(get_session)],
+    now: Annotated[datetime, Depends(get_now)],
+) -> ResetCodeOut:
+    """Approve a pending reset code request and receive the code.
+
+    The approver must be neither the affected user nor the administrator who
+    asked. The code is made and hashed before the locks (so a refusal discards
+    it); under them the request and its requester are checked again. The stored
+    code records both administrators and is shown only in this response.
+    """
+    actor_user = actor.user
+    if user_id == actor_user.id:
+        _log_admin_event("admin_denied", actor_user.id, user_id, now, logging.WARNING)
+        raise _forbidden()
+    code = new_reset_code()
+    code_hash = hash_password(code)
+    _begin_change(session)
+    target = _lock_target(session, user_id)
+    _refuse_if_demoted(session, actor_user)
+    response.headers.update(NO_STORE)
+    pending = _lock_request(session, target.id, RESET_CODE_KIND)
+    if pending is None or pending.expires_at <= now:
+        session.rollback()
+        raise _conflict("No pending reset code request for this user")
+    if pending.requested_by == actor_user.id:
+        session.rollback()
+        _log_admin_event("admin_denied", actor_user.id, user_id, now, logging.WARNING)
+        raise _forbidden()
+    requester_id = pending.requested_by
+    with busy_guard("admin_requester_locked", session):
+        requester = session.scalar(
+            select(User).where(User.id == requester_id).with_for_update()
+        )
+    if requester is None or requester.role != "administrador":
+        session.delete(pending)
+        session.commit()
+        raise _conflict("The reset code request is no longer valid")
+    session.delete(pending)
+    _store_reset_code(session, target, code_hash, requester_id, actor_user.id, now)
+    session.commit()
+    _log_admin_event(
+        "reset_code_approved",
+        actor_user.id,
+        target.id,
+        now,
+        detail=f"requested_by={requester_id}",
+    )
+    _log_admin_event("password_reset_code_issued", actor_user.id, target.id, now)
+    return ResetCodeOut(code=code, expires_at=now + RESET_CODE_TTL)
 
 
 @router.post("/users/{user_id}/unlock", dependencies=[Depends(require_same_origin)])

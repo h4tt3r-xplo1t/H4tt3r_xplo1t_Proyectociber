@@ -167,13 +167,30 @@ def test_each_user_has_their_own_code(client, db_engine, clock):
     assert len(code_rows(db_engine)) == 2
 
 
-@pytest.mark.parametrize("role", ["lector", "editor", "auditor", "administrador"])
-def test_any_target_role_may_receive_a_code(client, db_engine, clock, role):
+def test_a_reader_receives_a_code_from_one_administrator(client, db_engine, clock):
     c = admin(client, db_engine, clock)
-    signed_in(client, db_engine, clock, "target", role, mfa=role != "lector")
+    signed_in(client, db_engine, clock, "target", "lector")
 
     assert issue(c, db_engine, "target").status_code == 200
     assert len(code_rows(db_engine)) == 1
+
+
+@pytest.mark.parametrize("role", ["editor", "auditor", "administrador"])
+def test_a_privileged_target_gets_a_request_and_no_code_from_one_administrator(
+    client, db_engine, clock, role
+):
+    # Option B: accounts that are or were privileged need two administrators
+    # (see tests/test_two_administrator_recovery.py for the full flow).
+    c = admin(client, db_engine, clock)
+    admin(client, db_engine, clock, "boss2")
+    admin(client, db_engine, clock, "boss3")
+    signed_in(client, db_engine, clock, "target", role, mfa=True)
+
+    response = issue(c, db_engine, "target")
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "approval_required"
+    assert code_rows(db_engine) == []
 
 
 def test_an_administrator_cannot_issue_a_code_for_their_own_account(

@@ -86,7 +86,7 @@ def users(db_engine, role="administrador"):
         return conn.execute(
             text(
                 "SELECT id, username, password_hash, role, must_change_password, "
-                "mfa_enroll_until, tokens_valid_since, mfa_enabled_at "
+                "mfa_enroll_until, tokens_valid_since, mfa_enabled_at, privileged_at "
                 "FROM users WHERE role = :r"
             ),
             {"r": role},
@@ -102,6 +102,7 @@ def test_creates_the_administrator_and_destroys_the_secret(db_engine, bao):
     assert admin.username == USERNAME
     assert admin.must_change_password is True
     assert admin.mfa_enabled_at is None
+    assert admin.privileged_at is not None
     assert verify_password(admin.password_hash, SEEDED)
     window = admin.mfa_enroll_until - before
     assert timedelta(hours=23, minutes=59) < window < timedelta(hours=24, minutes=1)

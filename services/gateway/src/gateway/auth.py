@@ -41,6 +41,8 @@ from gateway.models import (
     RefreshToken,
     RevokedJti,
     User,
+    mark_privileged,
+    needs_two_administrators,
 )
 from gateway.passwords import (
     PASSWORD_MAX_LENGTH,
@@ -1551,6 +1553,9 @@ def mfa_confirm(
     if applied_role is not None:
         user.role = applied_role
         user.pending_role = None
+        # Already marked when the role was given; kept for roles that got here
+        # some other way.
+        mark_privileged(user, now)
     invalidate_tokens(session, user, now)
     session.execute(
         update(RefreshFamily)
@@ -1799,8 +1804,24 @@ def _consume_second_factor(
 
 
 def _second_factor_due(user: User) -> bool:
-    """MFA active or a privileged role (ADR 0004, decision 10), read as it is now."""
-    return user.mfa_enabled_at is not None or user.role in PRIVILEGED_ROLES
+    """Whether the reset needs a second factor: only while MFA is active.
+
+    An account that is or was privileged and has no MFA has no factor to ask for:
+    its recovery path is a code that two administrators approved (see
+    `_reset_code_allowed`), and an administrator who cannot find a second one has
+    break-glass. Read as the user is now.
+    """
+    return user.mfa_enabled_at is not None
+
+
+def _reset_code_allowed(user: User, row: PasswordResetCode) -> bool:
+    """A code for an account that is or was privileged needs two approvals.
+
+    Checked under the locks at use time, so a code one administrator issued while
+    the account was a never-privileged reader dies the moment the account gets a
+    privileged (or pending) role.
+    """
+    return not needs_two_administrators(user) or row.approved_by is not None
 
 
 @router.post(
@@ -1818,13 +1839,11 @@ def password_reset(
 
     Anonymous, so guarded like login and with one generic 401 for every failure
     (unknown user, wrong, expired, replaced or used code, missing or wrong second
-    factor), counted on the same login attempt key. A second factor is due when
-    the account has MFA active or a privileged role. A privileged account
-    without MFA therefore can never be reset with a code: it is recovered by an
-    administrator demoting it to reader (then a code-only reset) or, for an
-    administrator, by break-glass. A reader with a pending role is judged by its
-    current role. Success opens no session: every token and refresh family of
-    the user ends and the person signs in again.
+    factor, a code without the second approval an account that is or was
+    privileged needs), counted on the same login attempt key. A second factor is
+    due only when the account has MFA active; a privileged account without MFA
+    recovers with a two-administrator code alone. Success opens no session: every
+    token and refresh family of the user ends and the person signs in again.
     """
     username = body.username
     attempt_key = login_attempt_key(username, keys.csrf_key)
@@ -1897,6 +1916,7 @@ def password_reset(
     # The row must be the one that was verified (not replaced or used since) and
     # still live; the second factor is decided from the user as locked now.
     usable = row is not None and row.code_hash == reset_hash and row.expires_at > now
+    usable = usable and _reset_code_allowed(locked_user, row)
     kind = None
     if usable and _second_factor_due(locked_user):
         with busy_guard("recovery_row_locked", session):

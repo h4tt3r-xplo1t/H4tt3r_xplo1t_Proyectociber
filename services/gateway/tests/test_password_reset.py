@@ -90,8 +90,14 @@ def reset(
     return client.post(RESET, json=body, headers={**headers, "X-CSRF-Token": token})
 
 
-def put_code(db_engine, clock, username="alice", code=CODE, *, ttl_minutes=15):
-    """Store a live reset code the way the issuing route does (hash of the code)."""
+def put_code(
+    db_engine, clock, username="alice", code=CODE, *, ttl_minutes=15, approved_by=None
+):
+    """Store a live reset code the way the issuing route does (hash of the code).
+
+    `approved_by` is the username of the second administrator, for the codes that
+    accounts which are or were privileged need.
+    """
     run_sql(
         db_engine,
         "DELETE FROM password_reset_codes WHERE user_id = "
@@ -101,12 +107,14 @@ def put_code(db_engine, clock, username="alice", code=CODE, *, ttl_minutes=15):
     run_sql(
         db_engine,
         "INSERT INTO password_reset_codes "
-        "(user_id, code_hash, created_at, expires_at) "
-        "SELECT id, :h, :c, :e FROM users WHERE username = :n",
+        "(user_id, code_hash, created_at, expires_at, approved_by) "
+        "SELECT id, :h, :c, :e, (SELECT id FROM users WHERE username = :a) "
+        "FROM users WHERE username = :n",
         h=hash_password(code),
         c=clock(),
         e=clock() + timedelta(minutes=ttl_minutes),
         n=username,
+        a=approved_by,
     )
 
 
@@ -265,7 +273,11 @@ def test_a_code_issued_by_an_administrator_works_end_to_end(client, db_engine, c
 def test_a_reader_with_a_pending_role_is_judged_by_the_current_role(
     client, db_engine, clock
 ):
+    # Still no second factor (no MFA, a reader now), but the pending role makes
+    # the account need the code approved by two administrators.
+    admin(client, db_engine, clock)
     reader(client, db_engine, clock, pending_role="editor")
+    put_code(db_engine, clock, approved_by="boss")
 
     assert reset(browser(client)).status_code == 200
 
@@ -474,20 +486,35 @@ def test_a_wrong_second_factor_does_not_spend_the_reset_code(client, db_engine, 
 
 
 def test_a_privileged_role_with_mfa_needs_the_second_factor(client, db_engine, clock):
+    admin(client, db_engine, clock)
     secret, _ = enroll(client, db_engine, clock, "alice", "editor")
     client.cookies.clear()
     clock.now += timedelta(seconds=30)
-    put_code(db_engine, clock)
+    put_code(db_engine, clock, approved_by="boss")
 
     assert reset(browser(client)).status_code == 401
     assert reset(browser(client), mfa_code=totp(secret, clock)).status_code == 200
 
 
-def test_a_privileged_role_without_mfa_can_never_use_a_code(client, db_engine, clock):
-    # ADR 0004, decision 10: a second factor is due for MFA or a privileged role.
-    # With none enrolled there is nothing to ask for, so the reset is refused;
-    # such an account is recovered by demoting it to reader (then a code-only
-    # reset) or, for an administrator, by the break-glass procedure.
+def test_a_privileged_role_without_mfa_uses_a_two_administrator_code_alone(
+    client, db_engine, clock
+):
+    # ADR 0004, decision 10 (option B): the second factor is due only while MFA
+    # is active. A privileged account without MFA recovers with a code that two
+    # administrators approved, and no factor.
+    admin(client, db_engine, clock)
+    make_user(client, db_engine, clock, "alice", role="editor", window=True)
+    put_code(db_engine, clock, approved_by="boss")
+
+    response = reset(browser(client))
+
+    assert response.status_code == 200
+    assert code_rows(db_engine) == []
+
+
+def test_a_privileged_role_without_mfa_refuses_a_single_administrator_code(
+    client, db_engine, clock
+):
     make_user(client, db_engine, clock, "alice", role="editor", window=True)
     put_code(db_engine, clock)
     before = user_row(db_engine)

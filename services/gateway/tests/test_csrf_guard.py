@@ -94,6 +94,12 @@ CASES = {
         None,
         409,  # no pending request: past the CSRF check, refused for its own reason
     ),
+    ("POST", f"{USERS}/{{user_id}}/reset-code/approve"): (
+        "admin",
+        f"{USERS}/{{target}}/reset-code/approve",
+        None,
+        409,  # no pending request: past the CSRF check, refused for its own reason
+    ),
     ("POST", f"{USERS}/{{user_id}}/unlock"): (
         "admin",
         f"{USERS}/{{target}}/unlock",

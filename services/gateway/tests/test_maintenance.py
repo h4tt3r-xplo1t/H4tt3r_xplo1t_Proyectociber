@@ -440,3 +440,29 @@ def test_purge_mfa_reset_requests_deletes_only_the_expired_ones(db_engine):
     assert column(db_engine, "SELECT target_user_id::text FROM mfa_reset_requests") == {
         str(targets[2])
     }
+
+
+def test_purge_deletes_expired_requests_of_both_kinds(db_engine):
+    with db_engine.begin() as conn:
+        requester = add_user(conn, "requester", "administrador")
+        target = add_user(conn, "target")
+        for kind in ("mfa_reset", "reset_code"):
+            conn.execute(
+                text(
+                    "INSERT INTO mfa_reset_requests "
+                    "(target_user_id, requested_by, created_at, expires_at, kind) "
+                    "VALUES (:t, :r, :c, :e, :k)"
+                ),
+                {
+                    "t": target,
+                    "r": requester,
+                    "c": NOW - timedelta(hours=2),
+                    "e": NOW - timedelta(hours=1),
+                    "k": kind,
+                },
+            )
+
+    counts = run_purge(db_engine)
+
+    assert counts["mfa_reset_requests"] == 2
+    assert column(db_engine, "SELECT kind FROM mfa_reset_requests") == set()

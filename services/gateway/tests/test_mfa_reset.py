@@ -176,19 +176,39 @@ def test_the_reader_then_signs_in_with_the_password_only(client, db_engine, cloc
     assert fresh.get("/api/auth/me").status_code == 200
 
 
-def test_a_reader_with_a_pending_role_is_reset_by_one_administrator(
+def test_a_reader_with_a_pending_role_needs_two_administrators(
+    client, db_engine, clock
+):
+    # Option B: a pending role makes the account need two administrators, and
+    # the reset keeps a 24 h enrollment window for it (B3).
+    boss = admin(client, db_engine, clock)
+    boss2 = admin(client, db_engine, clock, "boss2")
+    target_user(client, db_engine, clock)
+    set_user(db_engine, "target", pending_role="editor")
+
+    assert request_reset(boss, db_engine).status_code == 202
+    assert mfa_state(db_engine)["mfa_enabled_at"] is not None
+    assert approve(boss2, db_engine).status_code == 200
+
+    state = mfa_state(db_engine)
+    assert state["mfa_enabled_at"] is None
+    assert state["mfa_enroll_until"] == clock() + timedelta(hours=24)
+    assert user_row(db_engine, "target")["pending_role"] == "editor"
+
+
+def test_a_reader_with_a_pending_role_and_one_administrator_is_a_conflict(
     client, db_engine, clock
 ):
     boss = admin(client, db_engine, clock)
     target_user(client, db_engine, clock)
     set_user(db_engine, "target", pending_role="editor")
+    before = mfa_state(db_engine)
 
     response = request_reset(boss, db_engine)
 
-    assert response.status_code == 200
-    assert response.json() == {"status": "mfa_reset"}
-    assert mfa_state(db_engine) == dict.fromkeys(MFA_COLUMNS)
-    assert requests_rows(db_engine) == []
+    assert response.status_code == 409
+    assert response.json() == {"detail": TWO_ADMINS}
+    untouched(db_engine, before)
 
 
 # --- a privileged account: request and approval -------------------------------------

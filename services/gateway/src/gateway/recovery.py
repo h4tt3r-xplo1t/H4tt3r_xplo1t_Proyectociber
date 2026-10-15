@@ -10,9 +10,12 @@ from datetime import timedelta
 
 # How long an issued code stays usable.
 RESET_CODE_TTL = timedelta(minutes=15)
-# How long a pending request to reset a privileged account's MFA waits for the
-# second administrator.
+# How long a pending request (to reset the MFA of, or to issue a reset code for,
+# an account that is or was privileged) waits for the second administrator.
 MFA_RESET_REQUEST_TTL = timedelta(hours=1)
+# The two kinds of request stored in `mfa_reset_requests`.
+MFA_RESET_KIND = "mfa_reset"
+RESET_CODE_KIND = "reset_code"
 
 # Crockford base32: 32 symbols without I, L, O or U, so a code read aloud or
 # copied by hand cannot be confused.

@@ -29,7 +29,7 @@ Rama `feat/56-recuperacion-asistida`. Cierra A3b2a: recuperación de cuenta con 
   - Se muestra una sola vez con `NO_STORE`; un administrador no puede emitirse uno a sí mismo (403).
 - **Ruta anónima (T3, `25f7600`):** `POST /api/auth/password-reset`, con origen y CSRF previo a la sesión como el login.
   - 401 genérico para cualquier fallo, contado en el bloqueo progresivo; una cuenta bloqueada se rechaza sin contar.
-  - Regla estricta del segundo factor: se exige si el MFA está activo o el rol tiene privilegios.
+  - Segundo factor: se exige solo si el MFA está activo (ver la decisión de la opción B).
   - Cierra todas las sesiones y no abre ninguna.
 - **Aviso al usuario (T4, `896315b`):** el siguiente inicio de sesión completo informa del restablecimiento (`password_reset_at` en `LoginOut`, migración 0009) y lo borra con compare-and-set en la misma transacción; `/me` no cambia.
 - **Restablecimiento del MFA (T5, `9bcb3e4`):** `POST /api/admin/users/{id}/mfa-reset` y `.../mfa-reset/approve` (migración 0010).
@@ -37,17 +37,28 @@ Rama `feat/56-recuperacion-asistida`. Cierra A3b2a: recuperación de cuenta con 
   - Cuenta con privilegios: solicitud de un administrador y aprobación de otro distinto, ninguno el afectado; la solicitud vence en 1 h; se rechaza (409) si no hay dos administradores además del afectado.
   - Borra el secreto y los códigos, abre una ventana de alta de 24 h, cierra las sesiones y deja eventos fijos.
 - **Decisiones:**
-  - (persona, 2026-10-15) Un solo administrador puede quitar el MFA de un lector: mismo riesgo residual aceptado que el código para cuentas sin MFA.
-  - (persona, 2026-10-15) Regla estricta: una cuenta con privilegios sin MFA no puede usar el código. Se recupera degradándola a lector, restableciendo con el código y reasignando el rol (queda pendiente hasta el alta del MFA); los administradores, con el procedimiento de emergencia (A3b2b).
+  - (a) (persona, 2026-10-15) Un solo administrador puede quitar el MFA de un lector que nunca tuvo privilegios: mismo riesgo residual aceptado que el código para cuentas sin MFA.
+  - (b) (persona, 2026-10-15, tras el hallazgo M1 de `revisor-seguridad`) Opción B, que sustituye la regla estricta y la recuperación por degradación:
+    - Marca `users.privileged_at`: se fija la primera vez que la cuenta recibe un rol con privilegios o pendiente y nunca se borra (migración 0011, con relleno).
+    - Una cuenta que tiene o tuvo privilegios necesita dos administradores distintos, ninguno el afectado, tanto para quitar el MFA como para recibir un código (`.../reset-code/approve`); el código se lo lleva quien aprueba, y la fila guarda `issued_by` y `approved_by`.
+    - El código exige segundo factor solo si el MFA está activo; una cuenta con privilegios sin MFA se recupera con un código aprobado por dos administradores.
+    - La recuperación por degradación desaparece.
   - (supuesto reversible) La solicitud de restablecimiento del MFA vence en 1 h.
   - El formulario de ayuda anónimo queda fuera hasta el límite por IP (E5): la ayuda se pide por un canal externo documentado.
 - **Residuales:**
   - Dos aprobaciones cruzadas (A pidió por B y B por A) pueden bloquearse entre sí; Postgres aborta una con 40P01 y `busy_guard` responde 503 (falla seguro).
   - La caducidad entre la lectura y los bloqueos no tiene prueba: `now` es fijo por petición.
-  - El administrador que emite el código lo conoce: lo acepta el ADR 0004 y lo mitiga el aviso en el siguiente inicio de sesión.
-- **Revisión de seguridad (`revisor-seguridad`):** pendiente.
+  - El administrador que emite el código lo conoce: lo acepta el ADR 0004 y lo mitiga el aviso en el siguiente inicio de sesión. B1: puede consumir el aviso iniciando sesión antes que el usuario.
+  - I2: el recuento de administradores restantes se lee sin el bloqueo de roles.
+  - Fallo intermitente observado una vez bajo carga (`test_mfa_recovery_codes.py::test_a_password_changed_meanwhile_counts_as_a_failure`); no se reprodujo en 6 repeticiones. Vigilar en CI.
+- **Corrección de la revisión (`3d74003`):** M1 con la opción B (migración 0011: `privileged_at`, `mfa_reset_requests.kind`, `password_reset_codes.approved_by`); B2: `issue_reset_code` llama a `_refuse_if_demoted`; B3: la ventana de alta de un lector con rol pendiente se conserva al restablecer el MFA.
+- **Revisión de seguridad (`revisor-seguridad`):** lista para PR, sin críticos ni altos.
+  - M1 (un solo administrador tomaba una cuenta con privilegios degradándola a lector) se corrigió en `3d74003` con la opción B; B2 y B3 también.
+  - B1 (el administrador que emite el código puede consumir el aviso iniciando sesión primero) se acepta dentro del riesgo del ADR 0004.
+  - Informativos: I1 (aprobaciones cruzadas, 503), I2 (recuento de administradores sin el bloqueo de roles) e I3 (la solicitud sobrevive si quien la pidió pierde el MFA; inofensivo).
+- **Gentle AI:** la revisión de la rama completa superó el presupuesto de contexto del revisor (`lens_context_budget_exceeded`); se hace por partes y sus resultados se añaden después.
 - **Modelo de amenazas:** amenaza 46 actualizada con los controles implementados.
-- **TDD:** RED observado en cada tarea; de 763 a 925 pruebas.
+- **TDD:** RED observado en cada tarea; de 763 a 978 pruebas.
 
 ## Pendientes
 
@@ -57,7 +68,7 @@ Rama `feat/56-recuperacion-asistida`. Cierra A3b2a: recuperación de cuenta con 
 - [ ] Revisar periódicamente las versiones de `uv`, gitleaks y actionlint fijadas por sha256 en CI: Dependabot no las actualiza (hallazgo del #25).
 - [ ] **E3:** elegir y verificar una lista de contraseñas filtradas y su licencia (ASVS 6.2.12, L2, pendiente hasta entonces).
 - [ ] **A3b2b:** procedimiento de emergencia (break-glass) para administradores (ADR 0004, decisión 11). La recuperación asistida y el restablecimiento del MFA con dos administradores se resolvieron en el #56 (A3b2a, amenaza 46).
-- [ ] **ADR 0004:** actualizar la decisión 10 con las dos decisiones de la persona del #56 (un administrador puede restablecer el MFA de un lector; regla estricta del código y recuperación por degradación). Quedó fuera del alcance del #56 porque `docs/adr/**` no estaba autorizado.
+- [ ] **ADR 0004:** incorporar a la decisión 10 las decisiones de la persona del #56: un lector nunca privilegiado se restablece con un administrador; la marca de privilegio y los dos administradores para el MFA y el código de las cuentas que tienen o tuvieron privilegios; el segundo factor del código solo con el MFA activo; el vencimiento de 1 h de las solicitudes. Quedó fuera del alcance del #56 porque `docs/adr/**` no estaba autorizado.
 - [ ] **E5:** formulario de ayuda anónimo, con límite por IP; hasta entonces la ayuda se pide por un canal externo documentado (#56).
 - [x] Límite de frecuencia propio en `/mfa/enroll`, y desactivar el MFA o regenerar los códigos de recuperación (#39). Resuelto en el #51.
 - [x] **A3b:** un usuario con privilegios que ya existía sin MFA y sin fecha límite de alta no podía iniciar sesión ni darse de alta; resuelto con la asignación pendiente de roles (issue #45).

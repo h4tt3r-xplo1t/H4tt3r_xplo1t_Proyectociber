@@ -11,13 +11,20 @@ from sqlalchemy import event, text
 from sqlalchemy.orm import Session
 
 from gateway import maintenance
+from gateway.auth import ENROLL_WINDOW
 from gateway.maintenance import ATTEMPT_TTL, purge
 from gateway.tokens import LEEWAY_SECONDS
 from tests.test_refresh import refresh, start
 
 SRC = Path(__file__).resolve().parent.parent / "src"
 NOW = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
-TABLES = ("login_attempts", "revoked_jtis", "refresh_families", "refresh_tokens")
+TABLES = (
+    "login_attempts",
+    "revoked_jtis",
+    "refresh_families",
+    "refresh_tokens",
+    "mfa_enrollment_attempts",
+)
 
 
 def run_purge(db_engine, now=NOW):
@@ -95,6 +102,41 @@ def test_purge_attempts_keeps_recent_and_locked_rows(db_engine):
         "old-still-locked",
         "recent",
     }
+
+
+# --- mfa_enrollment_attempts ----------------------------------------------------
+
+
+def test_purge_enrollment_attempts_deletes_only_those_outside_the_window(db_engine):
+    with db_engine.begin() as conn:
+        user = add_user(conn, "someone")
+        for age in (ENROLL_WINDOW + timedelta(minutes=1), ENROLL_WINDOW):
+            conn.execute(
+                text(
+                    "INSERT INTO mfa_enrollment_attempts (user_id, created_at) "
+                    "VALUES (:u, :c)"
+                ),
+                {"u": user, "c": NOW - age},
+            )
+        for age in (timedelta(minutes=1), ENROLL_WINDOW - timedelta(seconds=1)):
+            conn.execute(
+                text(
+                    "INSERT INTO mfa_enrollment_attempts (user_id, created_at) "
+                    "VALUES (:u, :c)"
+                ),
+                {"u": user, "c": NOW - age},
+            )
+
+    counts = run_purge(db_engine)
+
+    assert counts["mfa_enrollment_attempts"] == 2
+    with db_engine.connect() as conn:
+        assert (
+            conn.execute(
+                text("SELECT count(*) FROM mfa_enrollment_attempts")
+            ).scalar_one()
+            == 2
+        )
 
 
 # --- revoked_jtis ---------------------------------------------------------------
@@ -186,6 +228,7 @@ def test_purge_is_idempotent(db_engine):
         "revoked_jtis": 1,
         "refresh_families": 1,
         "refresh_tokens": 1,
+        "mfa_enrollment_attempts": 0,
     }
     assert second == dict.fromkeys(TABLES, 0)
 
@@ -250,6 +293,7 @@ def test_cli_purge_prints_counts_only_and_exits_zero(db_engine):
         "revoked_jtis=1",
         "refresh_families=1",
         "refresh_tokens=1",
+        "mfa_enrollment_attempts=0",
     ]
     for line in result.stdout.splitlines():
         assert re.fullmatch(r"[a-z_]+=\d+", line)

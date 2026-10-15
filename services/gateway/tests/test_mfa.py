@@ -583,6 +583,139 @@ def test_other_roles_cannot_enroll_from_a_normal_session(client, db_engine, cloc
     assert post(client, ENROLL).status_code == 403
 
 
+def count_transit_encrypts(monkeypatch):
+    """Wrap `encrypt_totp_secret` and return the list that records each call."""
+    calls = []
+    real = auth.encrypt_totp_secret
+
+    def counting(*args, **kwargs):
+        calls.append(args)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(auth, "encrypt_totp_secret", counting)
+    return calls
+
+
+def enroll_attempts(db_engine):
+    with db_engine.connect() as conn:
+        return conn.execute(
+            text("SELECT count(*) FROM mfa_enrollment_attempts")
+        ).scalar_one()
+
+
+def test_the_sixth_enroll_within_an_hour_is_a_429_without_a_transit_call(
+    client, db_engine, clock, monkeypatch
+):
+    make_user(client, db_engine, clock)
+    login(client)
+    calls = count_transit_encrypts(monkeypatch)
+
+    for _ in range(auth.ENROLL_LIMIT):
+        assert post(client, ENROLL).status_code == 200
+    pending = user_row(db_engine)["mfa_pending_ciphertext"]
+    response = post(client, ENROLL)
+
+    assert response.status_code == 429
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == {"detail": "Too many enrollment attempts; try later"}
+    assert len(calls) == auth.ENROLL_LIMIT
+    assert user_row(db_engine)["mfa_pending_ciphertext"] == pending
+    assert enroll_attempts(db_engine) == auth.ENROLL_LIMIT
+
+
+def test_a_full_session_is_limited_too_and_the_429_needs_the_password(
+    client, db_engine, clock, monkeypatch
+):
+    register(client)
+    login(client)
+    calls = count_transit_encrypts(monkeypatch)
+
+    for _ in range(auth.ENROLL_LIMIT):
+        assert post(client, ENROLL, {"current_password": GOOD}).status_code == 200
+    limited = post(client, ENROLL, {"current_password": GOOD})
+    wrong = post(client, ENROLL, {"current_password": OTHER})
+
+    assert limited.status_code == 429
+    # A wrong password is still the counted generic 401, not a quota answer.
+    assert wrong.status_code == 401
+    assert wrong.json() == LOGIN_FAILED
+    assert len(calls) == auth.ENROLL_LIMIT
+
+
+def test_enroll_is_allowed_again_once_the_attempts_leave_the_window(
+    client, db_engine, clock, monkeypatch
+):
+    make_user(client, db_engine, clock)
+    login(client)
+    calls = count_transit_encrypts(monkeypatch)
+    for _ in range(auth.ENROLL_LIMIT):
+        post(client, ENROLL)
+
+    # Just inside the window: still limited.
+    with db_engine.begin() as conn:
+        conn.execute(
+            text("UPDATE mfa_enrollment_attempts SET created_at = :t"),
+            {"t": clock() - auth.ENROLL_WINDOW + timedelta(seconds=1)},
+        )
+    assert post(client, ENROLL).status_code == 429
+
+    # Just outside it: the oldest attempts no longer count.
+    with db_engine.begin() as conn:
+        conn.execute(
+            text("UPDATE mfa_enrollment_attempts SET created_at = :t"),
+            {"t": clock() - auth.ENROLL_WINDOW},
+        )
+    assert post(client, ENROLL).status_code == 200
+    assert len(calls) == auth.ENROLL_LIMIT + 1
+
+
+def test_the_enroll_limit_is_per_user(client, db_engine, clock):
+    make_user(client, db_engine, clock, "alice")
+    login(client, "alice")
+    for _ in range(auth.ENROLL_LIMIT):
+        post(client, ENROLL)
+    assert post(client, ENROLL).status_code == 429
+
+    other = second_client(client)
+    make_user(other, db_engine, clock, "bob")
+    login(other, "bob")
+
+    assert post(other, ENROLL).status_code == 200
+
+
+def test_a_wrong_password_does_not_use_up_the_enroll_quota(client, db_engine, clock):
+    register(client)
+    login(client)
+
+    for _ in range(2):
+        assert post(client, ENROLL, {"current_password": OTHER}).status_code == 401
+
+    assert enroll_attempts(db_engine) == 0
+    assert attempt_row(db_engine).failures == 2
+    for _ in range(auth.ENROLL_LIMIT):
+        assert post(client, ENROLL, {"current_password": GOOD}).status_code == 200
+
+
+def test_a_rate_limited_enroll_logs_the_event_and_no_secret(
+    client, db_engine, clock, caplog
+):
+    caplog.set_level(logging.DEBUG)
+    make_user(client, db_engine, clock)
+    login(client)
+    for _ in range(auth.ENROLL_LIMIT):
+        post(client, ENROLL)
+    ciphertext = user_row(db_engine)["mfa_pending_ciphertext"]
+    caplog.clear()
+
+    response = post(client, ENROLL)
+
+    assert response.status_code == 429
+    assert events(caplog) == ["mfa_enroll_rate_limited"]
+    assert str(user_row(db_engine)["id"]) in caplog.text
+    assert ciphertext not in caplog.text
+    assert ciphertext not in response.text
+
+
 def test_transit_down_gives_a_fixed_503_on_enroll(
     client, db_engine, clock, monkeypatch
 ):

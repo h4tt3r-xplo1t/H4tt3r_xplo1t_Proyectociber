@@ -44,10 +44,11 @@ Forecast ~900-1300 authored changed lines (about half tests). `single-pr`, follo
 - [x] **T4** (`4608d0b`; RED: 6 tests; 503 fixed body and log) `GET /readyz` with a database check.
 - [x] **T5** (`78f362b`; passed first, mutation checks on every route; enumerates OpenAPI paths, misses `include_in_schema=False`) CSRF guard test over every post-login state-changing route.
 - [x] **T6** (this docs commit) docs: BITACORA entry (L2 decision, I2 decision, CI seed check dropped, accepted parallel guesses), Pendientes, threat model if controls change. One docs commit.
-- [ ] **T7** revisor-seguridad, fix round, Gentle AI review. revisor-seguridad: ready, 0 critical/high/medium; L1 fixed in `8fc2eb7` (RED probe, mutation check); L2 to E5 Pendientes; L3 accepted. Gentle AI pending.
+- [x] **T7** revisor-seguridad, fix round, Gentle AI review. revisor-seguridad: ready, 0 critical/high/medium; L1 fixed in `8fc2eb7` (RED probe, mutation check); L2 to E5 Pendientes; L3 accepted. Gentle AI: high risk, consent granted by the person, 4 lenses approved, acknowledged (`review-ca8a02d675d18253`); 3 advisory suggestions.
 - [ ] **T8** push and PR (person request only).
 
 ## Progress
 - 2026-10-12: issue #49 created by Claude at the person's request; branch `chore/49-endurecimiento-gateway` from `dd6c3f7`; T0 committed. Map delegated (read-only). Person chose the generation counter for L2.
 - 2026-10-12: writer T1-T5 (5 commits), 672 passed; parent spot check 672 passed; ruff clean. revisor-seguridad next, then fix round, T6 docs, Gentle AI.
 - 2026-10-12: revisor-seguridad fix round (`8fc2eb7`) and T6 docs; 673 passed; parent spot check 673.
+- 2026-10-12: Gentle AI approved and acknowledged. Advisory follow-ups: refresh issuing with generation > 0 not covered by a test; busy error on the login user-row lock (503, nothing counted) not covered; comment on the CSRF guard control request. Next: T8 push/PR on request.

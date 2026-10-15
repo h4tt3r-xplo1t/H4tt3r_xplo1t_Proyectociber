@@ -11,6 +11,7 @@ from sqlalchemy.exc import OperationalError
 from gateway import auth
 from gateway.db import get_engine
 from gateway.tokens import check_csrf, decode_access_token, hash_refresh_token
+from tests.helpers import run_sql
 from tests.test_login import (
     GOOD,
     KEYS,
@@ -660,3 +661,15 @@ def test_a_session_created_after_tokens_valid_since_is_not_invalidated(
     session = Session(client, login(client))
 
     assert refresh(client, session.refresh, session.csrf).status_code == 200
+
+
+def test_a_refresh_keeps_a_token_generation_above_zero(client, db_engine):
+    session = start(client)
+    run_sql(db_engine, "UPDATE users SET token_generation = 7")
+
+    response = refresh(client, session.refresh, session.csrf)
+
+    assert response.status_code == 200
+    claims = decode_access_token(client.cookies.get("__Host-access"), KEYS)
+    assert claims["gen"] == 7
+    assert client.get("/api/auth/me").status_code == 200

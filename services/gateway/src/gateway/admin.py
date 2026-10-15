@@ -490,8 +490,9 @@ def _refuse_if_demoted(session: Session, actor: User) -> None:
 
 
 # Lock order of both MFA-reset routes, kept identical to avoid deadlocks: the
-# target's user row, then the target's request row, then any other user row (the
-# requester).
+# target's user row, then the target's request row, then (on approval only) the
+# requester's user row. `_administrators_left` is a plain count that takes no
+# row locks, so it may run before or after the request row is locked.
 @router.post("/users/{user_id}/mfa-reset", dependencies=[Depends(require_same_origin)])
 def request_mfa_reset(
     user_id: uuid.UUID,
@@ -577,9 +578,24 @@ def approve_mfa_reset(
         requester = session.scalar(
             select(User).where(User.id == requester_id).with_for_update()
         )
-    if requester is None or requester.role != "administrador" or not _has_mfa(target):
+    # `requester is None` cannot happen while the request row is locked
+    # (`requested_by` cascades on delete); the check is kept defensively.
+    stale = None
+    if requester is None or requester.role != "administrador":
+        stale = "requester_not_admin"
+    elif not _has_mfa(target):
+        stale = "target_without_mfa"
+    if stale is not None:
         session.delete(pending)
         session.commit()
+        _log_admin_event(
+            "mfa_reset_request_voided",
+            actor_user.id,
+            target.id,
+            now,
+            logging.WARNING,
+            f"requested_by={requester_id} reason={stale}",
+        )
         raise _conflict("The MFA reset request is no longer valid")
     _apply_mfa_reset(session, target, now)
     session.commit()
@@ -709,9 +725,19 @@ def approve_reset_code(
         requester = session.scalar(
             select(User).where(User.id == requester_id).with_for_update()
         )
+    # `requester is None` cannot happen while the request row is locked
+    # (`requested_by` cascades on delete); the check is kept defensively.
     if requester is None or requester.role != "administrador":
         session.delete(pending)
         session.commit()
+        _log_admin_event(
+            "reset_code_request_voided",
+            actor_user.id,
+            target.id,
+            now,
+            logging.WARNING,
+            f"requested_by={requester_id} reason=requester_not_admin",
+        )
         raise _conflict("The reset code request is no longer valid")
     session.delete(pending)
     _store_reset_code(session, target, code_hash, requester_id, actor_user.id, now)

@@ -19,6 +19,7 @@ from tests.test_admin import set_user
 from tests.test_login import KEYS, OTHER, login
 from tests.test_mfa import LOGIN_MFA, make_user, post, totp
 from tests.test_mfa import user_row as mfa_user_row
+from tests.test_password_change import change
 from tests.test_password_reset import (
     NEW,
     browser,
@@ -28,6 +29,7 @@ from tests.test_password_reset import (
 )
 
 NOTICE = "password_reset_at"
+THIRD = "a third passphrase for alice"
 
 
 @pytest.fixture
@@ -83,7 +85,8 @@ def test_a_failed_login_leaves_the_notice_set(client, db_engine, clock):
 
     assert login(browser(client), password=OTHER).status_code == 401
 
-    assert notice_column(db_engine) == before is not None
+    assert before is not None
+    assert notice_column(db_engine) == before
     assert login(browser(client), password=NEW).json()[NOTICE] is not None
 
 
@@ -143,6 +146,29 @@ def test_a_scoped_login_leaves_the_notice_for_the_full_session(
 
     assert response.json() == {"status": expected}
     assert notice_column(db_engine) == clock()
+
+
+def test_the_notice_survives_the_forced_password_change_and_shows_on_the_full_login(
+    client, db_engine, clock
+):
+    """Path: password change required (a scoped session), then a full login."""
+    reader(client, db_engine, clock)
+    reset_at = clock()
+    assert reset(browser(client)).status_code == 200
+    set_user(db_engine, "alice", must_change_password=True)
+    scoped = browser(client)
+
+    assert login(scoped, password=NEW).json() == {"status": "password_change_required"}
+    assert notice_column(db_engine) == reset_at
+    assert change(scoped, current=NEW, new=THIRD).status_code == 200
+    assert notice_column(db_engine) == reset_at
+
+    full = login(browser(client), password=THIRD)
+
+    assert full.status_code == 200
+    assert full.json()[NOTICE] == reset_at.isoformat().replace("+00:00", "Z")
+    assert notice_column(db_engine) is None
+    assert login(browser(client), password=THIRD).json()[NOTICE] is None
 
 
 def test_a_privileged_user_pending_enrollment_keeps_the_notice(

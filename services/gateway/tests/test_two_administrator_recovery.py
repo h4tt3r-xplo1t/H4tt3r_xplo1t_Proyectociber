@@ -33,6 +33,7 @@ from tests.test_admin import (
 from tests.test_login import KEYS, attempt_row
 from tests.test_mfa_reset import approve as approve_mfa_reset
 from tests.test_mfa_reset import (
+    fail_requester_lock,
     mfa_state,
     request_reset,
     requests_rows,
@@ -486,6 +487,25 @@ def test_a_requester_demoted_before_the_approval_voids_the_request(
     assert code_requests(db_engine) == []
 
 
+def test_a_voided_code_request_leaves_an_event(client, db_engine, clock, caplog):
+    boss, boss2 = two_admins(client, db_engine, clock)
+    target_user(client, db_engine, clock, role="editor")
+    request_code(boss, db_engine)
+    set_user(db_engine, "boss", role="lector")
+    caplog.set_level(logging.INFO, logger="gateway.admin")
+
+    assert approve_code(boss2, db_engine).status_code == 409
+
+    (record,) = [
+        r for r in caplog.records if "event=reset_code_request_voided " in r.message
+    ]
+    assert record.levelno == logging.WARNING
+    assert f"actor={user_id(db_engine, 'boss2')} " in record.message
+    assert f"target={user_id(db_engine, 'target')} " in record.message
+    assert f"requested_by={user_id(db_engine, 'boss')} " in record.message
+    assert "reason=requester_not_admin" in record.message
+
+
 def test_a_user_who_is_not_an_administrator_cannot_approve(client, db_engine, clock):
     boss, _ = two_admins(client, db_engine, clock)
     target_user(client, db_engine, clock, role="editor")
@@ -608,6 +628,24 @@ def test_a_busy_request_lock_on_an_approval_is_a_503_and_keeps_the_request(
     response = approve_code(boss2, db_engine)
 
     assert response.status_code == 503
+    assert code_rows(db_engine) == []
+    assert code_requests(db_engine) == [request]
+
+
+@pytest.mark.parametrize("sqlstate", ["55P03", "40P01", "40001"])
+def test_a_busy_requester_lock_on_an_approval_is_a_503_and_keeps_the_request(
+    client, db_engine, clock, monkeypatch, sqlstate
+):
+    boss, boss2 = two_admins(client, db_engine, clock)
+    target_user(client, db_engine, clock, role="editor")
+    request_code(boss, db_engine)
+    (request,) = code_requests(db_engine)
+    seen = fail_requester_lock(monkeypatch, sqlstate, user_id(db_engine, "boss"))
+
+    response = approve_code(boss2, db_engine)
+
+    assert response.status_code == 503
+    assert len(seen) == 1
     assert code_rows(db_engine) == []
     assert code_requests(db_engine) == [request]
 

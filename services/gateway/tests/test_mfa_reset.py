@@ -249,7 +249,7 @@ def test_the_request_for_a_privileged_account_changes_nothing_yet(
     assert "event=mfa_reset " not in caplog.text
 
 
-def test_the_request_lives_one_hour(client, db_engine, clock):
+def test_the_request_lives_one_hour():
     assert recovery.MFA_RESET_REQUEST_TTL == timedelta(hours=1)
 
 
@@ -563,6 +563,45 @@ def test_a_target_that_lost_its_mfa_voids_the_request_on_approval(
     assert requests_rows(db_engine) == []
 
 
+@pytest.mark.parametrize(
+    ("stale", "reason"),
+    [
+        ({"boss": {"role": "lector"}}, "requester_not_admin"),
+        (
+            {
+                "target": {
+                    "mfa_secret_ciphertext": None,
+                    "mfa_pending_ciphertext": None,
+                    "mfa_enabled_at": None,
+                }
+            },
+            "target_without_mfa",
+        ),
+    ],
+)
+def test_a_voided_request_leaves_an_event(
+    client, db_engine, clock, caplog, stale, reason
+):
+    boss = admin(client, db_engine, clock)
+    boss2 = admin(client, db_engine, clock, "boss2")
+    target_user(client, db_engine, clock, role="editor")
+    request_reset(boss, db_engine)
+    for username, columns in stale.items():
+        set_user(db_engine, username, **columns)
+    caplog.set_level(logging.INFO, logger="gateway.admin")
+
+    assert approve(boss2, db_engine).status_code == 409
+
+    (record,) = [
+        r for r in caplog.records if "event=mfa_reset_request_voided " in r.message
+    ]
+    assert record.levelno == logging.WARNING
+    assert f"actor={user_id(db_engine, 'boss2')} " in record.message
+    assert f"target={user_id(db_engine, 'target')} " in record.message
+    assert f"requested_by={user_id(db_engine, 'boss')} " in record.message
+    assert f"reason={reason}" in record.message
+
+
 # --- refusals ----------
 
 
@@ -656,6 +695,28 @@ def fail_lock(monkeypatch, table, sqlstate):
     monkeypatch.setattr(Session, "scalar", scalar)
 
 
+def fail_requester_lock(monkeypatch, sqlstate, requester_id):
+    """Fail only the `users ... FOR UPDATE` that binds the requester's id.
+
+    Bound by id, not by position, so it cannot pass by failing another lock if
+    the lock order changes; `seen` proves the requester lock was really taken.
+    """
+    real_scalar = Session.scalar
+    seen = []
+
+    def scalar(self, statement, *args, **kwargs):
+        sql = str(statement)
+        if "FROM users" in sql and "FOR UPDATE" in sql:
+            bound = {str(v) for v in statement.compile().params.values()}
+            if str(requester_id) in bound:
+                seen.append(sql)
+                raise OperationalError("SELECT", {}, DbError(sqlstate))
+        return real_scalar(self, statement, *args, **kwargs)
+
+    monkeypatch.setattr(Session, "scalar", scalar)
+    return seen
+
+
 @pytest.mark.parametrize("sqlstate", ["55P03", "40P01", "40001"])
 @pytest.mark.parametrize("route", [reset_url, approve_url])
 def test_a_busy_target_lock_is_a_503_and_writes_nothing(
@@ -706,6 +767,26 @@ def test_a_busy_request_lock_on_an_approval_is_a_503_and_changes_nothing(
     response = approve(boss2, db_engine)
 
     assert response.status_code == 503
+    untouched(db_engine, before)
+    assert requests_rows(db_engine) == [request]
+
+
+@pytest.mark.parametrize("sqlstate", ["55P03", "40P01", "40001"])
+def test_a_busy_requester_lock_on_an_approval_is_a_503_and_changes_nothing(
+    client, db_engine, clock, monkeypatch, sqlstate
+):
+    boss = admin(client, db_engine, clock)
+    boss2 = admin(client, db_engine, clock, "boss2")
+    target_user(client, db_engine, clock, role="editor")
+    request_reset(boss, db_engine)
+    before = mfa_state(db_engine)
+    (request,) = requests_rows(db_engine)
+    seen = fail_requester_lock(monkeypatch, sqlstate, user_id(db_engine, "boss"))
+
+    response = approve(boss2, db_engine)
+
+    assert response.status_code == 503
+    assert len(seen) == 1
     untouched(db_engine, before)
     assert requests_rows(db_engine) == [request]
 

@@ -1,6 +1,6 @@
 import logging
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -1184,12 +1184,12 @@ def second_factor_actor(
     return actor
 
 
-def disable_mfa_actor(
+def mfa_manager_actor(
     request: Request,
     session: Annotated[Session, Depends(get_session)],
     keys: Annotated[GatewayKeys, Depends(get_keys)],
 ) -> CurrentUser:
-    """Who may change the second factor: a full session, with its CSRF."""
+    """Who may manage the second factor: any role with a full session, with its CSRF."""
     actor = _authenticate(request, session, keys, FULL_SESSION)
     if actor.user.must_change_password or _lacks_required_mfa(actor.user):
         raise _session_denied()
@@ -1400,8 +1400,9 @@ def mfa_enroll(
         if not verified:
             _record_failure(session, attempt, str(user.id), now, "mfa_failure")
             raise _login_failed()
-    # Password checked (full session): the quota is taken under the counter lock,
-    # which the commit then releases before the transit call.
+    # Password checked (full session). The quota is counted under the user row
+    # lock `_reserve_enrollment` takes (the scoped path holds no counter lock);
+    # its commit releases that lock before the transit call.
     if (refusal := _reserve_enrollment(session, user, now)) is not None:
         raise refusal
     secret = new_totp_secret()
@@ -1825,10 +1826,54 @@ def _check_can_disable_mfa(user: User) -> None:
     _require_mfa_enabled(user)
 
 
+def _lock_and_spend_second_factor(
+    session: Session,
+    user: User,
+    actor: CurrentUser,
+    keys: GatewayKeys,
+    now: datetime,
+    *,
+    recheck: Callable[[User], None],
+    password_ok: bool,
+    verified_hash: str,
+    prepared: PreparedFactor | None,
+) -> Literal["totp", "recovery"]:
+    """Lock, check again and spend the factor for the MFA management routes.
+
+    Takes the counter row lock, then the user row lock (the order everywhere).
+    Under them the session must still be valid (credentials that changed since
+    the request came in, or a logout, end it before anything is spent) and
+    `recheck` must still pass (it may raise an HTTPException; the transaction is
+    rolled back first). The factor is spent only if the password is right and
+    unchanged since it was verified and the factor was prepared; anything else
+    is a counted failure and the generic 401. Returns which kind was spent.
+    """
+    attempt = _lock_second_factor(session, user, keys, now)
+    _lock_user_row(session, user)
+    if not _session_still_valid(session, user, actor.claims):
+        session.rollback()
+        raise _session_denied()
+    try:
+        recheck(user)
+    except HTTPException:
+        session.rollback()
+        raise
+    # A password that changed while it was being verified proves nothing now.
+    kind = (
+        _consume_second_factor(session, user, prepared, now)
+        if password_ok and user.password_hash == verified_hash and prepared is not None
+        else None
+    )
+    if kind is None:
+        _record_failure(session, attempt, str(user.id), now, "mfa_failure")
+        raise _login_failed()
+    return kind
+
+
 @router.post("/mfa/disable", dependencies=[Depends(require_same_origin)])
 def mfa_disable(
     body: MfaDisableRequest,
-    actor: Annotated[CurrentUser, Depends(disable_mfa_actor)],
+    actor: Annotated[CurrentUser, Depends(mfa_manager_actor)],
     response: Response,
     session: Annotated[Session, Depends(get_session)],
     keys: Annotated[GatewayKeys, Depends(get_keys)],
@@ -1855,28 +1900,17 @@ def mfa_disable(
         _prepare_second_factor(session, user, body.code, now) if password_ok else None
     )
 
-    attempt = _lock_second_factor(session, user, keys, now)
-    _lock_user_row(session, user)
-    # The session was valid when the request came in; credentials that changed
-    # since (password, factor, "end sessions") or a logout end it before
-    # anything is spent.
-    if not _session_still_valid(session, user, actor.claims):
-        session.rollback()
-        raise _session_denied()
-    try:
-        _check_can_disable_mfa(user)
-    except HTTPException:
-        session.rollback()
-        raise
-    # A password that changed while it was being verified proves nothing now.
-    kind = (
-        _consume_second_factor(session, user, prepared, now)
-        if password_ok and user.password_hash == verified_hash and prepared is not None
-        else None
+    kind = _lock_and_spend_second_factor(
+        session,
+        user,
+        actor,
+        keys,
+        now,
+        recheck=_check_can_disable_mfa,
+        password_ok=password_ok,
+        verified_hash=verified_hash,
+        prepared=prepared,
     )
-    if kind is None:
-        _record_failure(session, attempt, subject, now, "mfa_failure")
-        raise _login_failed()
 
     user.mfa_secret_ciphertext = None
     user.mfa_pending_ciphertext = None
@@ -1898,7 +1932,7 @@ def mfa_disable(
 @router.post("/mfa/recovery-codes", dependencies=[Depends(require_same_origin)])
 def mfa_recovery_codes(
     body: RecoveryCodesRequest,
-    actor: Annotated[CurrentUser, Depends(disable_mfa_actor)],
+    actor: Annotated[CurrentUser, Depends(mfa_manager_actor)],
     response: Response,
     session: Annotated[Session, Depends(get_session)],
     keys: Annotated[GatewayKeys, Depends(get_keys)],
@@ -1929,25 +1963,17 @@ def mfa_recovery_codes(
     codes = new_recovery_codes() if prepared is not None else []
     hashes = [hash_password(code) for code in codes]
 
-    attempt = _lock_second_factor(session, user, keys, now)
-    _lock_user_row(session, user)
-    if not _session_still_valid(session, user, actor.claims):
-        session.rollback()
-        raise _session_denied()
-    try:
-        _require_mfa_enabled(user)
-    except HTTPException:
-        session.rollback()
-        raise
-    # A password that changed while it was being verified proves nothing now.
-    kind = (
-        _consume_second_factor(session, user, prepared, now)
-        if password_ok and user.password_hash == verified_hash and prepared is not None
-        else None
+    _lock_and_spend_second_factor(
+        session,
+        user,
+        actor,
+        keys,
+        now,
+        recheck=_require_mfa_enabled,
+        password_ok=password_ok,
+        verified_hash=verified_hash,
+        prepared=prepared,
     )
-    if kind is None:
-        _record_failure(session, attempt, subject, now, "mfa_failure")
-        raise _login_failed()
 
     session.execute(delete(RecoveryCode).where(RecoveryCode.user_id == user.id))
     session.add_all(

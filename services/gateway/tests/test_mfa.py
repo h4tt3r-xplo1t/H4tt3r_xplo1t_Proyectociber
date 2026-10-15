@@ -623,6 +623,37 @@ def test_the_sixth_enroll_within_an_hour_is_a_429_without_a_transit_call(
     assert enroll_attempts(db_engine) == auth.ENROLL_LIMIT
 
 
+@pytest.mark.parametrize("sqlstate", ["55P03", "40P01", "40001"])
+def test_a_busy_reservation_lock_is_a_503_without_a_quota_row_or_transit_call(
+    client, db_engine, clock, monkeypatch, sqlstate
+):
+    make_user(client, db_engine, clock)
+    login(client)
+    calls = count_transit_encrypts(monkeypatch)
+    real_execute = Session.execute
+    locks = []
+
+    def execute(self, statement, *args, **kwargs):
+        sql = str(statement)
+        if "FROM users" in sql and "FOR UPDATE" in sql:
+            locks.append(sql)
+            raise OperationalError("SELECT", {}, DbError(sqlstate))
+        return real_execute(self, statement, *args, **kwargs)
+
+    monkeypatch.setattr(Session, "execute", execute)
+
+    response = post(client, ENROLL)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Service busy; try again later"}
+    # The scoped path takes no user row lock before the reservation, so the one
+    # lock that was attempted (and refused) is the reservation's.
+    assert len(locks) == 1
+    assert enroll_attempts(db_engine) == 0
+    assert calls == []
+    assert user_row(db_engine)["mfa_pending_ciphertext"] is None
+
+
 def test_a_full_session_is_limited_too_and_the_429_needs_the_password(
     client, db_engine, clock, monkeypatch
 ):

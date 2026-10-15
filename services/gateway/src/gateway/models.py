@@ -83,6 +83,11 @@ class User(Base):
         Boolean, default=False, server_default=text("false")
     )
     pending_role: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # When an administrator-issued code reset the password; shown by the next
+    # login that opens a full session, then cleared (ADR 0004 decision 10).
+    password_reset_notice_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class RefreshFamily(Base):

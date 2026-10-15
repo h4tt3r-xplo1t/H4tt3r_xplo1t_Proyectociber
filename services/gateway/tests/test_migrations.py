@@ -519,3 +519,34 @@ def test_reset_codes_downgrade_to_0007_removes_only_that_table(migrated_db):
         command.upgrade(cfg, "head")
         assert "password_reset_codes" in inspect(engine).get_table_names()
         engine.dispose()
+
+
+def test_users_have_a_nullable_password_reset_notice_column(db_engine):
+    columns = {c["name"]: c for c in inspect(db_engine).get_columns("users")}
+    column = columns["password_reset_notice_at"]
+    assert column["nullable"] is True
+    assert column["type"].timezone is True
+    with db_engine.begin() as conn:
+        notice = conn.execute(
+            text(
+                "INSERT INTO users (username, password_hash) "
+                "VALUES ('someone', 'x') RETURNING password_reset_notice_at"
+            )
+        ).scalar_one()
+    assert notice is None
+
+
+def test_notice_downgrade_to_0008_removes_only_that_column(migrated_db):
+    cfg = alembic_config()
+    engine = create_engine(migrated_db)
+    try:
+        command.downgrade(cfg, "0008")
+        columns = {c["name"] for c in inspect(engine).get_columns("users")}
+        assert "password_reset_notice_at" not in columns
+        assert "mfa_enroll_until" in columns
+        assert "password_reset_codes" in inspect(engine).get_table_names()
+    finally:
+        command.upgrade(cfg, "head")
+        columns = {c["name"] for c in inspect(engine).get_columns("users")}
+        assert "password_reset_notice_at" in columns
+        engine.dispose()

@@ -270,6 +270,16 @@ class UserOut(BaseModel):
     role: str
 
 
+class LoginOut(UserOut):
+    """The user a login opened a session for, plus the one-time reset notice.
+
+    Only the timestamp: the frontend words the notice (ADR 0004, decision 10).
+    `UserOut` stays what `/me` and the other routes return.
+    """
+
+    password_reset_at: datetime | None = None
+
+
 class StatusOut(BaseModel):
     """Login answer when the session is not issued yet: a second step is due."""
 
@@ -576,13 +586,16 @@ def _start_session(
     attempt: LoginAttempt,
     keys: GatewayKeys,
     now: datetime,
-) -> UserOut:
+) -> LoginOut:
     """Issue the full session (family, access, refresh, CSRF) and reset the counter.
 
     The one path every successful login ends in: the password alone for a user
     without MFA, the second factor for one with it. The caller may have staged
     other changes (a denied token, a spent recovery code): everything commits
-    together.
+    together. The caller holds the counter lock and has re-read the user, and the
+    only other writer of the reset notice (`password_reset`) takes that same lock,
+    so the notice read here is the one cleared below; the clear is still a
+    compare-and-set on the value shown.
     """
     # Issue everything first and commit once: the counter is only reset if the
     # session exists. A failure while issuing (signing, database) rolls back
@@ -612,13 +625,29 @@ def _start_session(
     attempt.failures = 0
     attempt.locked_until = None
     attempt.updated_at = now
+    # Shown once: cleared in the same commit as the session, only if it is still
+    # the value being shown.
+    notice = user.password_reset_notice_at
+    if notice is not None:
+        cleared = session.execute(
+            update(User)
+            .where(User.id == user.id, User.password_reset_notice_at == notice)
+            .values(password_reset_notice_at=None)
+        )
+        if cleared.rowcount != 1:
+            notice = None
     session.commit()
     _set_session_cookies(
         response, token, refresh_token, claims["sid"], user.role, keys, now
     )
     response.headers.update(NO_STORE)
     _log_event("login_success", str(user.id), now)
-    return UserOut(id=user.id, username=user.username, role=user.role)
+    return LoginOut(
+        id=user.id,
+        username=user.username,
+        role=user.role,
+        password_reset_at=notice,
+    )
 
 
 def _start_scoped_session(
@@ -678,7 +707,7 @@ def login(
     session: Annotated[Session, Depends(get_session)],
     keys: Annotated[GatewayKeys, Depends(get_keys)],
     now: Annotated[datetime, Depends(get_now)],
-) -> UserOut | StatusOut:
+) -> LoginOut | StatusOut:
     username = body.username
     attempt_key = login_attempt_key(username, keys.csrf_key)
     user = session.scalar(select(User).where(User.username == username))
@@ -1883,6 +1912,7 @@ def password_reset(
 
     locked_user.password_hash = new_hash
     locked_user.must_change_password = False
+    locked_user.password_reset_notice_at = now
     session.delete(row)
     invalidate_tokens(session, locked_user, now)
     session.execute(
@@ -1909,7 +1939,7 @@ def login_mfa(
     session: Annotated[Session, Depends(get_session)],
     keys: Annotated[GatewayKeys, Depends(get_keys)],
     now: Annotated[datetime, Depends(get_now)],
-) -> UserOut:
+) -> LoginOut:
     """Finish a login with a TOTP or a recovery code, then issue the session."""
     user = actor.user
     subject = str(user.id)

@@ -159,6 +159,7 @@ def nothing_changed(db_engine, before, *, rows=1):
     row = user_row(db_engine)
     assert row["password_hash"] == before["password_hash"]
     assert row["token_generation"] == before["token_generation"]
+    assert row["password_reset_notice_at"] == before["password_reset_notice_at"]
     assert len(code_rows(db_engine)) == rows
 
 
@@ -203,6 +204,8 @@ def test_a_valid_code_resets_the_password_and_ends_every_session(
     assert after["password_hash"] != before["password_hash"]
     assert after["must_change_password"] is False
     assert after["token_generation"] == before["token_generation"] + 1
+    assert before["password_reset_notice_at"] is None
+    assert after["password_reset_notice_at"] == clock()
     assert code_rows(db_engine) == []
     assert attempt_row(db_engine) == (0, None)
     # The old password is gone, the new one works.

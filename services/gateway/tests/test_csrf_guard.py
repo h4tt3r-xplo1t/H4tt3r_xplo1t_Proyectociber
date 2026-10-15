@@ -82,6 +82,18 @@ CASES = {
         None,
         200,
     ),
+    ("POST", f"{USERS}/{{user_id}}/mfa-reset"): (
+        "admin",
+        f"{USERS}/{{target}}/mfa-reset",
+        None,
+        409,  # the target has no MFA: past the CSRF check, refused for its own reason
+    ),
+    ("POST", f"{USERS}/{{user_id}}/mfa-reset/approve"): (
+        "admin",
+        f"{USERS}/{{target}}/mfa-reset/approve",
+        None,
+        409,  # no pending request: past the CSRF check, refused for its own reason
+    ),
     ("POST", f"{USERS}/{{user_id}}/unlock"): (
         "admin",
         f"{USERS}/{{target}}/unlock",
@@ -104,6 +116,7 @@ SNAPSHOT = {
     "login_attempts": "SELECT * FROM login_attempts",
     "recovery_codes": "SELECT * FROM recovery_codes",
     "password_reset_codes": "SELECT * FROM password_reset_codes",
+    "mfa_reset_requests": "SELECT * FROM mfa_reset_requests",
 }
 
 

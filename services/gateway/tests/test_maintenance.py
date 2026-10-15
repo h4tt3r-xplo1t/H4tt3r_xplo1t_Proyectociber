@@ -25,6 +25,7 @@ TABLES = (
     "refresh_tokens",
     "mfa_enrollment_attempts",
     "password_reset_codes",
+    "mfa_reset_requests",
 )
 
 
@@ -259,6 +260,7 @@ def test_purge_is_idempotent(db_engine):
         "refresh_tokens": 1,
         "mfa_enrollment_attempts": 0,
         "password_reset_codes": 0,
+        "mfa_reset_requests": 0,
     }
     assert second == dict.fromkeys(TABLES, 0)
 
@@ -325,6 +327,7 @@ def test_cli_purge_prints_counts_only_and_exits_zero(db_engine):
         "refresh_tokens=1",
         "mfa_enrollment_attempts=0",
         "password_reset_codes=0",
+        "mfa_reset_requests=0",
     ]
     for line in result.stdout.splitlines():
         assert re.fullmatch(r"[a-z_]+=\d+", line)
@@ -403,3 +406,37 @@ def test_cli_with_an_unreachable_database_fails_without_leaking_the_url():
     assert "Traceback" not in result.stderr
     for leaked in (password, "leaky_user", "leaky_db", "127.0.0.1"):
         assert leaked not in result.stdout + result.stderr
+
+
+# --- mfa_reset_requests ---------------------------------------------------------
+
+
+def test_purge_mfa_reset_requests_deletes_only_the_expired_ones(db_engine):
+    with db_engine.begin() as conn:
+        requester = add_user(conn, "requester", "administrador")
+        targets = [add_user(conn, name) for name in ("a", "b", "c")]
+        for target, offset in zip(
+            targets,
+            (timedelta(seconds=-1), timedelta(0), timedelta(minutes=1)),
+            strict=True,
+        ):
+            conn.execute(
+                text(
+                    "INSERT INTO mfa_reset_requests "
+                    "(target_user_id, requested_by, created_at, expires_at) "
+                    "VALUES (:t, :r, :c, :e)"
+                ),
+                {
+                    "t": target,
+                    "r": requester,
+                    "c": NOW - timedelta(hours=1),
+                    "e": NOW + offset,
+                },
+            )
+
+    counts = run_purge(db_engine)
+
+    assert counts["mfa_reset_requests"] == 2
+    assert column(db_engine, "SELECT target_user_id::text FROM mfa_reset_requests") == {
+        str(targets[2])
+    }

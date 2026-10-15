@@ -37,12 +37,14 @@ from gateway.mfa import ENROLL_WINDOW
 from gateway.models import (
     PRIVILEGED_ROLES,
     LoginAttempt,
+    MfaResetRequest,
     PasswordResetCode,
+    RecoveryCode,
     RefreshFamily,
     User,
 )
 from gateway.passwords import hash_password
-from gateway.recovery import RESET_CODE_TTL, new_reset_code
+from gateway.recovery import MFA_RESET_REQUEST_TTL, RESET_CODE_TTL, new_reset_code
 from gateway.secrets import GatewayKeys
 from gateway.tokens import login_attempt_key
 
@@ -88,6 +90,15 @@ class ResetCodeOut(BaseModel):
     """The code is shown once, here; only its hash is stored."""
 
     code: str
+    expires_at: datetime
+
+
+class MfaResetOut(BaseModel):
+    status: Literal["mfa_reset"]
+
+
+class MfaResetPendingOut(BaseModel):
+    status: Literal["approval_required"]
     expires_at: datetime
 
 
@@ -387,6 +398,182 @@ def issue_reset_code(
     _log_admin_event("password_reset_code_issued", actor.user.id, target.id, now)
     response.headers.update(NO_STORE)
     return ResetCodeOut(code=code, expires_at=now + RESET_CODE_TTL)
+
+
+def _conflict(detail: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT, detail=detail, headers=NO_STORE
+    )
+
+
+def _has_mfa(user: User) -> bool:
+    return (
+        user.mfa_enabled_at is not None
+        or user.mfa_secret_ciphertext is not None
+        or user.mfa_pending_ciphertext is not None
+    )
+
+
+def _apply_mfa_reset(session: Session, target: User, now: datetime) -> None:
+    """Clear the MFA of `target` and end its sessions (caller holds the row lock).
+
+    A privileged account must enroll again within the usual 24 h window and until
+    then only gets an `enroll-mfa` session; a reader needs no window. Any pending
+    request for the target is spent with this reset.
+    """
+    target.mfa_secret_ciphertext = None
+    target.mfa_pending_ciphertext = None
+    target.mfa_enabled_at = None
+    target.mfa_last_step = None
+    target.mfa_enroll_until = (
+        now + ENROLL_WINDOW if target.role in PRIVILEGED_ROLES else None
+    )
+    session.execute(delete(RecoveryCode).where(RecoveryCode.user_id == target.id))
+    session.execute(
+        delete(MfaResetRequest).where(MfaResetRequest.target_user_id == target.id)
+    )
+    with busy_guard("admin_families_locked", session):
+        session.execute(
+            update(RefreshFamily)
+            .where(
+                RefreshFamily.user_id == target.id, RefreshFamily.revoked_at.is_(None)
+            )
+            .values(revoked_at=now)
+        )
+    invalidate_tokens(session, target, now)
+
+
+def _lock_request(session: Session, target_id: uuid.UUID) -> MfaResetRequest | None:
+    with busy_guard("admin_mfa_reset_request_locked", session):
+        return session.scalar(
+            select(MfaResetRequest)
+            .where(MfaResetRequest.target_user_id == target_id)
+            .with_for_update()
+        )
+
+
+def _refuse_if_demoted(session: Session, actor: User) -> None:
+    # The actor was authenticated before the locks; a concurrent change may have
+    # taken the role away since.
+    session.refresh(actor)
+    if actor.role != "administrador":
+        session.rollback()
+        raise _forbidden()
+
+
+# Lock order of both MFA-reset routes, kept identical to avoid deadlocks: the
+# target's user row, then the target's request row, then any other user row (the
+# requester).
+@router.post("/users/{user_id}/mfa-reset", dependencies=[Depends(require_same_origin)])
+def request_mfa_reset(
+    user_id: uuid.UUID,
+    actor: Annotated[CurrentUser, Depends(administrator_writer)],
+    response: Response,
+    session: Annotated[Session, Depends(get_session)],
+    now: Annotated[datetime, Depends(get_now)],
+) -> MfaResetOut | MfaResetPendingOut:
+    """Reset the MFA of a user (ADR 0004, decision 10).
+
+    A reader is reset at once. A privileged account needs a second administrator
+    to approve (`/mfa-reset/approve`), and at least two administrators other than
+    the account itself must exist: nobody resets their own MFA.
+    """
+    actor_user = actor.user
+    if user_id == actor_user.id:
+        _log_admin_event("admin_denied", actor_user.id, user_id, now, logging.WARNING)
+        raise _forbidden()
+    _begin_change(session)
+    target = _lock_target(session, user_id)
+    _refuse_if_demoted(session, actor_user)
+    response.headers.update(NO_STORE)
+    if not _has_mfa(target):
+        session.rollback()
+        raise _conflict("The user has no MFA to reset")
+    if target.role not in PRIVILEGED_ROLES:
+        _apply_mfa_reset(session, target, now)
+        session.commit()
+        _log_admin_event("mfa_reset", actor_user.id, target.id, now)
+        return MfaResetOut(status="mfa_reset")
+    if _administrators_left(session, target.id) < 2:
+        session.rollback()
+        raise _conflict(
+            "Two administrators are required to reset the MFA of a privileged account"
+        )
+    pending = _lock_request(session, target.id)
+    if pending is not None and pending.expires_at > now:
+        session.rollback()
+        raise _conflict("An MFA reset request is already pending for this user")
+    if pending is not None:
+        session.delete(pending)
+        session.flush()
+    expires_at = now + MFA_RESET_REQUEST_TTL
+    session.add(
+        MfaResetRequest(
+            target_user_id=target.id,
+            requested_by=actor_user.id,
+            created_at=now,
+            expires_at=expires_at,
+        )
+    )
+    session.commit()
+    _log_admin_event("mfa_reset_requested", actor_user.id, target.id, now)
+    response.status_code = status.HTTP_202_ACCEPTED
+    return MfaResetPendingOut(status="approval_required", expires_at=expires_at)
+
+
+@router.post(
+    "/users/{user_id}/mfa-reset/approve", dependencies=[Depends(require_same_origin)]
+)
+def approve_mfa_reset(
+    user_id: uuid.UUID,
+    actor: Annotated[CurrentUser, Depends(administrator_writer)],
+    response: Response,
+    session: Annotated[Session, Depends(get_session)],
+    now: Annotated[datetime, Depends(get_now)],
+) -> MfaResetOut:
+    """Approve the pending reset of a privileged account's MFA.
+
+    The approver must be neither the affected user nor the administrator who
+    asked. What the request relied on is rechecked under the locks: a request
+    whose requester lost the role, or whose target lost its MFA, is deleted.
+    An expired request counts as missing and is left for the purge.
+    """
+    actor_user = actor.user
+    if user_id == actor_user.id:
+        _log_admin_event("admin_denied", actor_user.id, user_id, now, logging.WARNING)
+        raise _forbidden()
+    _begin_change(session)
+    target = _lock_target(session, user_id)
+    _refuse_if_demoted(session, actor_user)
+    response.headers.update(NO_STORE)
+    pending = _lock_request(session, target.id)
+    if pending is None or pending.expires_at <= now:
+        session.rollback()
+        raise _conflict("No pending MFA reset request for this user")
+    if pending.requested_by == actor_user.id:
+        session.rollback()
+        _log_admin_event("admin_denied", actor_user.id, user_id, now, logging.WARNING)
+        raise _forbidden()
+    requester_id = pending.requested_by
+    with busy_guard("admin_requester_locked", session):
+        requester = session.scalar(
+            select(User).where(User.id == requester_id).with_for_update()
+        )
+    if requester is None or requester.role != "administrador" or not _has_mfa(target):
+        session.delete(pending)
+        session.commit()
+        raise _conflict("The MFA reset request is no longer valid")
+    _apply_mfa_reset(session, target, now)
+    session.commit()
+    _log_admin_event(
+        "mfa_reset_approved",
+        actor_user.id,
+        target.id,
+        now,
+        detail=f"requested_by={requester_id}",
+    )
+    _log_admin_event("mfa_reset", actor_user.id, target.id, now)
+    return MfaResetOut(status="mfa_reset")
 
 
 @router.post("/users/{user_id}/unlock", dependencies=[Depends(require_same_origin)])

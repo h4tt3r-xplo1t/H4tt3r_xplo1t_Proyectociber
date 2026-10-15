@@ -550,3 +550,96 @@ def test_notice_downgrade_to_0008_removes_only_that_column(migrated_db):
         columns = {c["name"] for c in inspect(engine).get_columns("users")}
         assert "password_reset_notice_at" in columns
         engine.dispose()
+
+
+def test_upgrade_creates_mfa_reset_requests(migrated_db):
+    engine = create_engine(migrated_db)
+    try:
+        insp = inspect(engine)
+        columns = {c["name"]: c for c in insp.get_columns("mfa_reset_requests")}
+        indexes = insp.get_indexes("mfa_reset_requests")
+        uniques = insp.get_unique_constraints("mfa_reset_requests")
+        foreign_keys = {
+            fk["constrained_columns"][0]: fk
+            for fk in insp.get_foreign_keys("mfa_reset_requests")
+        }
+    finally:
+        engine.dispose()
+
+    assert set(columns) == {
+        "id",
+        "target_user_id",
+        "requested_by",
+        "created_at",
+        "expires_at",
+    }
+    for column in columns.values():
+        assert column["nullable"] is False
+    assert any(u["column_names"] == ["target_user_id"] for u in uniques)
+    assert any(i["column_names"] == ["expires_at"] for i in indexes)
+    for name in ("target_user_id", "requested_by"):
+        assert foreign_keys[name]["options"]["ondelete"] == "CASCADE"
+
+
+def test_a_mfa_reset_request_cannot_expire_before_it_is_created(db_engine):
+    with db_engine.begin() as conn:
+        ids = [
+            conn.execute(
+                text(
+                    "INSERT INTO users (username, password_hash) "
+                    "VALUES (:n, 'x') RETURNING id"
+                ),
+                {"n": name},
+            ).scalar_one()
+            for name in ("target", "requester")
+        ]
+    with pytest.raises(IntegrityError), db_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO mfa_reset_requests "
+                "(target_user_id, requested_by, created_at, expires_at) "
+                "VALUES (:t, :r, now(), now())"
+            ),
+            {"t": ids[0], "r": ids[1]},
+        )
+
+
+def test_one_live_mfa_reset_request_per_target_and_deleting_users_cascades(db_engine):
+    insert = text(
+        "INSERT INTO mfa_reset_requests "
+        "(target_user_id, requested_by, created_at, expires_at) "
+        "VALUES (:t, :r, now(), now() + interval '1 hour')"
+    )
+    with db_engine.begin() as conn:
+        target, requester = (
+            conn.execute(
+                text(
+                    "INSERT INTO users (username, password_hash) "
+                    "VALUES (:n, 'x') RETURNING id"
+                ),
+                {"n": name},
+            ).scalar_one()
+            for name in ("target", "requester")
+        )
+        conn.execute(insert, {"t": target, "r": requester})
+    with pytest.raises(IntegrityError), db_engine.begin() as conn:
+        conn.execute(insert, {"t": target, "r": requester})
+    count = text("SELECT count(*) FROM mfa_reset_requests")
+    with db_engine.begin() as conn:
+        conn.execute(text("DELETE FROM users WHERE id = :i"), {"i": requester})
+        assert conn.execute(count).scalar_one() == 0
+        conn.execute(text("DELETE FROM users WHERE id = :i"), {"i": target})
+
+
+def test_mfa_reset_requests_downgrade_to_0009_removes_only_that_table(migrated_db):
+    cfg = alembic_config()
+    engine = create_engine(migrated_db)
+    try:
+        command.downgrade(cfg, "0009")
+        tables = set(inspect(engine).get_table_names())
+        assert "mfa_reset_requests" not in tables
+        assert "password_reset_codes" in tables
+    finally:
+        command.upgrade(cfg, "head")
+        assert "mfa_reset_requests" in inspect(engine).get_table_names()
+        engine.dispose()

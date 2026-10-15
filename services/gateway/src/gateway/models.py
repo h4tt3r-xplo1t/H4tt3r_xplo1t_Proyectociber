@@ -250,3 +250,35 @@ class PasswordResetCode(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class MfaResetRequest(Base):
+    """A pending request to reset the MFA of a privileged account.
+
+    One row per target. A second administrator approves it (ADR 0004, decision
+    10); approving or replacing it deletes the row. The requester's deletion
+    voids it.
+    """
+
+    __tablename__ = "mfa_reset_requests"
+    __table_args__ = (
+        CheckConstraint(
+            "expires_at > created_at", name="mfa_reset_requests_expiry_check"
+        ),
+        Index("ix_mfa_reset_requests_expires_at", "expires_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    target_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), unique=True
+    )
+    requested_by: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

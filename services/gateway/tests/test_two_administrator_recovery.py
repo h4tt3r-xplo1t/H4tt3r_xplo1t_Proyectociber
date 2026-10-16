@@ -11,15 +11,14 @@ from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import OperationalError
-from sqlalchemy.orm import Session
 
 from gateway import admin as admin_module
 from gateway import auth
 from gateway.auth import NO_STORE
 from gateway.db import get_engine
 from gateway.main import create_app
-from tests.helpers import DbError, FrozenClock, run_sql
+from gateway.passwords import HashingBusy
+from tests.helpers import FrozenClock, fail_lock, fail_requester_lock, run_sql
 from tests.test_admin import (
     USERS,
     admin,
@@ -33,7 +32,6 @@ from tests.test_admin import (
 from tests.test_login import KEYS, attempt_row
 from tests.test_mfa_reset import approve as approve_mfa_reset
 from tests.test_mfa_reset import (
-    fail_requester_lock,
     mfa_state,
     request_reset,
     requests_rows,
@@ -570,19 +568,110 @@ def test_an_actor_demoted_under_the_lock_gets_403_and_no_code(
     assert code_requests(db_engine) == []
 
 
+def test_an_approver_demoted_under_the_lock_gets_403_and_no_code(
+    client, db_engine, clock, monkeypatch
+):
+    boss, boss2 = two_admins(client, db_engine, clock)
+    target_user(client, db_engine, clock, role="editor")
+    request_code(boss, db_engine)
+    (request,) = code_requests(db_engine)
+    real = admin_module._lock_target
+
+    def lock_then_demote(session, target_id):
+        target = real(session, target_id)
+        run_sql(db_engine, "UPDATE users SET role = 'lector' WHERE username = 'boss2'")
+        return target
+
+    monkeypatch.setattr(admin_module, "_lock_target", lock_then_demote)
+
+    response = approve_code(boss2, db_engine)
+
+    assert response.status_code == 403
+    assert code_rows(db_engine) == []
+    assert code_requests(db_engine) == [request]
+
+
+def test_a_saturated_hasher_on_an_approval_is_a_503_and_keeps_the_request(
+    client, db_engine, clock, monkeypatch
+):
+    boss, boss2 = two_admins(client, db_engine, clock)
+    target_user(client, db_engine, clock, role="editor")
+    request_code(boss, db_engine)
+    (request,) = code_requests(db_engine)
+
+    def busy(_password):
+        raise HashingBusy("password hashing is saturated")
+
+    monkeypatch.setattr(admin_module, "hash_password", busy)
+
+    response = approve_code(boss2, db_engine)
+
+    assert response.status_code == 503
+    assert code_rows(db_engine) == []
+    assert code_requests(db_engine) == [request]
+
+
+def test_no_hash_is_computed_when_two_administrators_are_needed(
+    client, db_engine, clock, monkeypatch
+):
+    boss, boss2 = two_admins(client, db_engine, clock)
+    target_user(client, db_engine, clock, role="editor")
+    real = admin_module.hash_password
+    calls = []
+    monkeypatch.setattr(
+        admin_module, "hash_password", lambda code: calls.append(code) or real(code)
+    )
+
+    response = request_code(boss, db_engine)
+
+    assert response.status_code == 202
+    assert len(code_requests(db_engine)) == 1
+    assert calls == []
+
+
+def test_a_single_administrator_code_is_hashed_once(
+    client, db_engine, clock, monkeypatch
+):
+    boss = admin(client, db_engine, clock)
+    signed_in(client, db_engine, clock, "target")
+    real = admin_module.hash_password
+    calls = []
+    monkeypatch.setattr(
+        admin_module, "hash_password", lambda code: calls.append(code) or real(code)
+    )
+
+    response = request_code(boss, db_engine)
+
+    assert response.status_code == 200
+    assert len(calls) == 1
+    assert len(code_rows(db_engine)) == 1
+
+
+def test_a_target_that_became_privileged_after_the_peek_gets_a_request_not_a_code(
+    client, db_engine, clock, monkeypatch
+):
+    boss, boss2 = two_admins(client, db_engine, clock)
+    signed_in(client, db_engine, clock, "target")
+    real = admin_module.hash_password
+
+    def hash_then_promote(code):
+        result = real(code)
+        run_sql(
+            db_engine,
+            "UPDATE users SET pending_role = 'editor' WHERE username = 'target'",
+        )
+        return result
+
+    monkeypatch.setattr(admin_module, "hash_password", hash_then_promote)
+
+    response = request_code(boss, db_engine)
+
+    assert response.status_code == 202
+    assert code_rows(db_engine) == []
+    assert len(code_requests(db_engine)) == 1
+
+
 # --- busy rows ----------
-
-
-def fail_lock(monkeypatch, table, sqlstate):
-    real_scalar = Session.scalar
-
-    def scalar(self, statement, *args, **kwargs):
-        sql = str(statement)
-        if f"FROM {table}" in sql and "FOR UPDATE" in sql:
-            raise OperationalError("SELECT", {}, DbError(sqlstate))
-        return real_scalar(self, statement, *args, **kwargs)
-
-    monkeypatch.setattr(Session, "scalar", scalar)
 
 
 @pytest.mark.parametrize("sqlstate", ["55P03", "40P01", "40001"])
@@ -650,7 +739,7 @@ def test_a_busy_requester_lock_on_an_approval_is_a_503_and_keeps_the_request(
     assert code_requests(db_engine) == [request]
 
 
-# --- B3 and events ----------
+# --- events ----------
 
 
 def test_the_events_carry_no_code_or_hash(client, db_engine, clock, caplog):

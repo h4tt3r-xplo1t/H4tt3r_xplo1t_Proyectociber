@@ -3,6 +3,8 @@
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 
 from gateway.tokens import decode_access_token
 
@@ -68,3 +70,37 @@ def end_session_like_a_logout(client, db_engine, kind, keys):
         )
     if kind in ("family", "logout"):
         run_sql(db_engine, "UPDATE refresh_families SET revoked_at = now()")
+
+
+def fail_lock(monkeypatch, table, sqlstate):
+    real_scalar = Session.scalar
+
+    def scalar(self, statement, *args, **kwargs):
+        sql = str(statement)
+        if f"FROM {table}" in sql and "FOR UPDATE" in sql:
+            raise OperationalError("SELECT", {}, DbError(sqlstate))
+        return real_scalar(self, statement, *args, **kwargs)
+
+    monkeypatch.setattr(Session, "scalar", scalar)
+
+
+def fail_requester_lock(monkeypatch, sqlstate, requester_id):
+    """Fail only the `users ... FOR UPDATE` that binds the requester's id.
+
+    Bound by id, not by position, so it cannot pass by failing another lock if
+    the lock order changes; `seen` proves the requester lock was really taken.
+    """
+    real_scalar = Session.scalar
+    seen = []
+
+    def scalar(self, statement, *args, **kwargs):
+        sql = str(statement)
+        if "FROM users" in sql and "FOR UPDATE" in sql:
+            bound = {str(v) for v in statement.compile().params.values()}
+            if str(requester_id) in bound:
+                seen.append(sql)
+                raise OperationalError("SELECT", {}, DbError(sqlstate))
+        return real_scalar(self, statement, *args, **kwargs)
+
+    monkeypatch.setattr(Session, "scalar", scalar)
+    return seen

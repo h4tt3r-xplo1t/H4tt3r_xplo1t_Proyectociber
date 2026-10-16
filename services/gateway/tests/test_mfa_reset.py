@@ -12,14 +12,12 @@ from datetime import timedelta
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
-from sqlalchemy.exc import OperationalError
-from sqlalchemy.orm import Session
 
 from gateway import auth, recovery
 from gateway.auth import NO_STORE
 from gateway.db import get_engine
 from gateway.main import create_app
-from tests.helpers import DbError, FrozenClock
+from tests.helpers import FrozenClock, fail_lock, fail_requester_lock
 from tests.test_admin import (
     USERS,
     admin,
@@ -232,7 +230,7 @@ def test_the_request_for_a_privileged_account_changes_nothing_yet(
     assert set(body) == {"status", "expires_at"}
     assert body["status"] == "approval_required"
     assert body["expires_at"].startswith(
-        (clock() + recovery.MFA_RESET_REQUEST_TTL).strftime("%Y-%m-%dT%H:%M:%S")
+        (clock() + recovery.APPROVAL_REQUEST_TTL).strftime("%Y-%m-%dT%H:%M:%S")
     )
     for header, value in NO_STORE.items():
         assert response.headers[header] == value
@@ -250,7 +248,7 @@ def test_the_request_for_a_privileged_account_changes_nothing_yet(
 
 
 def test_the_request_lives_one_hour():
-    assert recovery.MFA_RESET_REQUEST_TTL == timedelta(hours=1)
+    assert recovery.APPROVAL_REQUEST_TTL == timedelta(hours=1)
 
 
 def test_a_second_administrator_approves_and_the_mfa_is_reset(
@@ -681,40 +679,6 @@ def test_both_routes_need_the_same_origin_and_the_csrf_token(
 
 
 # --- busy rows ----------
-
-
-def fail_lock(monkeypatch, table, sqlstate):
-    real_scalar = Session.scalar
-
-    def scalar(self, statement, *args, **kwargs):
-        sql = str(statement)
-        if f"FROM {table}" in sql and "FOR UPDATE" in sql:
-            raise OperationalError("SELECT", {}, DbError(sqlstate))
-        return real_scalar(self, statement, *args, **kwargs)
-
-    monkeypatch.setattr(Session, "scalar", scalar)
-
-
-def fail_requester_lock(monkeypatch, sqlstate, requester_id):
-    """Fail only the `users ... FOR UPDATE` that binds the requester's id.
-
-    Bound by id, not by position, so it cannot pass by failing another lock if
-    the lock order changes; `seen` proves the requester lock was really taken.
-    """
-    real_scalar = Session.scalar
-    seen = []
-
-    def scalar(self, statement, *args, **kwargs):
-        sql = str(statement)
-        if "FROM users" in sql and "FOR UPDATE" in sql:
-            bound = {str(v) for v in statement.compile().params.values()}
-            if str(requester_id) in bound:
-                seen.append(sql)
-                raise OperationalError("SELECT", {}, DbError(sqlstate))
-        return real_scalar(self, statement, *args, **kwargs)
-
-    monkeypatch.setattr(Session, "scalar", scalar)
-    return seen
 
 
 @pytest.mark.parametrize("sqlstate", ["55P03", "40P01", "40001"])

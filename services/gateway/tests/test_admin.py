@@ -681,6 +681,31 @@ def test_confirming_the_mfa_applies_the_pending_role(client, db_engine, clock, c
     assert again.get(ME).json()["role"] == "editor"
 
 
+def test_confirming_the_mfa_marks_a_role_that_was_set_outside_the_routes(
+    client, db_engine, clock
+):
+    """A pending role set in the database has no marker; the confirmation sets it."""
+    register(browser(client), "target")
+    set_user(
+        db_engine,
+        "target",
+        pending_role="editor",
+        mfa_enroll_until=clock() + timedelta(hours=24),
+    )
+    assert user_row(db_engine, "target")["privileged_at"] is None
+    target = browser(client)
+    assert login(target, "target").json() == {"status": "mfa_enrollment_required"}
+    secret = call(target, "POST", ENROLL).json()["secret"]
+    clock.now += timedelta(seconds=5)
+
+    response = call(target, "POST", CONFIRM, {"code": totp(secret, clock)})
+
+    assert response.status_code == 200
+    row = user_row(db_engine, "target")
+    assert (row["role"], row["pending_role"]) == ("editor", None)
+    assert row["privileged_at"] == clock()
+
+
 def test_confirm_holds_the_user_row_while_it_applies_the_pending_role(
     client, db_engine, clock, monkeypatch
 ):

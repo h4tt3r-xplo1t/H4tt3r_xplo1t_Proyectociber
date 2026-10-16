@@ -4,6 +4,11 @@
 
 Aceptado, 2026-09-29. La persona responsable fusionó el PR #21 (`def4428`).
 
+Actualizado el 2026-10-16 (issues #56 y #58): las decisiones 10 y 11 recogen
+la marca `privileged_at`, los dos administradores para las cuentas que tienen
+o tuvieron privilegios, el vencimiento de 1 h de las solicitudes y el comando
+de emergencia (break-glass) implementado.
+
 ## Contexto
 
 El `gateway` es la única API pública del sistema y concentra la autenticación,
@@ -340,14 +345,34 @@ rango típico: es una decisión de riesgo documentada (ver Consecuencias).
 - El usuario pide ayuda con un formulario que responde igual exista o no la
   cuenta, o por un canal externo documentado.
 - Un administrador verifica la identidad fuera de banda y genera un **código
-  de restablecimiento de un solo uso**: CSPRNG, al menos 16 caracteres
-  alfanuméricos aleatorios, guardado con hash, vence en 15 minutos y se usa
-  una sola vez (6.4.1). El administrador nunca ve ni elige la contraseña nueva
+  de restablecimiento de un solo uso**: CSPRNG, 20 símbolos en base32 de
+  Crockford (100 bits), guardado con hash Argon2id, vence en 15 minutos y se
+  usa una sola vez (6.4.1). Solo hay un código vivo por usuario: uno nuevo
+  anula el anterior. El administrador nunca ve ni elige la contraseña nueva
   (6.4.6, refuerzo L3).
 - El usuario introduce el código y una contraseña nueva que cumpla la
-  política. Si la cuenta tiene un rol con privilegios o el MFA activo, se
-  exige además un TOTP o un código de recuperación: el restablecimiento no
-  esquiva el MFA (6.4.3).
+  política. El segundo factor (un TOTP o un código de recuperación) se exige
+  **solo si el MFA está activo**: el restablecimiento no esquiva el MFA
+  (6.4.3). Una cuenta con privilegios que no tiene MFA activo se recupera con
+  un código aprobado por dos administradores (ver abajo); la recuperación por
+  degradación del rol ya no existe.
+- **Quién puede emitir el código o quitar el MFA:**
+  - Un **lector que nunca tuvo privilegios** recibe el código, o el
+    restablecimiento de su MFA, de **un solo administrador y al instante**.
+    Es un riesgo residual aceptado, el mismo que el del código para cuentas
+    sin MFA (ver abajo).
+  - La marca `users.privileged_at` se fija la primera vez que la cuenta recibe
+    un rol con privilegios o pendiente, y **nunca se borra**: degradar la
+    cuenta no la devuelve al caso anterior. Una cuenta que tiene o tuvo
+    privilegios necesita **dos administradores distintos**, ninguno el
+    afectado, tanto para quitar el MFA como para recibir un código de
+    restablecimiento (`.../reset-code/approve`). Un administrador solicita y
+    otro aprueba; el código se lo lleva quien aprueba.
+  - Si no hay dos administradores además del afectado, la solicitud se
+    rechaza (409) y el camino es el procedimiento de emergencia de la
+    decisión 11.
+  - Las solicitudes pendientes (de MFA o de código) vencen en 1 hora. Es un
+    supuesto reversible.
 - Tras el restablecimiento se actualiza `tokens_valid_since` (se revocan todas
   las sesiones), se reinician los contadores de bloqueo y se registra el
   evento.
@@ -362,11 +387,11 @@ rango típico: es una decisión de riesgo documentada (ver Consecuencias).
 - **Formulario de ayuda anónimo:** tiene límite de peticiones por IP y
   responde igual exista o no la cuenta.
 - **MFA perdido en una cuenta con privilegios (6.4.4):** el restablecimiento
-  del MFA exige la aprobación de **dos administradores distintos**, ninguno de
-  ellos el usuario afectado, con la identidad verificada fuera de banda. Se
-  registra y el auditor puede verlo. Cuando hay menos de 2 administradores
-  distintos del afectado, se usa el procedimiento de emergencia
-  (break-glass) de la decisión 11.
+  del MFA de una cuenta que tiene o tuvo privilegios exige la aprobación de
+  **dos administradores distintos**, ninguno de ellos el usuario afectado, con
+  la identidad verificada fuera de banda. Se registra y el auditor puede
+  verlo. Cuando hay menos de 2 administradores distintos del afectado, se usa
+  el procedimiento de emergencia (break-glass) de la decisión 11.
 - Sin preguntas secretas ni pistas de contraseña (6.4.2).
 - La recuperación por correo de autoservicio queda como ADR futuro: requeriría
   un componente con salida a internet.
@@ -406,23 +431,66 @@ rango típico: es una decisión de riesgo documentada (ver Consecuencias).
   también, y solo, el endpoint de cambio de contraseña en ese estado. Después el Job **destruye todas las
   versiones** del secreto en Vault (`destroy` o `metadata delete` de KV v2, no
   un borrado lógico). El Job se niega a ejecutarse si existe al menos un
-  administrador ACTIVO, sin excepciones: nunca crea un segundo administrador.
-  Restablecer a un administrador existente es tarea exclusiva del Job de
-  emergencia (break-glass) descrito a continuación. No hay
-  ninguna credencial de administrador estática permanente (6.4.1).
-- **Procedimiento de emergencia (break-glass):** un Job de Kubernetes que
-  ejecuta solo la persona responsable (H4TT3R_XPLO1T), con acceso directo al
-  clúster, y con el indicador explícito `--break-glass`. Restablece la
-  contraseña y el MFA de una cuenta de administrador indicada por nombre con
-  el mismo mecanismo de un solo uso del arranque: una contraseña aleatoria
-  nueva sembrada en Vault (generada y destruida como en el arranque), válida
-  24 h, con `must_change_password` y `must_enroll_mfa`, y con
-  `tokens_valid_since` actualizado. La acción se registra como evento de
-  seguridad visible para el auditor.
-- **Higiene de los Jobs de arranque y emergencia:** `backoffLimit: 0`, se
-  ejecutan a mano, el despliegue nunca los recrea, y un bloqueo en la base de
-  datos o una restricción de unicidad impide que dos ejecuciones simultáneas
-  creen dos administradores.
+  administrador, de cualquier estado, sin excepciones: nunca crea un segundo
+  administrador. (Texto anterior: «ACTIVO». El código
+  (`bootstrap._administrator_exists`) comprueba `role = 'administrador'` sin
+  mirar el estado de la cuenta, y el ADR se alinea con él.) Restablecer a un
+  administrador existente es tarea exclusiva del procedimiento de emergencia
+  (break-glass) descrito a continuación. No hay ninguna credencial de
+  administrador estática permanente (6.4.1).
+- **Procedimiento de emergencia (break-glass):** un comando de operador,
+  `python -m gateway.breakglass --username <nombre> --break-glass`, que ejecuta
+  solo la persona responsable (H4TT3R_XPLO1T) con su propio acceso a OpenBao y
+  a la base de datos. Sirve cuando no hay dos administradores para la
+  recuperación asistida: el único administrador perdió el acceso, o el
+  administrador de arranque no hizo el alta del MFA en sus 24 h (esto cierra
+  L1 de la revisión del #45).
+  - **Alcance (decisión de la persona, 2026-10-16):** cubre toda cuenta que es
+    o fue privilegiada: administrador, editor, auditor, con rol pendiente o
+    con `privileged_at`. Amplía el alcance original, que era solo de
+    administradores. Se niega, con un mensaje fijo, si la cuenta no existe o
+    nunca tuvo privilegios.
+  - **Secreto sembrado:** la persona escribe `{"username", "password"}` en
+    OpenBao KV v2, en `secret/breakglass/account`. El comando entra con su
+    propio AppRole `breakglass`, cuya política solo permite leer
+    `secret/data/breakglass/account` y borrar sus metadatos
+    (`secret/metadata/breakglass/account`); no escribe, no lista y no toca las
+    claves del gateway, el secreto de arranque ni transit. Si el `username`
+    sembrado no coincide con `--username`, el comando se niega y no cambia
+    nada (guarda contra la cuenta equivocada).
+  - **La contraseña no viaja por argumentos ni se registra:** tampoco se
+    imprime el nombre de usuario; cada fallo imprime un mensaje fijo.
+  - **Efectos, en una sola transacción y bajo el bloqueo de fila de la
+    cuenta:** contraseña nueva con `must_change_password`; MFA borrado (secreto,
+    secreto pendiente, activación y último paso) y códigos de recuperación
+    eliminados; ventana de alta de 24 h; solicitudes de aprobación pendientes
+    y códigos de restablecimiento eliminados; familias de refresco revocadas y
+    tokens invalidados; y el aviso de restablecimiento en el siguiente login
+    completo. El siguiente login solo recibe la sesión `enroll-mfa`.
+  - **Destrucción del secreto antes del commit:** se destruyen todas las
+    versiones del secreto una vez volcados los cambios y antes de confirmar.
+    Si la destrucción falla, la transacción se revierte y el secreto sigue
+    intacto. Nunca puede quedar una cuenta restablecida con su contraseña
+    nueva aún en OpenBao.
+  - **Evento de seguridad `break_glass_reset`,** sin secretos, visible para el
+    auditor.
+  - **AppRole de siembra solo en desarrollo y CI:** el AppRole que escribe el
+    secreto se crea solo con `CI=true` o `OPENBAO_DEV_BOOTSTRAP_SEED=1`;
+    en producción la persona siembra con sus propias credenciales.
+  - **Límites aceptados:** el contador de bloqueo del login no se reinicia
+    (su clave deriva de la clave CSRF, que el comando no tiene): una cuenta
+    bloqueada por fallos espera como máximo 30 minutos o la desbloquea un
+    administrador. Si el resultado del commit es desconocido tras destruir el
+    secreto (por ejemplo, se pierde la conexión durante el `COMMIT`), la
+    cuenta puede haberse restablecido o no: la persona siembra el secreto de
+    nuevo y repite el comando, que es idempotente.
+- **Higiene del arranque y la emergencia:** se ejecutan a mano, el despliegue
+  nunca los recrea, y un bloqueo en la base de datos impide que dos
+  ejecuciones simultáneas del arranque creen dos administradores. Dos
+  ejecuciones de emergencia sobre la misma cuenta se serializan con el bloqueo
+  de fila; la segunda repite el mismo restablecimiento con la misma
+  contraseña, sin otro efecto (sin prueba propia). Su empaquetado como Job de Kubernetes con `backoffLimit: 0`
+  queda para E5.
 
 ### Bibliotecas verificadas (PyPI, 2026-09-29)
 

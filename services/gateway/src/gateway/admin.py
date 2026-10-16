@@ -11,6 +11,7 @@ leaves a security event with the actor and the target, never a secret.
 
 import logging
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
@@ -36,8 +37,8 @@ from gateway.db import get_session
 from gateway.mfa import ENROLL_WINDOW
 from gateway.models import (
     PRIVILEGED_ROLES,
+    ApprovalRequest,
     LoginAttempt,
-    MfaResetRequest,
     PasswordResetCode,
     RecoveryCode,
     RefreshFamily,
@@ -47,8 +48,8 @@ from gateway.models import (
 )
 from gateway.passwords import hash_password
 from gateway.recovery import (
+    APPROVAL_REQUEST_TTL,
     MFA_RESET_KIND,
-    MFA_RESET_REQUEST_TTL,
     RESET_CODE_KIND,
     RESET_CODE_TTL,
     new_reset_code,
@@ -105,7 +106,7 @@ class MfaResetOut(BaseModel):
     status: Literal["mfa_reset"]
 
 
-class MfaResetPendingOut(BaseModel):
+class ApprovalPendingOut(BaseModel):
     status: Literal["approval_required"]
     expires_at: datetime
 
@@ -410,9 +411,9 @@ def _apply_mfa_reset(session: Session, target: User, now: datetime) -> None:
     )
     session.execute(delete(RecoveryCode).where(RecoveryCode.user_id == target.id))
     session.execute(
-        delete(MfaResetRequest).where(
-            MfaResetRequest.target_user_id == target.id,
-            MfaResetRequest.kind == MFA_RESET_KIND,
+        delete(ApprovalRequest).where(
+            ApprovalRequest.target_user_id == target.id,
+            ApprovalRequest.kind == MFA_RESET_KIND,
         )
     )
     with busy_guard("admin_families_locked", session):
@@ -428,13 +429,13 @@ def _apply_mfa_reset(session: Session, target: User, now: datetime) -> None:
 
 def _lock_request(
     session: Session, target_id: uuid.UUID, kind: str
-) -> MfaResetRequest | None:
+) -> ApprovalRequest | None:
     with busy_guard("admin_mfa_reset_request_locked", session):
         return session.scalar(
-            select(MfaResetRequest)
+            select(ApprovalRequest)
             .where(
-                MfaResetRequest.target_user_id == target_id,
-                MfaResetRequest.kind == kind,
+                ApprovalRequest.target_user_id == target_id,
+                ApprovalRequest.kind == kind,
             )
             .with_for_update()
         )
@@ -466,9 +467,9 @@ def _record_request(
     if pending is not None:
         session.delete(pending)
         session.flush()
-    expires_at = now + MFA_RESET_REQUEST_TTL
+    expires_at = now + APPROVAL_REQUEST_TTL
     session.add(
-        MfaResetRequest(
+        ApprovalRequest(
             target_user_id=target.id,
             requested_by=actor_user.id,
             kind=kind,
@@ -489,6 +490,76 @@ def _refuse_if_demoted(session: Session, actor: User) -> None:
         raise _forbidden()
 
 
+def _claim_request[T](
+    session: Session,
+    actor_user: User,
+    user_id: uuid.UUID,
+    response: Response,
+    now: datetime,
+    *,
+    kind: str,
+    missing: str,
+    voided_event: str,
+    voided_message: str,
+    extra_stale: Callable[[User], str | None] | None = None,
+    before_locks: Callable[[], T] | None = None,
+) -> tuple[User, ApprovalRequest, uuid.UUID, T | None]:
+    """Check an approval and claim its request under the locks (caller acts).
+
+    Shared by both approval routes. Refuses the actor approving their own
+    account (403), then runs `before_locks` (slow work that must come before any
+    lock), locks the target, rechecks the actor, and locks the request of `kind`:
+    missing or expired is a 409 `missing`; the requester approving their own
+    request is a 403. The requester's row is then locked and rechecked: one who
+    lost the role, or a reason from `extra_stale(target)`, deletes the request,
+    commits, logs `voided_event` and answers 409 `voided_message`.
+
+    Returns the target, the locked request, the requester id and the result of
+    `before_locks`. The caller applies its action and commits.
+    """
+    if user_id == actor_user.id:
+        _log_admin_event("admin_denied", actor_user.id, user_id, now, logging.WARNING)
+        raise _forbidden()
+    prepared = before_locks() if before_locks is not None else None
+    _begin_change(session)
+    target = _lock_target(session, user_id)
+    _refuse_if_demoted(session, actor_user)
+    response.headers.update(NO_STORE)
+    pending = _lock_request(session, target.id, kind)
+    if pending is None or pending.expires_at <= now:
+        session.rollback()
+        raise _conflict(missing)
+    if pending.requested_by == actor_user.id:
+        session.rollback()
+        _log_admin_event("admin_denied", actor_user.id, user_id, now, logging.WARNING)
+        raise _forbidden()
+    requester_id = pending.requested_by
+    with busy_guard("admin_requester_locked", session):
+        requester = session.scalar(
+            select(User).where(User.id == requester_id).with_for_update()
+        )
+    # `requester is None` cannot happen while the request row is locked
+    # (`requested_by` cascades on delete); the check is kept defensively.
+    stale = None
+    if requester is None or requester.role != "administrador":
+        stale = "requester_not_admin"
+    elif extra_stale is not None:
+        stale = extra_stale(target)
+    if stale is not None:
+        session.delete(pending)
+        session.commit()
+        _log_admin_event(
+            voided_event,
+            actor_user.id,
+            target.id,
+            now,
+            logging.WARNING,
+            f"requested_by={requester_id} reason={stale}",
+        )
+        raise _conflict(voided_message)
+    return target, pending, requester_id, prepared
+
+
 # Lock order of both MFA-reset routes, kept identical to avoid deadlocks: the
 # target's user row, then the target's request row, then (on approval only) the
 # requester's user row. `_administrators_left` is a plain count that takes no
@@ -500,7 +571,7 @@ def request_mfa_reset(
     response: Response,
     session: Annotated[Session, Depends(get_session)],
     now: Annotated[datetime, Depends(get_now)],
-) -> MfaResetOut | MfaResetPendingOut:
+) -> MfaResetOut | ApprovalPendingOut:
     """Reset the MFA of a user (ADR 0004, decision 10).
 
     A reader that never was privileged is reset at once. An account that is or
@@ -537,7 +608,7 @@ def request_mfa_reset(
     )
     _log_admin_event("mfa_reset_requested", actor_user.id, target.id, now)
     response.status_code = status.HTTP_202_ACCEPTED
-    return MfaResetPendingOut(status="approval_required", expires_at=expires_at)
+    return ApprovalPendingOut(status="approval_required", expires_at=expires_at)
 
 
 @router.post(
@@ -558,45 +629,18 @@ def approve_mfa_reset(
     An expired request counts as missing and is left for the purge.
     """
     actor_user = actor.user
-    if user_id == actor_user.id:
-        _log_admin_event("admin_denied", actor_user.id, user_id, now, logging.WARNING)
-        raise _forbidden()
-    _begin_change(session)
-    target = _lock_target(session, user_id)
-    _refuse_if_demoted(session, actor_user)
-    response.headers.update(NO_STORE)
-    pending = _lock_request(session, target.id, MFA_RESET_KIND)
-    if pending is None or pending.expires_at <= now:
-        session.rollback()
-        raise _conflict("No pending MFA reset request for this user")
-    if pending.requested_by == actor_user.id:
-        session.rollback()
-        _log_admin_event("admin_denied", actor_user.id, user_id, now, logging.WARNING)
-        raise _forbidden()
-    requester_id = pending.requested_by
-    with busy_guard("admin_requester_locked", session):
-        requester = session.scalar(
-            select(User).where(User.id == requester_id).with_for_update()
-        )
-    # `requester is None` cannot happen while the request row is locked
-    # (`requested_by` cascades on delete); the check is kept defensively.
-    stale = None
-    if requester is None or requester.role != "administrador":
-        stale = "requester_not_admin"
-    elif not _has_mfa(target):
-        stale = "target_without_mfa"
-    if stale is not None:
-        session.delete(pending)
-        session.commit()
-        _log_admin_event(
-            "mfa_reset_request_voided",
-            actor_user.id,
-            target.id,
-            now,
-            logging.WARNING,
-            f"requested_by={requester_id} reason={stale}",
-        )
-        raise _conflict("The MFA reset request is no longer valid")
+    target, _pending, requester_id, _ = _claim_request(
+        session,
+        actor_user,
+        user_id,
+        response,
+        now,
+        kind=MFA_RESET_KIND,
+        missing="No pending MFA reset request for this user",
+        voided_event="mfa_reset_request_voided",
+        voided_message="The MFA reset request is no longer valid",
+        extra_stale=lambda target: None if _has_mfa(target) else "target_without_mfa",
+    )
     _apply_mfa_reset(session, target, now)
     session.commit()
     _log_admin_event(
@@ -617,7 +661,7 @@ def issue_reset_code(
     response: Response,
     session: Annotated[Session, Depends(get_session)],
     now: Annotated[datetime, Depends(get_now)],
-) -> ResetCodeOut | MfaResetPendingOut:
+) -> ResetCodeOut | ApprovalPendingOut:
     """Issue a one-use password reset code for a user (ADR 0004, decision 10).
 
     A reader that never was privileged gets it from this administrator alone: the
@@ -632,10 +676,14 @@ def issue_reset_code(
     if user_id == actor_user.id:
         _log_admin_event("admin_denied", actor_user.id, user_id, now, logging.WARNING)
         raise _forbidden()
-    # The slow hash goes before any lock (a saturated hasher answers 503). It is
-    # wasted when the target turns out to need a second administrator.
+    # A plain read, no lock, decides whether a hash is needed at all: an account
+    # that needs two administrators gets a request and no code here. Otherwise
+    # the slow hash goes before any lock (a saturated hasher answers 503).
+    peek = session.get(User, user_id)
+    needs_hash = peek is None or not needs_two_administrators(peek)
+    session.rollback()
     code = new_reset_code()
-    code_hash = hash_password(code)
+    code_hash = hash_password(code) if needs_hash else None
     _begin_change(session)
     target = _lock_target(session, user_id)
     _refuse_if_demoted(session, actor_user)
@@ -654,11 +702,17 @@ def issue_reset_code(
         )
         _log_admin_event("reset_code_requested", actor_user.id, target.id, now)
         response.status_code = status.HTTP_202_ACCEPTED
-        return MfaResetPendingOut(status="approval_required", expires_at=expires_at)
-    _store_reset_code(session, target, code_hash, actor_user.id, None, now)
+        return ApprovalPendingOut(status="approval_required", expires_at=expires_at)
+    if code_hash is None:
+        # The peek said the account needs two administrators (so no hash was
+        # made) and the locked row says it does not. Reachable: a pending role
+        # on an account without `privileged_at` can be cleared in between.
+        session.rollback()
+        raise _conflict("The account changed; try again")
+    expires_at = _store_reset_code(session, target, code_hash, actor_user.id, None, now)
     session.commit()
     _log_admin_event("password_reset_code_issued", actor_user.id, target.id, now)
-    return ResetCodeOut(code=code, expires_at=now + RESET_CODE_TTL)
+    return ResetCodeOut(code=code, expires_at=expires_at)
 
 
 def _store_reset_code(
@@ -668,8 +722,9 @@ def _store_reset_code(
     issued_by: uuid.UUID,
     approved_by: uuid.UUID | None,
     now: datetime,
-) -> None:
-    """Replace the target's code with a new one (caller commits)."""
+) -> datetime:
+    """Replace the target's code with a new one (caller commits); return its expiry."""
+    expires_at = now + RESET_CODE_TTL
     session.execute(
         delete(PasswordResetCode).where(PasswordResetCode.user_id == target.id)
     )
@@ -680,9 +735,10 @@ def _store_reset_code(
             issued_by=issued_by,
             approved_by=approved_by,
             created_at=now,
-            expires_at=now + RESET_CODE_TTL,
+            expires_at=expires_at,
         )
     )
+    return expires_at
 
 
 @router.post(
@@ -703,44 +759,24 @@ def approve_reset_code(
     code records both administrators and is shown only in this response.
     """
     actor_user = actor.user
-    if user_id == actor_user.id:
-        _log_admin_event("admin_denied", actor_user.id, user_id, now, logging.WARNING)
-        raise _forbidden()
+    # The code is made and hashed before the locks: a refusal discards it.
     code = new_reset_code()
-    code_hash = hash_password(code)
-    _begin_change(session)
-    target = _lock_target(session, user_id)
-    _refuse_if_demoted(session, actor_user)
-    response.headers.update(NO_STORE)
-    pending = _lock_request(session, target.id, RESET_CODE_KIND)
-    if pending is None or pending.expires_at <= now:
-        session.rollback()
-        raise _conflict("No pending reset code request for this user")
-    if pending.requested_by == actor_user.id:
-        session.rollback()
-        _log_admin_event("admin_denied", actor_user.id, user_id, now, logging.WARNING)
-        raise _forbidden()
-    requester_id = pending.requested_by
-    with busy_guard("admin_requester_locked", session):
-        requester = session.scalar(
-            select(User).where(User.id == requester_id).with_for_update()
-        )
-    # `requester is None` cannot happen while the request row is locked
-    # (`requested_by` cascades on delete); the check is kept defensively.
-    if requester is None or requester.role != "administrador":
-        session.delete(pending)
-        session.commit()
-        _log_admin_event(
-            "reset_code_request_voided",
-            actor_user.id,
-            target.id,
-            now,
-            logging.WARNING,
-            f"requested_by={requester_id} reason=requester_not_admin",
-        )
-        raise _conflict("The reset code request is no longer valid")
+    target, pending, requester_id, code_hash = _claim_request(
+        session,
+        actor_user,
+        user_id,
+        response,
+        now,
+        kind=RESET_CODE_KIND,
+        missing="No pending reset code request for this user",
+        voided_event="reset_code_request_voided",
+        voided_message="The reset code request is no longer valid",
+        before_locks=lambda: hash_password(code),
+    )
     session.delete(pending)
-    _store_reset_code(session, target, code_hash, requester_id, actor_user.id, now)
+    expires_at = _store_reset_code(
+        session, target, code_hash, requester_id, actor_user.id, now
+    )
     session.commit()
     _log_admin_event(
         "reset_code_approved",
@@ -750,7 +786,7 @@ def approve_reset_code(
         detail=f"requested_by={requester_id}",
     )
     _log_admin_event("password_reset_code_issued", actor_user.id, target.id, now)
-    return ResetCodeOut(code=code, expires_at=now + RESET_CODE_TTL)
+    return ResetCodeOut(code=code, expires_at=expires_at)
 
 
 @router.post("/users/{user_id}/unlock", dependencies=[Depends(require_same_origin)])

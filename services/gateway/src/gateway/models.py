@@ -285,7 +285,7 @@ class PasswordResetCode(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
-class MfaResetRequest(Base):
+class ApprovalRequest(Base):
     """A pending request that a second administrator must approve.
 
     `kind` is `mfa_reset` (reset the MFA of an account that is or was privileged)
@@ -294,6 +294,7 @@ class MfaResetRequest(Base):
     or replacing it deletes the row. The requester's deletion voids it.
     """
 
+    # The table name is historical: it holds both kinds of request.
     __tablename__ = "mfa_reset_requests"
     __table_args__ = (
         CheckConstraint(

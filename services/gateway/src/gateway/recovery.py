@@ -12,7 +12,7 @@ from datetime import timedelta
 RESET_CODE_TTL = timedelta(minutes=15)
 # How long a pending request (to reset the MFA of, or to issue a reset code for,
 # an account that is or was privileged) waits for the second administrator.
-MFA_RESET_REQUEST_TTL = timedelta(hours=1)
+APPROVAL_REQUEST_TTL = timedelta(hours=1)
 # The two kinds of request stored in `mfa_reset_requests`.
 MFA_RESET_KIND = "mfa_reset"
 RESET_CODE_KIND = "reset_code"

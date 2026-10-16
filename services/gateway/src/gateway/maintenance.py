@@ -16,9 +16,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from gateway.auth import ENROLL_WINDOW, PRIVILEGED_LIMITS, READER_LIMITS
 from gateway.db import get_engine
 from gateway.models import (
+    ApprovalRequest,
     LoginAttempt,
     MfaEnrollmentAttempt,
-    MfaResetRequest,
     PasswordResetCode,
     RefreshFamily,
     RefreshToken,
@@ -100,7 +100,7 @@ def purge(session: Session, now: datetime) -> dict[str, int]:
     )
     # An expired request cannot be approved; a new request replaces it anyway.
     reset_requests = session.execute(
-        delete(MfaResetRequest).where(MfaResetRequest.expires_at <= now)
+        delete(ApprovalRequest).where(ApprovalRequest.expires_at <= now)
     )
     families = session.execute(
         delete(RefreshFamily).where(RefreshFamily.id.in_(family_ids))

@@ -208,7 +208,11 @@ def _clean_link(raw: str | None, source: Source) -> str:
 def _aware_utc(moment: datetime, now: datetime) -> datetime:
     if moment.tzinfo is None or moment.utcoffset() is None:
         raise _Skip  # a naive date is rejected, not guessed
-    moment = moment.astimezone(UTC)
+    try:
+        moment = moment.astimezone(UTC)
+    except (OverflowError, ValueError) as exc:
+        # An offset at the edge of the datetime range cannot be converted.
+        raise _Skip from exc
     if moment > now + MAX_FUTURE:
         raise _Skip
     return moment

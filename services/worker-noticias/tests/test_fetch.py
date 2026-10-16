@@ -532,6 +532,30 @@ def test_404_is_not_retried():
     assert sleeps == []
 
 
+@pytest.mark.parametrize(
+    ("script", "status"),
+    [
+        ((response(404),), 404),
+        ((response(410),), 410),
+        ((response(403),), 403),
+        ((response(429), response(429), response(429)), 429),
+        ((response(500), response(502), response(503)), 503),
+    ],
+)
+def test_an_http_status_error_carries_the_final_status(script, status):
+    with pytest.raises(FetchError) as excinfo:
+        run(URL, *script)
+    assert excinfo.value.reason == "http_status"
+    assert excinfo.value.status == status
+
+
+def test_errors_other_than_http_status_have_no_status():
+    with pytest.raises(FetchError) as excinfo:
+        run(URL, *[ReadTimeoutError(None, URL, "slow")] * 3)
+    assert excinfo.value.reason == "timeout"
+    assert excinfo.value.status is None
+
+
 def test_gives_up_after_three_attempts():
     factory = FakeFactory(response(500), response(502), response(503), response())
     sleeps = []
@@ -737,6 +761,11 @@ def test_the_deadline_bounds_the_fallback_across_addresses():
             deadline=15.0,
         )
     assert excinfo.value.reason == "timeout"
+    # The clock check in `_attempt` stops the fallback: after the second failure
+    # the clock reads 20 s, past the 15 s deadline, so the re-raise happens before
+    # the third address. The outer check in `_hop_with_retries` only runs between
+    # attempts; it is what turns the re-raised error into the "timeout" reason
+    # (the backoff would end past the deadline), not what stops the third address.
     assert len(factory.calls) == 2  # the third address is not tried
 
 

@@ -87,11 +87,16 @@ _NAT64 = ipaddress.ip_network("64:ff9b::/96")
 
 
 class FetchError(Exception):
-    """A download failed; `reason` is a fixed code, the message equals it."""
+    """A download failed; `reason` is a fixed code, the message equals it.
 
-    def __init__(self, reason: str):
+    `status` is the HTTP status for the `http_status` reason and None otherwise;
+    it is not part of the message.
+    """
+
+    def __init__(self, reason: str, status: int | None = None):
         super().__init__(reason)
         self.reason = reason
+        self.status = status
 
 
 @dataclass(frozen=True)
@@ -327,9 +332,9 @@ def _attempt_on(
             if resp.status in REDIRECT_STATUSES:
                 return _Hop(resp.status, b"", resp.headers.get("Location"))
             if resp.status in RETRY_STATUSES:
-                raise _Retryable("http_status")
+                raise _Retryable("http_status", resp.status)
             if not 200 <= resp.status < 300:
-                raise FetchError("http_status")
+                raise FetchError("http_status", resp.status)
             body = _read_body(resp, max_bytes, deadline_at, clock)
             return _Hop(resp.status, body, None)
         finally:
@@ -339,9 +344,10 @@ def _attempt_on(
 
 
 class _Retryable(Exception):
-    def __init__(self, reason: str):
+    def __init__(self, reason: str, status: int | None = None):
         super().__init__(reason)
         self.reason = reason
+        self.status = status
 
 
 def _hop_with_retries(url, *, sleep, clock, deadline_at, **kwargs) -> _Hop:
@@ -351,17 +357,17 @@ def _hop_with_retries(url, *, sleep, clock, deadline_at, **kwargs) -> _Hop:
         try:
             return _attempt(url, clock=clock, deadline_at=deadline_at, **kwargs)
         except _Retryable as exc:
-            reason = exc.reason
+            reason, status = exc.reason, exc.status
         except NewConnectionError:
             # A subclass of ConnectTimeoutError in urllib3 2.x, so it must be
             # matched before the timeouts.
-            reason = "connection"
+            reason, status = "connection", None
         except ConnectTimeoutError, ReadTimeoutError:
-            reason = "timeout"
+            reason, status = "timeout", None
         except HTTPError:
-            reason = "connection"
+            reason, status = "connection", None
         if attempt == MAX_ATTEMPTS - 1:
-            raise FetchError(reason)
+            raise FetchError(reason, status)
         delay = min(BACKOFF_BASE * 2**attempt, BACKOFF_CAP)
         if clock() + delay > deadline_at:
             raise FetchError("timeout")

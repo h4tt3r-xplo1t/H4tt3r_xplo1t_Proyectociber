@@ -386,6 +386,23 @@ def test_a_date_more_than_one_day_ahead_is_skipped():
     assert result.skipped == 1
 
 
+def test_an_rss_date_that_overflows_utc_is_skipped_and_counted():
+    # Year 9999 with a negative offset overflows datetime on conversion to UTC.
+    edge = "Fri, 31 Dec 9999 23:30:00 -0100"
+    result = parse_rss(item(date=edge, title="Edge"), item(title="Kept"))
+    assert [i.title for i in result.items] == ["Kept"]
+    assert result.skipped == 1
+
+
+def test_a_sitemap_date_that_underflows_utc_is_skipped_and_counted():
+    result = parse_sitemap(
+        news_url(date="0001-01-01T00:30:00+01:00", title="Edge"),
+        news_url(title="Kept"),
+    )
+    assert [i.title for i in result.items] == ["Kept"]
+    assert result.skipped == 1
+
+
 # --- Google News sitemap ------------------------------------------------------
 
 

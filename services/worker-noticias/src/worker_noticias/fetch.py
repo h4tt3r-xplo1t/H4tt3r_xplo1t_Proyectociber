@@ -238,17 +238,27 @@ def _declared_length(resp) -> int | None:
 
 
 def _read_body(resp, max_bytes: int, deadline_at: float, clock) -> bytes:
+    """Read the body, capped in decoded size and in total time.
+
+    `read1` returns as soon as any data arrives (urllib3 2.x passes the call to
+    `fp.read1`), unlike `stream`/`read`, which block until a full chunk. So the
+    deadline is checked after every socket read, and a trickling server can
+    overrun it by at most one read timeout.
+    """
     declared = _declared_length(resp)
     if declared is not None and declared > max_bytes:
         raise FetchError("too_large")
     chunks: list[bytes] = []
     total = 0
-    for chunk in resp.stream(CHUNK_SIZE, decode_content=True):
+    while True:
+        chunk = resp.read1(CHUNK_SIZE, decode_content=True)
+        if clock() > deadline_at:
+            raise FetchError("timeout")
+        if not chunk:
+            break
         total += len(chunk)
         if total > max_bytes:
             raise FetchError("too_large")
-        if clock() > deadline_at:
-            raise FetchError("timeout")
         chunks.append(chunk)
     return b"".join(chunks)
 

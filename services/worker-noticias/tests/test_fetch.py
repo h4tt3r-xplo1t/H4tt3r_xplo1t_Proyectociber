@@ -436,10 +436,9 @@ def test_overall_deadline_is_checked_while_streaming():
         status = 200
         headers = {}
 
-        def stream(self, amt, decode_content):
-            for _ in range(100):
-                now[0] += 1.0
-                yield b"x"
+        def read1(self, amt, decode_content):
+            now[0] += 1.0
+            return b"x"
 
         def release_conn(self):
             pass
@@ -471,9 +470,8 @@ def test_the_connection_is_released_on_success_and_on_error():
         headers = {}
         released = closed = False
 
-        def stream(self, amt, decode_content):
+        def read1(self, amt, decode_content):
             raise ReadTimeoutError(None, URL, "slow")
-            yield b""
 
         def release_conn(self):
             self.released = True
@@ -642,3 +640,57 @@ def test_a_slow_server_is_cut_within_the_timeout():
         server.server_close()
     assert excinfo.value.reason == "timeout"
     assert time.monotonic() - started < 3.0
+
+
+class _Trickling(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):  # noqa: N802
+        import time
+
+        self.send_response(200)
+        self.send_header("Content-Length", "1000")
+        self.end_headers()
+        try:
+            for _ in range(100):  # one byte per tick: never a read timeout
+                self.wfile.write(b"x")
+                self.wfile.flush()
+                time.sleep(0.2)
+        except OSError:
+            pass
+
+    def log_message(self, *args):
+        pass
+
+
+def test_a_trickling_server_is_cut_at_the_deadline():
+    import time
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Trickling)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    port = server.server_address[1]
+    outcome: list = []
+
+    def plain_pool(ip, host, timeout):
+        return urllib3.HTTPConnectionPool("127.0.0.1", port, timeout=timeout)
+
+    def run():
+        try:
+            do_fetch(
+                URL,
+                resolver=resolver_to(PUBLIC_IP),
+                pool_factory=plain_pool,
+                sleep=lambda s: None,
+                timeout=urllib3.Timeout(connect=0.5, read=1.0),
+                deadline=1.0,
+            )
+        except FetchError as exc:
+            outcome.append(exc.reason)
+
+    started = time.monotonic()
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(5.0)
+    elapsed = time.monotonic() - started
+    server.shutdown()
+    assert outcome == ["timeout"]
+    assert elapsed < 2.5

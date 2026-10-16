@@ -58,7 +58,7 @@ Rama `feat/56-recuperacion-asistida`. Cierra A3b2a: recuperación de cuenta con 
   - Informativos: I1 (aprobaciones cruzadas, 503), I2 (recuento de administradores sin el bloqueo de roles) e I3 (la solicitud sobrevive si quien la pidió pierde el MFA; inofensivo).
 - **Gentle AI:** la revisión de la rama completa superó el presupuesto de contexto del revisor (`lens_context_budget_exceeded`); se hace por partes y sus resultados se añaden después.
 - **Modelo de amenazas:** amenaza 46 actualizada con los controles implementados.
-- **TDD:** RED observado en cada tarea; de 763 a 978 pruebas.
+- **TDD:** RED observado en cada tarea; de 763 a 988 pruebas.
 
 ## Pendientes
 

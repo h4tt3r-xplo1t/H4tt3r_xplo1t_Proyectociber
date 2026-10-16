@@ -12,3 +12,9 @@ updates:
       interval: weekly
     commit-message:
       prefix: build
+  - package-ecosystem: uv
+    directory: "/services/worker-noticias"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build

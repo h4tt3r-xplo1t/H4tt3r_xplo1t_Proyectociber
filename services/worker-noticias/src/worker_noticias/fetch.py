@@ -31,6 +31,7 @@ import socket
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import NamedTuple
 from urllib.parse import urljoin, urlsplit
 
 import urllib3
@@ -63,15 +64,21 @@ ACCEPT = "application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.1"
 
 HTTPS_PORT = 443
 MAX_REDIRECTS = 3
+# Three tries ride out a short outage without hammering an outlet that is down.
 MAX_ATTEMPTS = 3
 BACKOFF_BASE = 1.0
+# Only matters if MAX_ATTEMPTS grows: with 3 attempts the delays are 1 s and 2 s.
 BACKOFF_CAP = 8.0
+# Real feeds and news sitemaps are far below 1 MiB; 5 MiB leaves room to grow.
 MAX_BYTES = 5 * 1024 * 1024
 CHUNK_SIZE = 64 * 1024
+# Bounds one fetch (all hops, retries and addresses) so a source cannot stall
+# the loop that reads the other sources.
 DEADLINE = 30.0
 TIMEOUT = urllib3.Timeout(connect=5.0, read=10.0)
 RETRY_STATUSES = frozenset({429}) | frozenset(range(500, 600))
-REDIRECT_STATUSES = frozenset(range(300, 400))
+# Not 300 (multiple choices) or 304 (not modified): they carry no target to follow.
+REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 # Prefixes that are not globally routable but that `ipaddress` may not flag.
 _CGNAT = ipaddress.ip_network("100.64.0.0/10")
@@ -121,7 +128,10 @@ DEFAULT_POOL_FACTORY = pinned_https_pool
 
 def safe_url(url: str) -> str:
     """The URL without query string or fragment, the only form that is logged."""
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+    except ValueError:  # e.g. an unterminated bracketed host
+        return "<invalid url>"
     return f"{parts.scheme}://{parts.netloc}{parts.path}"
 
 
@@ -138,8 +148,14 @@ def _is_ip_literal(host: str) -> bool:
     return True
 
 
-def validate_url(url: str) -> tuple[str, str, str]:
-    """Return (host, request path with query, clean URL) or raise FetchError."""
+class ValidatedUrl(NamedTuple):
+    host: str
+    request: str  # path with query, as sent on the request line
+    clean_url: str  # https://host + request, without fragment
+
+
+def validate_url(url: str) -> ValidatedUrl:
+    """Return the validated parts of `url` or raise FetchError."""
     if _has_forbidden_character(url):
         raise FetchError("malformed_url")
     try:
@@ -164,7 +180,7 @@ def validate_url(url: str) -> tuple[str, str, str]:
     _check_parser_agreement(url, host, port)
     path = parts.path or "/"
     request = f"{path}?{parts.query}" if parts.query else path
-    return host, request, f"https://{host}{request}"
+    return ValidatedUrl(host, request, f"https://{host}{request}")
 
 
 def _check_parser_agreement(url: str, host: str, port: int | None) -> None:
@@ -202,8 +218,8 @@ def _is_public(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     )
 
 
-def resolve_public(host: str, resolver: Resolver) -> str:
-    """Resolve `host`; every answer must be public. Return the first one."""
+def resolve_public(host: str, resolver: Resolver) -> list[str]:
+    """Resolve `host`; every answer must be public. Return them all, in order."""
     try:
         infos = resolver(host, HTTPS_PORT)
     except (OSError, UnicodeError) as exc:
@@ -219,7 +235,7 @@ def resolve_public(host: str, resolver: Resolver) -> str:
         raise FetchError("dns")
     if not all(_is_public(ip) for ip in addresses):
         raise FetchError("non_global_address")
-    return str(addresses[0])
+    return list(dict.fromkeys(str(ip) for ip in addresses))
 
 
 def _release(resp) -> None:
@@ -272,7 +288,24 @@ class _Hop:
 
 def _attempt(url, *, resolver, pool_factory, timeout, max_bytes, deadline_at, clock):
     host, request, _ = validate_url(url)
-    ip = resolve_public(host, resolver)
+    ips = resolve_public(host, resolver)
+    for position, ip in enumerate(ips):
+        try:
+            return _attempt_on(
+                ip, host, request, pool_factory, timeout, max_bytes, deadline_at, clock
+            )
+        except ConnectTimeoutError:
+            # Includes NewConnectionError. Only a failure to connect moves on to
+            # the next validated address; a read timeout, an HTTP status or a
+            # validation error does not.
+            if position == len(ips) - 1 or clock() > deadline_at:
+                raise
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _attempt_on(
+    ip, host, request, pool_factory, timeout, max_bytes, deadline_at, clock
+):
     pool = pool_factory(ip, host, timeout)
     try:
         resp = pool.urlopen(
@@ -343,12 +376,12 @@ def _next_url(current: str, location: str | None) -> str:
         raise FetchError("redirect_rejected")
     try:
         target = urljoin(current, location)
-        host, _, clean = validate_url(target)
+        validated = validate_url(target)
     except (FetchError, ValueError) as exc:
         raise FetchError("redirect_rejected") from exc
-    if host != validate_url(current)[0]:
+    if validated.host != validate_url(current).host:
         raise FetchError("redirect_rejected")
-    return clean
+    return validated.clean_url
 
 
 def fetch(
@@ -379,7 +412,9 @@ def fetch(
                 max_bytes=max_bytes,
             )
             if hop.location is None and hop.status not in REDIRECT_STATUSES:
-                return FetchResult(hop.status, hop.body, validate_url(current)[2])
+                return FetchResult(
+                    hop.status, hop.body, validate_url(current).clean_url
+                )
             if redirects == MAX_REDIRECTS:
                 raise FetchError("redirect_rejected")
             current = _next_url(current, hop.location)

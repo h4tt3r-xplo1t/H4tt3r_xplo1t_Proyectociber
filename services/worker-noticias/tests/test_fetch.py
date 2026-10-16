@@ -461,17 +461,18 @@ def test_overall_deadline_is_checked_while_streaming():
 
 
 def test_the_connection_is_released_on_success_and_on_error():
-    ok = response()
-    run(URL, ok)
-    assert ok.closed or ok.isclosed() or ok._fp is None or ok.connection is None
-
     class Spy:
         status = 200
         headers = {}
-        released = closed = False
+
+        def __init__(self, error=None):
+            self.error = error
+            self.released = self.closed = False
 
         def read1(self, amt, decode_content):
-            raise ReadTimeoutError(None, URL, "slow")
+            if self.error:
+                raise self.error
+            return b""
 
         def release_conn(self):
             self.released = True
@@ -479,10 +480,14 @@ def test_the_connection_is_released_on_success_and_on_error():
         def close(self):
             self.closed = True
 
-    spy = Spy()
+    ok = Spy()
+    run(URL, ok)
+    assert ok.released and ok.closed
+
+    failing = Spy(ReadTimeoutError(None, URL, "slow"))
     with pytest.raises(FetchError):
-        run(URL, spy, spy, spy)
-    assert spy.released and spy.closed
+        run(URL, failing, failing, failing)
+    assert failing.released and failing.closed
 
 
 # --- retries ----------------------------------------------------------------
@@ -591,6 +596,148 @@ def test_error_messages_never_include_the_body_or_the_query():
 
 def test_safe_url_drops_query_and_fragment():
     assert fetch.safe_url("https://a.b/p?token=1#x") == "https://a.b/p"
+
+
+@pytest.mark.parametrize("url", ["https://[::1/", "https://[bad]/x", "http://[/"])
+def test_safe_url_never_raises(url):
+    assert fetch.safe_url(url) == "<invalid url>"
+
+
+def test_a_malformed_bracketed_host_fails_with_a_fetch_error_not_a_value_error():
+    assert reason_of("https://[::1/") == "malformed_url"
+
+
+# --- redirect status codes ----------------------------------------------------
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_only_the_real_redirect_statuses_are_followed(status):
+    result, factory, _ = run(URL, redirect("/new.xml", status), response(body=b"moved"))
+    assert result.body == b"moved"
+    assert len(factory.requests) == 2
+
+
+@pytest.mark.parametrize("status", [300, 304, 305, 306])
+def test_other_3xx_statuses_are_http_status_errors(status):
+    assert reason_of(URL, redirect("/new.xml", status)) == "http_status"
+
+
+# --- named result of validate_url ---------------------------------------------
+
+
+def test_validate_url_returns_named_fields():
+    parts = fetch.validate_url(f"https://{HOST}/feed?x=1")
+    assert parts.host == HOST
+    assert parts.request == "/feed?x=1"
+    assert parts.clean_url == f"https://{HOST}/feed?x=1"
+    assert tuple(parts) == (HOST, "/feed?x=1", f"https://{HOST}/feed?x=1")
+
+
+# --- several validated addresses ----------------------------------------------
+
+SECOND_IP = "93.184.216.35"
+
+
+def test_next_validated_address_is_tried_after_a_connection_error():
+    result, factory, sleeps = run(
+        URL,
+        NewConnectionError(None, "refused"),
+        response(body=b"second"),
+        resolver=resolver_to(PUBLIC_IP, SECOND_IP),
+    )
+    assert result.body == b"second"
+    assert [call[0] for call in factory.calls] == [PUBLIC_IP, SECOND_IP]
+    assert sleeps == []  # no retry was counted
+
+
+def test_next_validated_address_is_tried_after_a_connect_timeout():
+    result, factory, sleeps = run(
+        URL,
+        ConnectTimeoutError(None, "slow"),
+        response(body=b"second"),
+        resolver=resolver_to(PUBLIC_IP, SECOND_IP),
+    )
+    assert result.body == b"second"
+    assert [call[0] for call in factory.calls] == [PUBLIC_IP, SECOND_IP]
+    assert sleeps == []
+
+
+def test_a_read_timeout_does_not_try_another_address():
+    result, factory, sleeps = run(
+        URL,
+        ReadTimeoutError(None, URL, "slow"),
+        response(body=b"retry"),
+        resolver=resolver_to(PUBLIC_IP, SECOND_IP),
+    )
+    assert result.body == b"retry"
+    # The retry starts again from the first address, after a backoff.
+    assert [call[0] for call in factory.calls] == [PUBLIC_IP, PUBLIC_IP]
+    assert sleeps == [1.0]
+
+
+def test_an_http_status_does_not_try_another_address():
+    factory = FakeFactory(response(404))
+    with pytest.raises(FetchError) as excinfo:
+        do_fetch(
+            URL,
+            resolver=resolver_to(PUBLIC_IP, SECOND_IP),
+            pool_factory=factory,
+            sleep=lambda s: None,
+        )
+    assert excinfo.value.reason == "http_status"
+    assert [call[0] for call in factory.calls] == [PUBLIC_IP]
+
+
+def test_every_address_failing_counts_one_attempt_then_retries():
+    err = NewConnectionError(None, "refused")
+    factory = FakeFactory(err, err, err, err, err, err)
+    sleeps = []
+    with pytest.raises(FetchError) as excinfo:
+        do_fetch(
+            URL,
+            resolver=resolver_to(PUBLIC_IP, SECOND_IP),
+            pool_factory=factory,
+            sleep=sleeps.append,
+        )
+    assert excinfo.value.reason == "connection"
+    assert len(factory.calls) == 6  # 3 attempts x 2 addresses
+    assert sleeps == [1.0, 2.0]
+
+
+def test_a_non_public_address_in_the_answer_still_rejects_all_of_them():
+    assert (
+        reason_of(URL, response(), resolver=resolver_to(PUBLIC_IP, "10.0.0.1"))
+        == "non_global_address"
+    )
+
+
+def test_the_deadline_bounds_the_fallback_across_addresses():
+    now = [0.0]
+
+    def slow_fail(*_):
+        now[0] += 10.0
+        return NewConnectionError(None, "refused")
+
+    class Pool(FakePool):
+        def urlopen(self, *args, **kwargs):
+            raise slow_fail()
+
+    def factory(ip, host, timeout):
+        factory.calls.append(ip)
+        return Pool([])
+
+    factory.calls = []
+    with pytest.raises(FetchError) as excinfo:
+        do_fetch(
+            URL,
+            resolver=resolver_to(PUBLIC_IP, SECOND_IP, "93.184.216.36"),
+            pool_factory=factory,
+            sleep=lambda s: None,
+            clock=lambda: now[0],
+            deadline=15.0,
+        )
+    assert excinfo.value.reason == "timeout"
+    assert len(factory.calls) == 2  # the third address is not tried
 
 
 # --- slow server (threat 22) ------------------------------------------------

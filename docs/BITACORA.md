@@ -47,13 +47,13 @@ Rama `feat/58-procedimiento-emergencia`. Cierra A3b2b (ADR 0004, decisión 11; a
   - R4: el docstring y el texto de `RESET_FAILED` deben decir que la cuenta puede o no haberse restablecido.
   - R2: `except` sin paréntesis en `breakglass.py:251`; `mark_privileged` falta en la lista del docstring; parámetro `shared` sin uso en el `FakeBao` de `test_breakglass.py`; `OPENBAO_DEV_BOOTSTRAP_SEED` también crea el rol escritor del break-glass.
   - T3 pasiva.
-- **Correcciones (T5):** las 5 sugerencias de Gentle AI.
+- **Correcciones (T5, `8a92417`):** las 5 sugerencias de Gentle AI.
   - R4: el docstring y `RESET_FAILED` dicen que la cuenta puede o no haberse restablecido y que el secreto ya no existe (comprobar la cuenta o volver a sembrar; el restablecimiento es idempotente); prueba nueva con RED y prueba de la confirmación fallida renombrada.
   - R2: el `except` sin paréntesis se mantiene porque `ruff format` lo normaliza a la forma de Python 3.14 (PEP 758); `mark_privileged` en el docstring, parámetro `shared` sin uso quitado del `FakeBao`, y el acoplamiento de `OPENBAO_DEV_BOOTSTRAP_SEED` con `breakglass-seed` documentado en `scripts/openbao-dev-init.sh` (la variable no se renombra).
 - **Revisión de seguridad (`revisor-seguridad`):** lista para PR, sin críticos, altos ni medios.
   - Bajo: los AppRoles de desarrollo `breakglass` y `breakglass-seed` tienen `secret_id` permanente y reutilizable (`secret_id_ttl=0`, `secret_id_num_uses=0`), igual que `bootstrap`; solo desarrollo. En producción, un solo uso y TTL corto (pendiente E5).
   - Informativos: `REFUSED` es idéntico para un usuario desconocido y uno nunca privilegiado (intencional); el evento va al registro local con el UUID, y E8 define el destino de solo anexado; la clase `ApprovalRequest` conserva la tabla `mfa_reset_requests`.
-- **TDD:** RED observado en T1 (salvo la desviación declarada) y en T2; T0, T3 y T4 son solo documentación. De 988 a 1065 pruebas (1065 passed localmente, 491 s).
+- **TDD:** RED observado en T1 (salvo la desviación declarada), T2 y T5; T0, T3 y T4 son solo documentación. De 988 a 1066 pruebas (1066 passed localmente, 521 s).
 
 ## Pendientes
 

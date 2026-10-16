@@ -17,48 +17,37 @@ Las entradas de issues cerrados se mueven a `docs/bitacora/` para no superar el 
   - `tokens_valid_since` sale del reloj de la aplicación (requisito de NTP).
 - [2026-10-05 a 2026-10-11](bitacora/2026-10-05_11.md): MFA con TOTP (issue #39) y cierre de A3a (issue #43). Decisiones que conviene conocer: el secreto TOTP se cifra con transit de OpenBao (ADR 0006), un rol con privilegios sin MFA solo recibe un JWT de alcance `enroll-mfa`, `current_user` y `refresh` rechazan la sesión con privilegios sin MFA, y el trabajo lento (transit, Argon2) se hace fuera del bloqueo de filas con una comprobación final.
 - [2026-10-12](bitacora/2026-10-12.md): administración del gateway (issue #45, A3b1) y seguimiento de su revisión (issue #47), endurecimiento del gateway (issue #49) y gestión del MFA (issue #51). Decisiones que conviene conocer: contador de generación `gen` en cada JWT (los tokens sin `gen` se rechazan una vez), el hash del login se verifica sin bloqueo de fila, el MFA solo lo desactivan los lectores, la cuota de altas (5 por hora) se consume aunque transit falle, y el arranque del primer administrador lee su contraseña solo de OpenBao con un AppRole aparte y se niega si ya hay un administrador, `busy_guard` traduce los bloqueos a 503, y `bootstrap-seed` solo se crea con `CI=true` o `OPENBAO_DEV_BOOTSTRAP_SEED=1`.
+- [2026-10-15](bitacora/2026-10-15.md): recuperación asistida y restablecimiento del MFA (issue #56). Decisiones que conviene conocer: opción B con la marca `privileged_at` y dos administradores distintos para las cuentas que tienen o tuvieron privilegios, segundo factor del código solo con el MFA activo y vencimiento de 1 h de las solicitudes.
 
-## 2026-10-15 · Issue #56: recuperación asistida y restablecimiento del MFA
+## 2026-10-16 · Issue #58: procedimiento de emergencia (break-glass)
 
-Rama `feat/56-recuperacion-asistida`. Cierra A3b2a: recuperación de cuenta con un código emitido por un administrador y restablecimiento del MFA (ADR 0004, decisión 10; amenaza 46).
+Rama `feat/58-procedimiento-emergencia`. Cierra A3b2b (ADR 0004, decisión 11; amenazas 46 y 47).
 
-- **Revisión del #51 (T0, `17a3195`):** el registro de la revisión de Gentle AI se guardó como primera tarea.
-- **Sugerencias del #51 (T1, `bf73401`):** `disable_mfa_actor` pasa a `mfa_manager_actor`; el bloque de bloqueo, comprobación y consumo del segundo factor de `mfa_disable` y `mfa_recovery_codes` se comparte; ayudantes de prueba duplicados movidos a `tests/helpers.py`; prueba del 503 del bloqueo de la reserva de altas.
-- **Código de restablecimiento (T2, `59f2fbb`):** `POST /api/admin/users/{id}/reset-code` (migración 0008).
-  - Código de base32 de Crockford, 20 símbolos (100 bits, CSPRNG), guardado con Argon2id, de 15 min y uno vivo por usuario; uno nuevo anula el anterior.
-  - Se muestra una sola vez con `NO_STORE`; un administrador no puede emitirse uno a sí mismo (403).
-- **Ruta anónima (T3, `25f7600`):** `POST /api/auth/password-reset`, con origen y CSRF previo a la sesión como el login.
-  - 401 genérico para cualquier fallo, contado en el bloqueo progresivo; una cuenta bloqueada se rechaza sin contar.
-  - Segundo factor: se exige solo si el MFA está activo (ver la decisión de la opción B).
-  - Cierra todas las sesiones y no abre ninguna.
-- **Aviso al usuario (T4, `896315b`):** el siguiente inicio de sesión completo informa del restablecimiento (`password_reset_at` en `LoginOut`, migración 0009) y lo borra con compare-and-set en la misma transacción; `/me` no cambia.
-- **Restablecimiento del MFA (T5, `9bcb3e4`):** `POST /api/admin/users/{id}/mfa-reset` y `.../mfa-reset/approve` (migración 0010).
-  - Lector: un solo administrador, al instante.
-  - Cuenta con privilegios: solicitud de un administrador y aprobación de otro distinto, ninguno el afectado; la solicitud vence en 1 h; se rechaza (409) si no hay dos administradores además del afectado.
-  - Borra el secreto y los códigos, abre una ventana de alta de 24 h, cierra las sesiones y deja eventos fijos.
-- **Decisiones:**
-  - (a) (persona, 2026-10-15) Un solo administrador puede quitar el MFA de un lector que nunca tuvo privilegios: mismo riesgo residual aceptado que el código para cuentas sin MFA.
-  - (b) (persona, 2026-10-15, tras el hallazgo M1 de `revisor-seguridad`) Opción B, que sustituye la regla estricta y la recuperación por degradación:
-    - Marca `users.privileged_at`: se fija la primera vez que la cuenta recibe un rol con privilegios o pendiente y nunca se borra (migración 0011, con relleno).
-    - Una cuenta que tiene o tuvo privilegios necesita dos administradores distintos, ninguno el afectado, tanto para quitar el MFA como para recibir un código (`.../reset-code/approve`); el código se lo lleva quien aprueba, y la fila guarda `issued_by` y `approved_by`.
-    - El código exige segundo factor solo si el MFA está activo; una cuenta con privilegios sin MFA se recupera con un código aprobado por dos administradores.
-    - La recuperación por degradación desaparece.
-  - (supuesto reversible) La solicitud de restablecimiento del MFA vence en 1 h.
-  - El formulario de ayuda anónimo queda fuera hasta el límite por IP (E5): la ayuda se pide por un canal externo documentado.
+- **Revisión del #56 (T0, `08fd6c7`):** registro de la revisión y recuento de pruebas de 978 a 988.
+- **Sugerencias del #56 (T1, `473718e`):** de la revisión de Gentle AI.
+  - Renombres `ApprovalRequest`, `ApprovalPendingOut` y `APPROVAL_REQUEST_TTL` (el nombre de la tabla se conserva).
+  - `_claim_request` compartido por las dos rutas de aprobación; el vencimiento se calcula una sola vez; `issue_reset_code` no calcula el hash antes de la comprobación de los dos administradores; pruebas movidas y añadidas.
+  - Desviación de TDD declarada en el documento de la tarea: un elemento se implementó antes de su prueba, sin RED previo; se sustituye por evidencia de mutación (forzar el hash hizo fallar la prueba).
+- **Comando de emergencia (T2, `9bf60e6`):** `python -m gateway.breakglass --username <nombre> --break-glass`.
+  - AppRole propio `breakglass`, con una política que solo permite leer `secret/data/breakglass/account` y borrar sus metadatos; el AppRole `breakglass-seed` solo se crea con `CI=true` o `OPENBAO_DEV_BOOTSTRAP_SEED=1`. Políticas en `deploy/openbao/` y script de inicialización.
+  - Guarda contra el objetivo equivocado: se rechaza un secreto cuyo `username` no coincide con `--username`.
+  - Efectos en una sola transacción bajo el bloqueo de la fila: contraseña sembrada con `must_change_password`, MFA y códigos de recuperación borrados, ventana de alta de 24 h, solicitudes y código de restablecimiento pendientes borrados, sesiones revocadas y aviso en el siguiente inicio de sesión.
+  - El secreto se destruye antes de confirmar la transacción; códigos de salida 0/1/2/3/4/5; evento `break_glass_reset`.
+  - `gateway/oneshot.py` con `destroy_secret` compartido, que usa también `bootstrap`.
+  - R3-001 de la revisión de T1: comentario reformulado y prueba añadida.
+  - Cierra L1 del #45 (ventana de alta del primer administrador caducada).
+- **ADR (T3, `afbba7d`):** decisiones 10 y 11 del ADR 0004 con lo decidido en el #56 y el #58. Se aclara la discrepancia del arranque: el código se niega ante cualquier `administrador`, y el ADR decía activo.
+- **Decisiones:** (persona, 2026-10-16) el break-glass cubre toda cuenta que tiene o tuvo privilegios, no solo los administradores.
 - **Residuales:**
-  - Dos aprobaciones cruzadas (A pidió por B y B por A) pueden bloquearse entre sí; Postgres aborta una con 40P01 y `busy_guard` responde 503 (falla seguro).
-  - La caducidad entre la lectura y los bloqueos no tiene prueba: `now` es fijo por petición.
-  - El administrador que emite el código lo conoce: lo acepta el ADR 0004 y lo mitiga el aviso en el siguiente inicio de sesión. B1: puede consumir el aviso iniciando sesión antes que el usuario.
-  - I2: el recuento de administradores restantes se lee sin el bloqueo de roles.
-  - Fallo intermitente observado una vez bajo carga (`test_mfa_recovery_codes.py::test_a_password_changed_meanwhile_counts_as_a_failure`); no se reprodujo en 6 repeticiones. Vigilar en CI.
-- **Corrección de la revisión (`3d74003`):** M1 con la opción B (migración 0011: `privileged_at`, `mfa_reset_requests.kind`, `password_reset_codes.approved_by`); B2: `issue_reset_code` llama a `_refuse_if_demoted`; B3: la ventana de alta de un lector con rol pendiente se conserva al restablecer el MFA.
-- **Revisión de seguridad (`revisor-seguridad`):** lista para PR, sin críticos ni altos.
-  - M1 (un solo administrador tomaba una cuenta con privilegios degradándola a lector) se corrigió en `3d74003` con la opción B; B2 y B3 también.
-  - B1 (el administrador que emite el código puede consumir el aviso iniciando sesión primero) se acepta dentro del riesgo del ADR 0004.
-  - Informativos: I1 (aprobaciones cruzadas, 503), I2 (recuento de administradores sin el bloqueo de roles) e I3 (la solicitud sobrevive si quien la pidió pierde el MFA; inofensivo).
-- **Gentle AI:** la revisión de la rama completa superó el presupuesto de contexto del revisor (`lens_context_budget_exceeded`); se hace por partes y sus resultados se añaden después.
-- **Modelo de amenazas:** amenaza 46 actualizada con los controles implementados.
-- **TDD:** RED observado en cada tarea; de 763 a 988 pruebas.
+  - El contador de bloqueo del login no se reinicia: la cuenta espera como máximo 30 min o la desbloquea un administrador.
+  - Resultado desconocido de la confirmación tras destruir el secreto: la cuenta puede estar o no restablecida; hay que volver a sembrar y repetir.
+  - Dos ejecuciones simultáneas sobre la misma cuenta se serializan en el bloqueo de la fila (sin prueba).
+  - El empaquetado como Job de Kubernetes queda para E5.
+- **Gentle AI:** T0 aprobada (`review-cff36e38c7d7e756`); T1 aprobada (`review-e56d424c59d58206`); T2 de riesgo alto, cuatro lentes, aprobada (`review-21632641453f603c`) con 5 sugerencias no bloqueantes que se incorporan en T5:
+  - R4: el docstring y el texto de `RESET_FAILED` deben decir que la cuenta puede o no haberse restablecido.
+  - R2: `except` sin paréntesis en `breakglass.py:251`; `mark_privileged` falta en la lista del docstring; parámetro `shared` sin uso en el `FakeBao` de `test_breakglass.py`; `OPENBAO_DEV_BOOTSTRAP_SEED` también crea el rol escritor del break-glass.
+  - T3 pasiva.
+- **TDD:** RED observado en T1 (salvo la desviación declarada) y en T2; T0, T3 y T4 son solo documentación. De 988 a 1065 pruebas (1065 passed localmente, 491 s).
 
 ## Pendientes
 
@@ -67,15 +56,16 @@ Rama `feat/56-recuperacion-asistida`. Cierra A3b2a: recuperación de cuenta con 
 - [ ] Verificar las versiones del resto del stack (React, workers, PostgreSQL, RabbitMQ, Vault) antes de fijarlas; las del `gateway` se verificaron en el issue #25.
 - [ ] Revisar periódicamente las versiones de `uv`, gitleaks y actionlint fijadas por sha256 en CI: Dependabot no las actualiza (hallazgo del #25).
 - [ ] **E3:** elegir y verificar una lista de contraseñas filtradas y su licencia (ASVS 6.2.12, L2, pendiente hasta entonces).
-- [ ] **A3b2b:** procedimiento de emergencia (break-glass) para administradores (ADR 0004, decisión 11). La recuperación asistida y el restablecimiento del MFA con dos administradores se resolvieron en el #56 (A3b2a, amenaza 46).
-- [ ] **ADR 0004:** incorporar a la decisión 10 las decisiones de la persona del #56: un lector nunca privilegiado se restablece con un administrador; la marca de privilegio y los dos administradores para el MFA y el código de las cuentas que tienen o tuvieron privilegios; el segundo factor del código solo con el MFA activo; el vencimiento de 1 h de las solicitudes. Quedó fuera del alcance del #56 porque `docs/adr/**` no estaba autorizado.
+- [x] **A3b2b:** procedimiento de emergencia (break-glass) para administradores (ADR 0004, decisión 11). Resuelto en el #58. La recuperación asistida y el restablecimiento del MFA con dos administradores se resolvieron en el #56 (A3b2a, amenaza 46).
+- [x] **ADR 0004:** (resuelto en el #58) incorporar a la decisión 10 las decisiones de la persona del #56: un lector nunca privilegiado se restablece con un administrador; la marca de privilegio y los dos administradores para el MFA y el código de las cuentas que tienen o tuvieron privilegios; el segundo factor del código solo con el MFA activo; el vencimiento de 1 h de las solicitudes. Quedó fuera del alcance del #56 porque `docs/adr/**` no estaba autorizado.
 - [ ] **E5:** formulario de ayuda anónimo, con límite por IP; hasta entonces la ayuda se pide por un canal externo documentado (#56).
 - [x] Límite de frecuencia propio en `/mfa/enroll`, y desactivar el MFA o regenerar los códigos de recuperación (#39). Resuelto en el #51.
 - [x] **A3b:** un usuario con privilegios que ya existía sin MFA y sin fecha límite de alta no podía iniciar sesión ni darse de alta; resuelto con la asignación pendiente de roles (issue #45).
-- [ ] **A3b2:** el administrador de arranque queda bloqueado si caduca su ventana de alta de 24 h; reabrirla exige otro administrador, así que depende del procedimiento de emergencia (L1 de la revisión del #45).
+- [x] **A3b2:** (resuelto en el #58 con `gateway.breakglass`) el administrador de arranque queda bloqueado si caduca su ventana de alta de 24 h; reabrirla exige otro administrador, así que depende del procedimiento de emergencia (L1 de la revisión del #45).
 - [x] `tokens_valid_since` tiene granularidad de un segundo: un token con alcance emitido en el mismo segundo que el cambio no queda anulado por él (L2 de la revisión del #45). Resuelto en el #49: contador de generación `gen`.
 - [x] El arranque del primer administrador usa un bloqueo asesor y no una restricción única en la base de datos (I2 de la revisión del #45). Resuelto en el #49: se mantiene el bloqueo asesor (decisión).
-- [ ] **E5:** mantener el AppRole `bootstrap-seed` (solo desarrollo y CI) fuera de los manifiestos.
+- [ ] **E5:** mantener los AppRoles `bootstrap-seed` y `breakglass-seed` (solo desarrollo y CI) fuera de los manifiestos.
+- [ ] **E5:** empaquetar `gateway.bootstrap` y `gateway.breakglass` como Jobs de Kubernetes ejecutados a mano con `backoffLimit: 0` (#58).
 - [x] El bloqueo del contador de intentos del login (`auth.py`) solo traduce `LOCK_NOT_AVAILABLE` a 503; valorar usar `busy_guard` también ahí (#47). Resuelto en el #49: `_lock_attempt` usa `busy_guard`.
 - [ ] Varias peticiones `/login/mfa` en paralelo con un token `mfa-pending` válido hacen su llamada a transit y su Argon2 a la vez, ya sin serializar; depende del límite de tasa por IP (E5) (L1 de la revisión del #43).
 - [ ] Rotación de la clave transit `totp` con `rewrap` de los textos cifrados (ADR 0006).

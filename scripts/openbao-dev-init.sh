@@ -21,7 +21,9 @@
 #               with their own credentials). Created on the first setup only
 #               when CI=true (GitHub Actions sets it) or
 #               OPENBAO_DEV_BOOTSTRAP_SEED=1 is exported for a local dev stack;
-#               otherwise it does not exist
+#               otherwise it does not exist. NOTE: the same variable (the name
+#               is kept because CI and the local docs rely on it) also gates
+#               the breakglass-seed AppRole below, not only bootstrap-seed
 #   breakglass-role-id, breakglass-secret-id  AppRole of the account recovery
 #               (python -m gateway.breakglass): read and destroy of
 #               secret/breakglass/account only
@@ -174,7 +176,9 @@ if [[ "$FIRST_SETUP" == "true" ]]; then
   bao write -f -field=secret_id auth/approle/role/breakglass/secret-id >"$STATE_DIR/breakglass-secret-id"
 
   # DEV/CI ONLY, same guard as bootstrap-seed: a writer for
-  # secret/breakglass/account so the tests can seed it.
+  # secret/breakglass/account so the tests can seed it. Coupling on purpose:
+  # OPENBAO_DEV_BOOTSTRAP_SEED=1 (the name is kept for CI and the local docs)
+  # creates this role too, not only bootstrap-seed.
   if [[ "${CI:-}" == "true" || "${OPENBAO_DEV_BOOTSTRAP_SEED:-}" == "1" ]]; then
     bao policy write breakglass-seed - <deploy/openbao/breakglass-seed-policy.hcl >/dev/null
     bao write auth/approle/role/breakglass-seed \

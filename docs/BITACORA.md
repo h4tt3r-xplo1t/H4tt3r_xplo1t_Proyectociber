@@ -47,6 +47,12 @@ Rama `feat/58-procedimiento-emergencia`. Cierra A3b2b (ADR 0004, decisión 11; a
   - R4: el docstring y el texto de `RESET_FAILED` deben decir que la cuenta puede o no haberse restablecido.
   - R2: `except` sin paréntesis en `breakglass.py:251`; `mark_privileged` falta en la lista del docstring; parámetro `shared` sin uso en el `FakeBao` de `test_breakglass.py`; `OPENBAO_DEV_BOOTSTRAP_SEED` también crea el rol escritor del break-glass.
   - T3 pasiva.
+- **Correcciones (T5):** las 5 sugerencias de Gentle AI.
+  - R4: el docstring y `RESET_FAILED` dicen que la cuenta puede o no haberse restablecido y que el secreto ya no existe (comprobar la cuenta o volver a sembrar; el restablecimiento es idempotente); prueba nueva con RED y prueba de la confirmación fallida renombrada.
+  - R2: el `except` sin paréntesis se mantiene porque `ruff format` lo normaliza a la forma de Python 3.14 (PEP 758); `mark_privileged` en el docstring, parámetro `shared` sin uso quitado del `FakeBao`, y el acoplamiento de `OPENBAO_DEV_BOOTSTRAP_SEED` con `breakglass-seed` documentado en `scripts/openbao-dev-init.sh` (la variable no se renombra).
+- **Revisión de seguridad (`revisor-seguridad`):** lista para PR, sin críticos, altos ni medios.
+  - Bajo: los AppRoles de desarrollo `breakglass` y `breakglass-seed` tienen `secret_id` permanente y reutilizable (`secret_id_ttl=0`, `secret_id_num_uses=0`), igual que `bootstrap`; solo desarrollo. En producción, un solo uso y TTL corto (pendiente E5).
+  - Informativos: `REFUSED` es idéntico para un usuario desconocido y uno nunca privilegiado (intencional); el evento va al registro local con el UUID, y E8 define el destino de solo anexado; la clase `ApprovalRequest` conserva la tabla `mfa_reset_requests`.
 - **TDD:** RED observado en T1 (salvo la desviación declarada) y en T2; T0, T3 y T4 son solo documentación. De 988 a 1065 pruebas (1065 passed localmente, 491 s).
 
 ## Pendientes
@@ -65,7 +71,7 @@ Rama `feat/58-procedimiento-emergencia`. Cierra A3b2b (ADR 0004, decisión 11; a
 - [x] `tokens_valid_since` tiene granularidad de un segundo: un token con alcance emitido en el mismo segundo que el cambio no queda anulado por él (L2 de la revisión del #45). Resuelto en el #49: contador de generación `gen`.
 - [x] El arranque del primer administrador usa un bloqueo asesor y no una restricción única en la base de datos (I2 de la revisión del #45). Resuelto en el #49: se mantiene el bloqueo asesor (decisión).
 - [ ] **E5:** mantener los AppRoles `bootstrap-seed` y `breakglass-seed` (solo desarrollo y CI) fuera de los manifiestos.
-- [ ] **E5:** empaquetar `gateway.bootstrap` y `gateway.breakglass` como Jobs de Kubernetes ejecutados a mano con `backoffLimit: 0` (#58).
+- [ ] **E5:** empaquetar `gateway.bootstrap` y `gateway.breakglass` como Jobs de Kubernetes ejecutados a mano con `backoffLimit: 0` (#58). En producción el `secret_id` de `bootstrap` y de `breakglass` debe ser de un solo uso (`secret_id_num_uses=1`) y de TTL corto, generado justo antes de la ejecución; los AppRoles de desarrollo usan `secret_id_ttl=0` y `secret_id_num_uses=0` (hallazgo bajo de `revisor-seguridad` del #58).
 - [x] El bloqueo del contador de intentos del login (`auth.py`) solo traduce `LOCK_NOT_AVAILABLE` a 503; valorar usar `busy_guard` también ahí (#47). Resuelto en el #49: `_lock_attempt` usa `busy_guard`.
 - [ ] Varias peticiones `/login/mfa` en paralelo con un token `mfa-pending` válido hacen su llamada a transit y su Argon2 a la vez, ya sin serializar; depende del límite de tasa por IP (E5) (L1 de la revisión del #43).
 - [ ] Rotación de la clave transit `totp` con `rewrap` de los textos cifrados (ADR 0006).

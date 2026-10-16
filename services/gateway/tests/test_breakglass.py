@@ -58,12 +58,8 @@ FIXED_MESSAGES = (
 class FakeBao:
     """Just enough of hvac's KV v2 client for the break-glass command."""
 
-    def __init__(
-        self, store=None, *, destroy_error=None, verify_error=None, shared=None
-    ):
-        if shared is not None:
-            self.store = shared
-        elif store is not None:
+    def __init__(self, store=None, *, destroy_error=None, verify_error=None):
+        if store is not None:
             self.store = store
         else:
             self.store = {"username": TARGET, "password": SEEDED}
@@ -559,7 +555,14 @@ def test_an_uncertain_verification_rolls_back_and_does_not_promise_the_secret(
     assert "intact" not in err
 
 
-def test_a_failed_commit_after_the_destroy_changes_nothing(
+def test_reset_failed_says_the_account_may_or_may_not_be_reset():
+    # A COMMIT can be applied by PostgreSQL and still fail on the client when
+    # the connection drops, so the message must not promise "nothing changed".
+    assert "may or may not" in breakglass.RESET_FAILED
+    assert "reseed" in breakglass.RESET_FAILED
+
+
+def test_a_failed_commit_after_the_destroy_leaves_no_secret_and_a_fixed_error(
     db_engine, bao, monkeypatch, capsys
 ):
     make_user(db_engine, TARGET, "editor")
@@ -574,8 +577,8 @@ def test_a_failed_commit_after_the_destroy_changes_nothing(
     assert run(*ARGV) == breakglass.EXIT_FAILED
 
     monkeypatch.setattr(breakglass.Session, "commit", real_commit)
-    # Safe failure: the account is as before and no secret remains; the person
-    # seeds a new one.
+    # For this simulated failure the commit never reached PostgreSQL, so the
+    # account is as before. No secret remains either way; the person reseeds.
     assert row(db_engine, TARGET) == before
     assert bao.store == {}
     assert capsys.readouterr().err.strip() == breakglass.RESET_FAILED

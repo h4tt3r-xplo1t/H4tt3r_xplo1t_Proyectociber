@@ -13,6 +13,7 @@ command logs in with its own AppRole (read and destroy of that path only) and,
 in one transaction under the row lock of the account:
 
 - sets the seeded password, with `must_change_password`;
+- sets `privileged_at` (`mark_privileged`; it is never cleared);
 - clears the MFA (secret, pending secret, activation, last step) and deletes the
   recovery codes, and opens a 24 h enrollment window;
 - deletes the pending approval requests (both kinds) and the reset code of the
@@ -32,8 +33,10 @@ Order of the steps follows `gateway.bootstrap`: the destroy runs after the
 changes are flushed and before the commit. If it fails definitely (exit 4) the
 reset rolls back and the secret is intact. If its outcome is unknown (exit 5)
 the reset also rolls back but the secret may be gone: check it and reseed before
-rerunning. If the commit fails after the destroy (exit 1) nothing changed and no
-secret exists: seed a new one. The outcome that cannot happen is an account
+rerunning. If the commit fails after the destroy (exit 1) the secret is gone and
+the account may or may not have been reset (PostgreSQL can apply a COMMIT whose
+acknowledgement was lost): check the account, or seed a new secret and rerun,
+since the reset is idempotent. The outcome that cannot happen is an account
 reset while its new password still sits in OpenBao.
 
 Limits, by design. The login lockout counter is not reset: its key derives from
@@ -93,8 +96,10 @@ WRONG_TARGET = (
     "in --username; nothing was changed"
 )
 RESET_FAILED = (
-    "break-glass failed: the account could not be reset (database unavailable "
-    "or not configured); check whether the secret still exists"
+    "break-glass failed: the reset did not finish (database unavailable or not "
+    "configured); the account may or may not have been reset and the secret may "
+    "be gone: check the account, or reseed the secret and run it again (the "
+    "reset is idempotent)"
 )
 BUSY = (
     "break-glass failed: the account is busy (locked by another request); "

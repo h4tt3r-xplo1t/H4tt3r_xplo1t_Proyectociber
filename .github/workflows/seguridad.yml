@@ -90,6 +90,7 @@ jobs:
     env:
       UV_VERSION: 0.12.21
       UV_SHA256: 23f02075b652bb1df64178cfae41b5caf160822e720e2663568f3f5d63bc52c0
+      # Keep in sync: the gateway and worker-noticias jobs pin the same uv; bump both together.
       # CI-only throwaway credentials: the database is ephemeral, lives on
       # this runner and is not reachable from outside. Not a real secret.
       GATEWAY_DATABASE_URL: postgresql+psycopg://gateway:ci-only-throwaway@localhost:5432/gateway_ci
@@ -175,6 +176,7 @@ jobs:
     env:
       UV_VERSION: 0.12.21
       UV_SHA256: 23f02075b652bb1df64178cfae41b5caf160822e720e2663568f3f5d63bc52c0
+      # Keep in sync: the gateway and worker-noticias jobs pin the same uv; bump both together.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

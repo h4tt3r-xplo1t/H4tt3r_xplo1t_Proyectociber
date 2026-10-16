@@ -13,6 +13,10 @@ def test_package_and_dependencies_import():
 def test_expat_is_recent_enough():
     # Older Expat releases are vulnerable to billion laughs, quadratic blowup
     # and large-token attacks (Python 3.14 xml docs).
-    version = pyexpat.EXPAT_VERSION.removeprefix("expat_")
-    parsed = tuple(int(part) for part in version.split("."))
-    assert parsed >= MIN_EXPAT
+    raw = pyexpat.EXPAT_VERSION
+    parts = raw.removeprefix("expat_").split(".")
+    assert len(parts) >= 3 and all(p.isdecimal() for p in parts[:3]), (
+        f"unexpected Expat version format: {raw!r}"
+    )
+    parsed = tuple(int(part) for part in parts[:3])
+    assert parsed >= MIN_EXPAT, f"Expat {raw!r} is older than {MIN_EXPAT}"

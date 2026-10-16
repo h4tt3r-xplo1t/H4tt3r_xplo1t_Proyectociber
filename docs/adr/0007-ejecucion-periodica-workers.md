@@ -6,9 +6,11 @@ Aceptado, 2026-10-16.
 
 ## Contexto
 
-`worker-noticias` (ADR 0003) lee de forma periódica cinco fuentes fijas: los
-RSS de RCN y Semana y los sitemaps de noticias de RCN, Caracol, Blu Radio y
-Citytv. Hay que decidir cómo se programa esa lectura periódica.
+`worker-noticias` (ADR 0003) lee de forma periódica seis fuentes fijas de cinco
+medios: los RSS de RCN y Semana y los sitemaps de noticias de RCN, Caracol,
+Blu Radio y Citytv. En este ADR, «fuente» es un feed (un RSS o un sitemap), no
+un medio: RCN tiene dos fuentes, y el aislamiento de fallos es por fuente.
+Hay que decidir cómo se programa esa lectura periódica.
 
 RabbitMQ todavía no está desplegado: la comunicación por broker llega con
 `worker-analisis`. Cada dependencia nueva amplía la cadena de suministro, que
@@ -19,7 +21,7 @@ La decisión la tomó la persona responsable el 2026-10-16.
 ## Opciones consideradas
 
 1. **Celery con beat.** Descartada por ahora: exige un broker y un proceso
-   `beat` ya, y añade un árbol de dependencias grande para programar cinco
+   `beat` ya, y añade un árbol de dependencias grande para programar seis
    lecturas.
 2. **APScheduler u otra biblioteca de planificación.** Descartada: una
    dependencia más (con su mantenimiento y sus vulnerabilidades) para una

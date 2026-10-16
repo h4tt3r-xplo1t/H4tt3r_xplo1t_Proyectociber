@@ -18,7 +18,14 @@ from sqlalchemy.orm import Session
 from gateway import auth
 from gateway.db import get_engine
 from gateway.main import create_app
-from tests.helpers import DbError, FrozenClock, Interfere, run_sql
+from tests.helpers import (
+    DbError,
+    FrozenClock,
+    Interfere,
+    current_step,
+    end_session_like_a_logout,
+    run_sql,
+)
 from tests.test_login import (
     GOOD,
     KEYS,
@@ -89,10 +96,6 @@ def reader_with_mfa(client, db_engine, clock, username="alice"):
 
 def body(secret, clock, **overrides):
     return {"current_password": GOOD, "code": totp(secret, clock)} | overrides
-
-
-def current_step(clock):
-    return int(clock().timestamp()) // 30
 
 
 def assert_mfa_untouched(db_engine, codes=9):
@@ -545,24 +548,6 @@ def test_a_busy_user_row_is_a_503_and_counts_nothing(
     assert_mfa_untouched(db_engine)
 
 
-def end_session_like_a_logout(client, db_engine, kind):
-    """What a concurrent logout leaves behind, whole or in part.
-
-    The generation is not touched: a logout denies the jti and revokes the
-    family, nothing else.
-    """
-    claims = auth.decode_access_token(client.cookies.get("__Host-access"), KEYS)
-    if kind in ("jti", "logout"):
-        run_sql(
-            db_engine,
-            "INSERT INTO revoked_jtis (jti, expires_at) "
-            "VALUES (:j, now() + interval '1 hour')",
-            j=claims["jti"],
-        )
-    if kind in ("family", "logout"):
-        run_sql(db_engine, "UPDATE refresh_families SET revoked_at = now()")
-
-
 @pytest.mark.parametrize("kind", ["jti", "family", "logout"])
 def test_a_logout_meanwhile_ends_the_request_and_opens_no_session(
     client, db_engine, clock, monkeypatch, kind
@@ -574,7 +559,7 @@ def test_a_logout_meanwhile_ends_the_request_and_opens_no_session(
         "_prepare_second_factor",
         Interfere(
             auth._prepare_second_factor,
-            lambda: end_session_like_a_logout(client, db_engine, kind),
+            lambda: end_session_like_a_logout(client, db_engine, kind, KEYS),
         ),
     )
 

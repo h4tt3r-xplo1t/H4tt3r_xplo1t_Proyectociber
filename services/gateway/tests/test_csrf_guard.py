@@ -19,6 +19,7 @@ STATE_CHANGING = {"POST", "PUT", "PATCH", "DELETE"}
 PRE_SESSION = {
     ("POST", "/api/auth/register"),
     ("POST", "/api/auth/login"),
+    ("POST", "/api/auth/password-reset"),
 }
 
 USERS = "/api/admin/users"
@@ -75,6 +76,30 @@ CASES = {
         None,
         409,
     ),
+    ("POST", f"{USERS}/{{user_id}}/reset-code"): (
+        "admin",
+        f"{USERS}/{{target}}/reset-code",
+        None,
+        200,
+    ),
+    ("POST", f"{USERS}/{{user_id}}/mfa-reset"): (
+        "admin",
+        f"{USERS}/{{target}}/mfa-reset",
+        None,
+        409,  # the target has no MFA: past the CSRF check, refused for its own reason
+    ),
+    ("POST", f"{USERS}/{{user_id}}/mfa-reset/approve"): (
+        "admin",
+        f"{USERS}/{{target}}/mfa-reset/approve",
+        None,
+        409,  # no pending request: past the CSRF check, refused for its own reason
+    ),
+    ("POST", f"{USERS}/{{user_id}}/reset-code/approve"): (
+        "admin",
+        f"{USERS}/{{target}}/reset-code/approve",
+        None,
+        409,  # no pending request: past the CSRF check, refused for its own reason
+    ),
     ("POST", f"{USERS}/{{user_id}}/unlock"): (
         "admin",
         f"{USERS}/{{target}}/unlock",
@@ -96,6 +121,8 @@ SNAPSHOT = {
     "revoked_jtis": "SELECT * FROM revoked_jtis",
     "login_attempts": "SELECT * FROM login_attempts",
     "recovery_codes": "SELECT * FROM recovery_codes",
+    "password_reset_codes": "SELECT * FROM password_reset_codes",
+    "mfa_reset_requests": "SELECT * FROM mfa_reset_requests",
 }
 
 

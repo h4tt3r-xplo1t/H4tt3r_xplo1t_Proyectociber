@@ -18,6 +18,8 @@ from gateway.db import get_engine
 from gateway.models import (
     LoginAttempt,
     MfaEnrollmentAttempt,
+    MfaResetRequest,
+    PasswordResetCode,
     RefreshFamily,
     RefreshToken,
     RevokedJti,
@@ -92,6 +94,14 @@ def purge(session: Session, now: datetime) -> dict[str, int]:
             MfaEnrollmentAttempt.created_at <= now - ENROLL_WINDOW
         )
     )
+    # An expired code is refused like a missing one; the row only takes space.
+    reset_codes = session.execute(
+        delete(PasswordResetCode).where(PasswordResetCode.expires_at <= now)
+    )
+    # An expired request cannot be approved; a new request replaces it anyway.
+    reset_requests = session.execute(
+        delete(MfaResetRequest).where(MfaResetRequest.expires_at <= now)
+    )
     families = session.execute(
         delete(RefreshFamily).where(RefreshFamily.id.in_(family_ids))
     )
@@ -102,6 +112,8 @@ def purge(session: Session, now: datetime) -> dict[str, int]:
         "refresh_families": families.rowcount,
         "refresh_tokens": len(tokens),
         "mfa_enrollment_attempts": enrollments.rowcount,
+        "password_reset_codes": reset_codes.rowcount,
+        "mfa_reset_requests": reset_requests.rowcount,
     }
 
 

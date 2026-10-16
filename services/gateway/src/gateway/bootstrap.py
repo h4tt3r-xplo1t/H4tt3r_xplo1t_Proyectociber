@@ -173,6 +173,7 @@ def _create(client, username: str, password: str) -> int:
             role="administrador",
             must_change_password=True,
             mfa_enroll_until=now + ENROLL_WINDOW,
+            privileged_at=now,
             # The app clock, like every write of this column.
             tokens_valid_since=now,
         )

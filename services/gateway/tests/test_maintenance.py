@@ -24,6 +24,8 @@ TABLES = (
     "refresh_families",
     "refresh_tokens",
     "mfa_enrollment_attempts",
+    "password_reset_codes",
+    "mfa_reset_requests",
 )
 
 
@@ -101,6 +103,34 @@ def test_purge_attempts_keeps_recent_and_locked_rows(db_engine):
     assert column(db_engine, "SELECT attempt_key FROM login_attempts") == {
         "old-still-locked",
         "recent",
+    }
+
+
+# --- password_reset_codes -------------------------------------------------------
+
+
+def test_purge_reset_codes_deletes_only_the_expired_ones(db_engine):
+    with db_engine.begin() as conn:
+        users = [add_user(conn, name) for name in ("a", "b", "c")]
+        for user, offset in zip(
+            users,
+            (timedelta(seconds=-1), timedelta(0), timedelta(minutes=1)),
+            strict=True,
+        ):
+            conn.execute(
+                text(
+                    "INSERT INTO password_reset_codes "
+                    "(user_id, code_hash, created_at, expires_at) "
+                    "VALUES (:u, 'h', :c, :e)"
+                ),
+                {"u": user, "c": NOW - timedelta(minutes=15), "e": NOW + offset},
+            )
+
+    counts = run_purge(db_engine)
+
+    assert counts["password_reset_codes"] == 2
+    assert column(db_engine, "SELECT user_id::text FROM password_reset_codes") == {
+        str(users[2])
     }
 
 
@@ -229,6 +259,8 @@ def test_purge_is_idempotent(db_engine):
         "refresh_families": 1,
         "refresh_tokens": 1,
         "mfa_enrollment_attempts": 0,
+        "password_reset_codes": 0,
+        "mfa_reset_requests": 0,
     }
     assert second == dict.fromkeys(TABLES, 0)
 
@@ -294,6 +326,8 @@ def test_cli_purge_prints_counts_only_and_exits_zero(db_engine):
         "refresh_families=1",
         "refresh_tokens=1",
         "mfa_enrollment_attempts=0",
+        "password_reset_codes=0",
+        "mfa_reset_requests=0",
     ]
     for line in result.stdout.splitlines():
         assert re.fullmatch(r"[a-z_]+=\d+", line)
@@ -372,3 +406,63 @@ def test_cli_with_an_unreachable_database_fails_without_leaking_the_url():
     assert "Traceback" not in result.stderr
     for leaked in (password, "leaky_user", "leaky_db", "127.0.0.1"):
         assert leaked not in result.stdout + result.stderr
+
+
+# --- mfa_reset_requests ---------------------------------------------------------
+
+
+def test_purge_mfa_reset_requests_deletes_only_the_expired_ones(db_engine):
+    with db_engine.begin() as conn:
+        requester = add_user(conn, "requester", "administrador")
+        targets = [add_user(conn, name) for name in ("a", "b", "c")]
+        for target, offset in zip(
+            targets,
+            (timedelta(seconds=-1), timedelta(0), timedelta(minutes=1)),
+            strict=True,
+        ):
+            conn.execute(
+                text(
+                    "INSERT INTO mfa_reset_requests "
+                    "(target_user_id, requested_by, created_at, expires_at) "
+                    "VALUES (:t, :r, :c, :e)"
+                ),
+                {
+                    "t": target,
+                    "r": requester,
+                    "c": NOW - timedelta(hours=1),
+                    "e": NOW + offset,
+                },
+            )
+
+    counts = run_purge(db_engine)
+
+    assert counts["mfa_reset_requests"] == 2
+    assert column(db_engine, "SELECT target_user_id::text FROM mfa_reset_requests") == {
+        str(targets[2])
+    }
+
+
+def test_purge_deletes_expired_requests_of_both_kinds(db_engine):
+    with db_engine.begin() as conn:
+        requester = add_user(conn, "requester", "administrador")
+        target = add_user(conn, "target")
+        for kind in ("mfa_reset", "reset_code"):
+            conn.execute(
+                text(
+                    "INSERT INTO mfa_reset_requests "
+                    "(target_user_id, requested_by, created_at, expires_at, kind) "
+                    "VALUES (:t, :r, :c, :e, :k)"
+                ),
+                {
+                    "t": target,
+                    "r": requester,
+                    "c": NOW - timedelta(hours=2),
+                    "e": NOW - timedelta(hours=1),
+                    "k": kind,
+                },
+            )
+
+    counts = run_purge(db_engine)
+
+    assert counts["mfa_reset_requests"] == 2
+    assert column(db_engine, "SELECT kind FROM mfa_reset_requests") == set()

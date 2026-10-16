@@ -26,7 +26,6 @@ import re
 import sys
 from datetime import UTC, datetime
 
-import hvac
 from sqlalchemy import exists, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -34,6 +33,7 @@ from sqlalchemy.orm import Session
 from gateway.db import get_engine
 from gateway.mfa import ENROLL_WINDOW
 from gateway.models import User
+from gateway.oneshot import DestroyFailed, DestroyUncertain, destroy_secret
 from gateway.passwords import hash_password, meets_password_policy
 from gateway.secrets import KV_MOUNT, SecretsError, login_from_env, revoke
 
@@ -72,29 +72,6 @@ DESTROY_UNCERTAIN = (
 )
 
 
-# OpenBao answered the delete with a 4xx: it refused, nothing was deleted.
-DEFINITE_REJECTIONS = (
-    hvac.exceptions.InvalidRequest,
-    hvac.exceptions.Unauthorized,
-    hvac.exceptions.Forbidden,
-    hvac.exceptions.InvalidPath,
-    hvac.exceptions.PreconditionFailed,
-    hvac.exceptions.RateLimitExceeded,
-)
-
-
-class DestroyError(RuntimeError):
-    """Base of the two ways the destroy step can fail; never raised itself."""
-
-
-class DestroyFailed(DestroyError):
-    """The secret could not be destroyed or still answers a read."""
-
-
-class DestroyUncertain(DestroyError):
-    """The delete may have applied, but OpenBao gave no definite answer."""
-
-
 def login_client():
     """An hvac client logged in with the bootstrap AppRole."""
     return login_from_env(
@@ -125,26 +102,7 @@ def _read_password(client) -> str | None:
 
 
 def _destroy(client) -> None:
-    """Delete the key with all its versions and prove that it no longer reads."""
-    try:
-        client.secrets.kv.v2.delete_metadata_and_all_versions(
-            path=KV_PATH, mount_point=KV_MOUNT
-        )
-    except DEFINITE_REJECTIONS:
-        raise DestroyFailed from None
-    except Exception:
-        # A 5xx or a transport failure may come after the delete was applied.
-        raise DestroyUncertain from None
-    try:
-        client.secrets.kv.v2.read_secret_version(
-            path=KV_PATH, mount_point=KV_MOUNT, raise_on_deleted_version=True
-        )
-    except hvac.exceptions.InvalidPath:
-        return
-    except Exception:
-        # The delete was accepted and the read gave no answer: it may be gone.
-        raise DestroyUncertain from None
-    raise DestroyFailed
+    destroy_secret(client, KV_PATH)
 
 
 def _administrator_exists(session: Session) -> bool:

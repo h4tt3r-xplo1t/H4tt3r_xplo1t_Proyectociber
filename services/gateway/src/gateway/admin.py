@@ -704,8 +704,9 @@ def issue_reset_code(
         response.status_code = status.HTTP_202_ACCEPTED
         return ApprovalPendingOut(status="approval_required", expires_at=expires_at)
     if code_hash is None:
-        # Cannot happen while the marker is never cleared (the peek said the
-        # account needs two administrators and the locked row says it does not).
+        # The peek said the account needs two administrators (so no hash was
+        # made) and the locked row says it does not. Reachable: a pending role
+        # on an account without `privileged_at` can be cleared in between.
         session.rollback()
         raise _conflict("The account changed; try again")
     expires_at = _store_reset_code(session, target, code_hash, actor_user.id, None, now)

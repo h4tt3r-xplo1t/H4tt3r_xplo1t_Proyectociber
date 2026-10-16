@@ -170,3 +170,48 @@ def seed_files(openbao_env) -> dict[str, str]:
             "OpenBao and run scripts/openbao-dev-init.sh with one of them set"
         )
     return files
+
+
+@pytest.fixture(scope="session")
+def breakglass_files(openbao_env) -> dict[str, str]:
+    """Paths of the break-glass AppRole credentials, next to the gateway ones.
+
+    Written by scripts/openbao-dev-init.sh on the first setup, like the
+    bootstrap pair. Missing files fail the test, like the other fixtures.
+    """
+    directory = Path(openbao_env["GATEWAY_OPENBAO_ROLE_ID_FILE"]).parent
+    files = {
+        "GATEWAY_BREAKGLASS_ROLE_ID_FILE": str(directory / "breakglass-role-id"),
+        "GATEWAY_BREAKGLASS_SECRET_ID_FILE": str(directory / "breakglass-secret-id"),
+    }
+    missing = [name for name, path in files.items() if not Path(path).is_file()]
+    if missing:
+        pytest.fail(
+            f"{', '.join(missing)} not found next to the gateway credentials: "
+            "recreate the dev OpenBao and run scripts/openbao-dev-init.sh (the "
+            "break-glass AppRole is created on the first setup)"
+        )
+    return files
+
+
+@pytest.fixture(scope="session")
+def breakglass_seed_files(openbao_env) -> dict[str, str]:
+    """Paths of the DEV/CI-only `breakglass-seed` AppRole credentials.
+
+    That role exists only so the tests can write `secret/breakglass/account`; in
+    production the responsible person writes it with their own credentials.
+    """
+    directory = Path(openbao_env["GATEWAY_OPENBAO_ROLE_ID_FILE"]).parent
+    files = {
+        "role_id": str(directory / "breakglass-seed-role-id"),
+        "secret_id": str(directory / "breakglass-seed-secret-id"),
+    }
+    missing = [name for name, path in files.items() if not Path(path).is_file()]
+    if missing:
+        pytest.fail(
+            "breakglass-seed credential files not found next to the gateway "
+            "ones: that dev/CI-only role is created on the first setup only "
+            "when CI=true or OPENBAO_DEV_BOOTSTRAP_SEED=1; recreate the dev "
+            "OpenBao and run scripts/openbao-dev-init.sh with one of them set"
+        )
+    return files

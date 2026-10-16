@@ -22,6 +22,12 @@
 #               when CI=true (GitHub Actions sets it) or
 #               OPENBAO_DEV_BOOTSTRAP_SEED=1 is exported for a local dev stack;
 #               otherwise it does not exist
+#   breakglass-role-id, breakglass-secret-id  AppRole of the account recovery
+#               (python -m gateway.breakglass): read and destroy of
+#               secret/breakglass/account only
+#   breakglass-seed-role-id, breakglass-seed-secret-id  DEV/CI-ONLY AppRole that
+#               can create and update secret/breakglass/account, created under
+#               the same condition as bootstrap-seed
 #   setup-complete  marker written after every first-setup step succeeded
 #
 # Recovery: if the setup is interrupted after init, the root token is gone.
@@ -157,6 +163,29 @@ if [[ "$FIRST_SETUP" == "true" ]]; then
     echo "Skipping the bootstrap-seed AppRole (dev/CI only): export OPENBAO_DEV_BOOTSTRAP_SEED=1 before the first setup to create it"
   fi
 
+  # The account recovery (break-glass) has its own AppRole and policy too: it
+  # may only read and destroy secret/breakglass/account, which neither the
+  # gateway nor the bootstrap policy reaches.
+  bao policy write breakglass - <deploy/openbao/breakglass-policy.hcl >/dev/null
+  bao write auth/approle/role/breakglass \
+    token_policies=breakglass token_ttl=15m token_max_ttl=1h \
+    secret_id_ttl=0 secret_id_num_uses=0 >/dev/null
+  bao read -field=role_id auth/approle/role/breakglass/role-id >"$STATE_DIR/breakglass-role-id"
+  bao write -f -field=secret_id auth/approle/role/breakglass/secret-id >"$STATE_DIR/breakglass-secret-id"
+
+  # DEV/CI ONLY, same guard as bootstrap-seed: a writer for
+  # secret/breakglass/account so the tests can seed it.
+  if [[ "${CI:-}" == "true" || "${OPENBAO_DEV_BOOTSTRAP_SEED:-}" == "1" ]]; then
+    bao policy write breakglass-seed - <deploy/openbao/breakglass-seed-policy.hcl >/dev/null
+    bao write auth/approle/role/breakglass-seed \
+      token_policies=breakglass-seed token_ttl=15m token_max_ttl=1h \
+      secret_id_ttl=0 secret_id_num_uses=0 >/dev/null
+    bao read -field=role_id auth/approle/role/breakglass-seed/role-id >"$STATE_DIR/breakglass-seed-role-id"
+    bao write -f -field=secret_id auth/approle/role/breakglass-seed/secret-id >"$STATE_DIR/breakglass-seed-secret-id"
+  else
+    echo "Skipping the breakglass-seed AppRole (dev/CI only): export OPENBAO_DEV_BOOTSTRAP_SEED=1 before the first setup to create it"
+  fi
+
   # Keys are created only if absent, and read from stdin (key=-) so they are
   # never on a command line or in the output.
   if ! bao kv get -mount=secret gateway/jwt >/dev/null 2>&1; then
@@ -182,6 +211,9 @@ else
   fi
   if [[ ! -s "$STATE_DIR/bootstrap-role-id" || ! -s "$STATE_DIR/bootstrap-secret-id" ]]; then
     echo "NOTE: this OpenBao was set up before the bootstrap AppRole existed; recreate it (docker compose rm -s -f openbao, remove its volume and the files in $STATE_DIR, rerun) to get it" >&2
+  fi
+  if [[ ! -s "$STATE_DIR/breakglass-role-id" || ! -s "$STATE_DIR/breakglass-secret-id" ]]; then
+    echo "NOTE: this OpenBao was set up before the break-glass AppRole existed; recreate it (docker compose rm -s -f openbao, remove its volume and the files in $STATE_DIR, rerun) to get it" >&2
   fi
   echo "Already set up: nothing to do"
 fi

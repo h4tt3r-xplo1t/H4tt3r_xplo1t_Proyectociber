@@ -22,7 +22,8 @@ Retry-After is deliberately ignored: honouring a number chosen by the remote
 server would let it stall the worker; the fixed backoff is enough.
 
 Errors are `FetchError` with a fixed `reason`; messages never carry the
-response body or the query string of the URL.
+response body or the query string of the URL. `tls` (certificate or hostname
+verification failed) is final: it is never retried.
 """
 
 import ipaddress
@@ -40,6 +41,7 @@ from urllib3.exceptions import (
     HTTPError,
     NewConnectionError,
     ReadTimeoutError,
+    SSLError,
 )
 from urllib3.util import parse_url
 
@@ -362,6 +364,10 @@ def _hop_with_retries(url, *, sleep, clock, deadline_at, **kwargs) -> _Hop:
             # A subclass of ConnectTimeoutError in urllib3 2.x, so it must be
             # matched before the timeouts.
             reason, status = "connection", None
+        except SSLError as exc:
+            # Certificate or hostname verification failed: a retry gives the
+            # same answer, so fail at once (and do not try other addresses).
+            raise FetchError("tls") from exc
         except ConnectTimeoutError, ReadTimeoutError:
             reason, status = "timeout", None
         except HTTPError:

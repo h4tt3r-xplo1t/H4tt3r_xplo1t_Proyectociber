@@ -6,7 +6,9 @@ Isolation: "source" is one feed. Each feed runs in its own error handling, so a
 feed that fails, times out or is forbidden never stops the others (acceptance
 criterion 4). Per feed, in order: the robots.txt decision (one `RobotsCache`
 per cycle, so one download per host), then download, parse and save. A feed
-whose robots.txt forbids it is `disabled` and its URL is never requested.
+whose robots.txt forbids it is `disabled` and its URL is never requested. If
+the download was redirected (same host only), the final path is checked with
+the same cache; a forbidden target discards the body (`disabled`).
 
 Logs name only the source id, the status, counts and a fixed reason code, never
 titles, summaries, bodies, robots.txt text, URLs with a query string or the
@@ -95,6 +97,12 @@ def _read_source(source, fetcher, saver, cache) -> SourceReport:
     if not decision.allowed:
         return SourceReport(source.id, DISABLED, 0, 0, 0, decision.reason)
     result = fetcher(source.url)
+    if result.final_url != source.url:
+        # A same-host redirect lands on another path: robots.txt rules apply
+        # to it too. The body is dropped unparsed and unsaved.
+        moved = cache.check(source, result.final_url)
+        if not moved.allowed:
+            return SourceReport(source.id, DISABLED, 0, 0, 0, moved.reason)
     parsed = feeds.parse_feed(source, result.body)
     saved: SaveResult = saver(parsed.items)
     return SourceReport(

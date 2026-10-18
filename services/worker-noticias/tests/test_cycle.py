@@ -422,3 +422,43 @@ def test_a_stop_event_set_during_the_wait_wakes_the_real_loop_at_once():
         timer.cancel()
     assert time.monotonic() - began < 2
     assert starts == [1]
+
+
+def test_a_same_host_redirect_to_a_forbidden_path_is_disabled_and_not_saved():
+    source = BY_ID["semana-rss"]
+    moved = "https://www.semana.com/private/feed.xml"
+
+    class Redirecting(FakeFetcher):
+        def __call__(self, url):
+            if url == source.url:
+                self.urls.append(url)
+                return FetchResult(200, good_body(source), moved)
+            return super().__call__(url)
+
+    fetcher = Redirecting(robots_txt="User-agent: *\nDisallow: /private/\n")
+    saver = RecordingSaver()
+    report = run(fetcher, saver)
+    row = by_id(report)["semana-rss"]
+    assert (row.status, row.reason, row.read, row.new) == (
+        "disabled",
+        "disallowed",
+        0,
+        0,
+    )
+    assert all(c[0].source_id != "semana-rss" for c in saver.calls if c)
+    assert by_id(report)["rcn-rss"].status == "ok"
+    assert report.ok
+
+
+def test_a_same_host_redirect_to_an_allowed_path_is_read_normally():
+    source = BY_ID["semana-rss"]
+
+    class Redirecting(FakeFetcher):
+        def __call__(self, url):
+            if url == source.url:
+                self.urls.append(url)
+                return FetchResult(200, good_body(source), "https://www.semana.com/ok")
+            return super().__call__(url)
+
+    report = run(Redirecting(), RecordingSaver())
+    assert by_id(report)["semana-rss"].status == "ok"

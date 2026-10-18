@@ -129,6 +129,141 @@ def test_a_utf8_bom_does_not_hide_the_first_group():
     assert decide(SEMANA, body).allowed is False
 
 
+# --- RFC 9309 matching (the stdlib robotparser is not used) ---------------------
+
+SITEMAP_PATH = "/sitemapnews"
+
+
+def test_star_and_end_anchor_block_a_path_ending_in_xml():
+    sitemap = feeds.Source(
+        "x", "Citytv", "sitemap", "https://citytv.eltiempo.com/sitemap-news.xml"
+    )
+    other = feeds.Source(
+        "y", "Citytv", "sitemap", "https://citytv.eltiempo.com/sitemap-news.xml?x=1"
+    )
+    txt = "User-agent: *\nDisallow: /*.xml$\n"
+    assert decide(sitemap, txt) == RobotsDecision(False, "disallowed")
+    # `$` anchors the end of path+query: with a query the path no longer ends there.
+    assert decide(other, txt) == RobotsDecision(True, "allowed")
+
+
+def test_a_star_pattern_matches_the_query_of_the_feed():
+    txt = "User-agent: *\nDisallow: /*outputType=xml\n"
+    assert decide(SEMANA, txt) == RobotsDecision(False, "disallowed")
+    assert decide(SEMANA, "User-agent: *\nDisallow: /*outputType=json\n").allowed
+
+
+def test_the_longest_rule_wins_when_disallow_is_the_more_specific():
+    txt = "User-agent: *\nAllow: /arc/\nDisallow: /arc/outboundfeeds/\n"
+    assert decide(SEMANA, txt) == RobotsDecision(False, "disallowed")
+
+
+def test_the_longest_rule_wins_when_allow_is_the_more_specific():
+    txt = "User-agent: *\nDisallow: /arc/\nAllow: /arc/outboundfeeds/\n"
+    assert decide(SEMANA, txt) == RobotsDecision(True, "allowed")
+
+
+def test_on_equal_length_allow_wins_in_any_order():
+    for lines in ("Allow: /arc/\nDisallow: /arc/", "Disallow: /arc/\nAllow: /arc/"):
+        assert decide(SEMANA, f"User-agent: *\n{lines}\n").allowed is True
+
+
+def test_the_length_of_a_pattern_counts_its_wildcards():
+    # "/arc/*/rss/" (11) beats "/arc/" (5) even though both match.
+    txt = "User-agent: *\nAllow: /arc/\nDisallow: /arc/*/rss/\n"
+    assert decide(SEMANA, txt).allowed is False
+
+
+def test_an_empty_disallow_allows_everything():
+    assert decide(SEMANA, "User-agent: *\nDisallow:\n") == RobotsDecision(
+        True, "allowed"
+    )
+
+
+def test_an_empty_disallow_does_not_cancel_another_rule_of_the_group():
+    txt = "User-agent: *\nDisallow:\nDisallow: /arc/\n"
+    assert decide(SEMANA, txt).allowed is False
+
+
+def test_our_group_overrides_the_wildcard_group_even_when_more_permissive():
+    txt = f"User-agent: *\nDisallow: /\n\nUser-agent: {BOT_NAME}\nDisallow: /buscar\n"
+    assert decide(SEMANA, txt) == RobotsDecision(True, "allowed")
+
+
+def test_an_agent_group_that_only_contains_part_of_our_token_does_not_apply():
+    # Product token matched exactly (no substring): "bot" and "H4tt3r" are others.
+    txt = "User-agent: bot\nDisallow: /\n\nUser-agent: H4tt3r\nDisallow: /\n"
+    assert decide(SEMANA, txt).allowed is True
+
+
+def test_a_gptbot_group_does_not_apply_and_wildcard_does():
+    txt = "User-agent: GPTBot\nAllow: /\n\nUser-agent: *\nDisallow: /arc/\n"
+    assert decide(SEMANA, txt).allowed is False
+
+
+def test_groups_of_our_agent_are_merged():
+    txt = (
+        f"User-agent: {BOT_NAME}\nDisallow: /buscar\n\n"
+        "User-agent: *\nDisallow: /\n\n"
+        f"User-agent: {BOT_NAME}\nDisallow: /arc/\n"
+    )
+    assert decide(SEMANA, txt).allowed is False
+
+
+def test_consecutive_user_agent_lines_form_one_group():
+    txt = f"User-agent: GPTBot\nUser-agent: {BOT_NAME}\nDisallow: /\n"
+    assert decide(SEMANA, txt).allowed is False
+
+
+def test_a_missing_blank_line_still_starts_a_new_group():
+    txt = f"User-agent: GPTBot\nDisallow: /\nUser-agent: {BOT_NAME}\nAllow: /\n"
+    assert decide(SEMANA, txt).allowed is True
+
+
+def test_field_names_are_case_insensitive_and_comments_are_ignored():
+    txt = "USER-AGENT: * # everyone\nDISALLOW: /arc/ # no\nsitemap: https://x/y\n"
+    assert decide(SEMANA, txt).allowed is False
+
+
+def test_unknown_lines_do_not_break_a_group():
+    txt = "User-agent: *\nCrawl-delay: 10\nSitemap: https://x/s.xml\nDisallow: /\n"
+    assert decide(SEMANA, txt).allowed is False
+
+
+def test_rules_before_any_user_agent_are_ignored():
+    assert decide(SEMANA, "Disallow: /\nUser-agent: GPTBot\nDisallow: /\n").allowed
+
+
+def test_crlf_and_cr_line_endings_work():
+    assert decide(SEMANA, "User-agent: *\r\nDisallow: /\r\n").allowed is False
+    assert decide(SEMANA, "User-agent: *\rDisallow: /\r").allowed is False
+
+
+def test_percent_encoding_is_compared_in_one_canonical_form():
+    accent = feeds.Source(
+        "z", "RCN", "rss", "https://www.noticiasrcn.com/secci%C3%B3n/feed"
+    )
+    # Raw UTF-8, lowercase hex and uppercase hex all name the same octets.
+    for rule in ("/sección/", "/secci%c3%b3n/", "/secci%C3%B3n/"):
+        assert decide(accent, f"User-agent: *\nDisallow: {rule}\n").allowed is False
+    # Unreserved characters written as %XX equal themselves (%61 is "a").
+    assert decide(SEMANA, "User-agent: *\nDisallow: /%61rc/\n").allowed is False
+
+
+def test_an_encoded_reserved_character_is_not_the_plain_one():
+    txt = "User-agent: *\nDisallow: /arc%2Foutboundfeeds/\n"
+    assert decide(SEMANA, txt).allowed is True
+
+
+def test_an_encoded_star_is_literal():
+    assert decide(SEMANA, "User-agent: *\nDisallow: /%2Aarc/\n").allowed is True
+
+
+def test_the_matcher_is_not_exponential_on_many_wildcards():
+    txt = "User-agent: *\nDisallow: /" + "*a" * 200 + "b\n"
+    assert decide(SEMANA, txt).allowed is True
+
+
 # --- status handling (RFC 9309 2.3.1) -------------------------------------------
 
 

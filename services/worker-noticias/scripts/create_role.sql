@@ -14,6 +14,9 @@
 -- The role cannot create anything: the migration grants it SELECT, INSERT and
 -- DELETE on noticias.news_items and nothing else.
 --
+-- The password must have at least 16 characters. An empty one would be read by
+-- PostgreSQL as "no password", so the script stops with an error instead.
+--
 -- Idempotent: if the role exists, nothing happens (it never resets a password).
 
 -- The CREATE ROLE statement below carries the password in clear text. If it
@@ -26,6 +29,15 @@
 --    statement), and the operator must make sure the server does not log
 --    statements (`log_statement` other than `all` or `ddl`). Production uses
 --    the secret manager (E5).
+-- Weak or empty password: fail, and create nothing even without ON_ERROR_STOP
+-- (`\quit` would exit with status 0, so an error is raised instead).
+SELECT length(:'app_password') < 16 AS weak \gset
+\if :weak
+DO $$ BEGIN
+    RAISE EXCEPTION 'app_password must have at least 16 characters';
+END $$;
+\endif
+
 SELECT rolsuper AS is_superuser FROM pg_roles WHERE rolname = current_user \gset
 \if :is_superuser
 SET log_min_error_statement = panic;
@@ -37,5 +49,6 @@ SELECT format(
     'NOCREATEROLE NOREPLICATION NOBYPASSRLS',
     :'app_password'
 )
-WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'worker_noticias')
+WHERE NOT :'weak'::boolean
+  AND NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'worker_noticias')
 \gexec

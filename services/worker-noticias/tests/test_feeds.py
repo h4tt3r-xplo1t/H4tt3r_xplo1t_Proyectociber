@@ -494,3 +494,23 @@ def test_the_default_clock_is_used_when_now_is_not_given():
     )
     result = parse_feed(SEMANA, rss(item(date=far)))
     assert result.items == [] and result.skipped == 1
+
+
+def test_items_beyond_the_cap_are_not_returned_and_are_counted_as_skipped(caplog):
+    total = feeds.MAX_ITEMS_PER_FEED + 7
+    items = [item(title=f"T{i}", link=f"https://{HOST}/nota/{i}") for i in range(total)]
+    with caplog.at_level("DEBUG"):
+        result = parse_rss(*items)
+    assert len(result.items) == feeds.MAX_ITEMS_PER_FEED
+    assert result.skipped == 7
+    assert result.items[0].title == "T0"
+    assert "T500" not in caplog.text
+
+
+def test_a_feed_at_the_cap_skips_nothing():
+    items = [
+        item(title=f"T{i}", link=f"https://{HOST}/nota/{i}")
+        for i in range(feeds.MAX_ITEMS_PER_FEED)
+    ]
+    result = parse_rss(*items)
+    assert (len(result.items), result.skipped) == (feeds.MAX_ITEMS_PER_FEED, 0)

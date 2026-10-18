@@ -82,6 +82,9 @@ Rama `feat/60-worker-noticias`. El worker lee los RSS de RCN y Semana y los site
 
 ### E5: plataforma, red y cifrado
 - [ ] ADR de cifrado dentro del clúster (TLS/mTLS para Vault, PostgreSQL y RabbitMQ), antes de E5.
+- [ ] **E5 (worker-noticias, #60):** la resolución DNS (`socket.getaddrinfo`) no tiene plazo y puede bloquear más de los 30 s de `fetch` (B2): tiempos del resolvedor en el pod o resolución en un hilo acotado por el tiempo restante.
+- [ ] **E5 (worker-noticias, #60):** un feed de 5 MiB muy anidado puede llegar a ~260 MB de RSS (B3): límite de memoria del pod y, si hace falta, un tope menor o de profundidad.
+- [ ] **E5 (worker-noticias, #60):** SIGTERM espera al ciclo en curso (informativo): comprobar `stop` entre feeds o fijar `terminationGracePeriodSeconds`.
 - [ ] **E5:** `/readyz` no debe exponerse fuera del clúster y debe quedar cubierto por el límite de tasa: es anónimo y, con la base caída, cada sonda tarda hasta unos 5 s y puede agotar el threadpool (L2 de la revisión del #49).
 - [ ] **E5:** los 10 hashes de `/mfa/recovery-codes` toman el semáforo de Argon2id uno a uno (hasta unos 10 × 5 s de hilo); misma clase que L6 del #33, depende del límite de tasa (L3 de la revisión del #51).
 - [ ] Prueba de concurrencia del límite de altas del MFA: lo cierra el bloqueo de la fila del usuario, sin prueba que lo demuestre (#51).

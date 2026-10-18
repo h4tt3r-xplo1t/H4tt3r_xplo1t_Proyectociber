@@ -32,6 +32,7 @@ will show up as `unknown_format` or as skipped entries, never as bad data.
 """
 
 import html
+import logging
 import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -43,11 +44,15 @@ import defusedxml.ElementTree
 
 from worker_noticias import fetch
 
+logger = logging.getLogger(__name__)
+
 TITLE_MAX = 300
 SUMMARY_MAX = 500
 AUTHOR_MAX = 120
 LINK_MAX = 2000
 MAX_FUTURE = timedelta(days=1)
+# Real feeds carry tens of items; the cap bounds work and rows per feed.
+MAX_ITEMS_PER_FEED = 500
 
 DC = "{http://purl.org/dc/elements/1.1/}"
 SITEMAP = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
@@ -298,6 +303,12 @@ def parse_feed(source: Source, data: bytes, now: datetime | None = None) -> Pars
     now = now or datetime.now(UTC)
     items: list[NewsItem] = []
     skipped = 0
+    if len(entries) > MAX_ITEMS_PER_FEED:
+        # Count only: no title or link of the dropped entries is logged.
+        over = len(entries) - MAX_ITEMS_PER_FEED
+        logger.warning("feed %s: %d item(s) over the cap skipped", source.id, over)
+        skipped += over
+        entries = entries[:MAX_ITEMS_PER_FEED]
     for entry in entries:
         try:
             items.append(build(source, entry, now))

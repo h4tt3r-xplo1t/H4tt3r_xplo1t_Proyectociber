@@ -586,9 +586,21 @@ def test_timeouts_are_retried_and_reported():
     assert result.status == 200
 
 
-def test_tls_failures_are_connection_errors():
+def test_tls_failures_fail_at_once_with_their_own_reason():
+    # Changed from "retried as a connection error": a certificate or hostname
+    # verification failure does not heal with a retry, so it is not retried.
     err = urllib3.exceptions.SSLError("bad certificate")
-    assert reason_of(URL, err, err, err) == "connection"
+    factory = FakeFactory(err, err, err)
+    sleeps = []
+    with pytest.raises(FetchError) as excinfo:
+        do_fetch(
+            URL,
+            resolver=resolver_to(PUBLIC_IP),
+            pool_factory=factory,
+            sleep=sleeps.append,
+        )
+    assert excinfo.value.reason == "tls"
+    assert len(factory.requests) == 1 and sleeps == []
 
 
 def test_validation_errors_are_not_retried():

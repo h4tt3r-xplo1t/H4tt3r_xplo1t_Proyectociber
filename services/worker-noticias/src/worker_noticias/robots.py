@@ -2,16 +2,39 @@
 
 A source whose outlet forbids our bot is not read. The check downloads the
 `robots.txt` of the feed's host with `fetch.fetch` (same hardened client, same
-User-Agent, same limits) and decides with the stdlib `urllib.robotparser`.
+User-Agent, same limits) and decides with a small matcher of its own, because
+the stdlib `urllib.robotparser` does not implement RFC 9309 (first match in
+file order instead of the longest match; wildcards depend on the Python
+version).
 
-Which group applies: `can_fetch` is given the product token of
-`fetch.USER_AGENT` (`H4tt3rInformativoBot`, no version). The stdlib looks the
-token up case-insensitively among the declared agents, then falls back to any
-group whose agent is a substring of the token, then to `*`. So a group for
-another bot (GPTBot) does not apply to us, while a group for our token wins
-over `*`. The substring rule can only over-match (a group named `bot` would
-apply), which errs on the side of not reading. The decision is made on the
-feed's path and query.
+Parsing: only `User-agent`, `Allow` and `Disallow` lines are read (names are
+case-insensitive); anything after `#` is a comment; other lines (`Sitemap`,
+`Crawl-delay`...) are ignored and do not close a group. Consecutive
+`User-agent` lines share one group; a `User-agent` line after a rule starts a
+new group, with or without a blank line. Rules before any `User-agent` line
+are ignored. An empty `Allow`/`Disallow` value is no rule (allows everything).
+
+Group selection (RFC 9309 section 2.2.1): the groups whose agent equals our
+product token `H4tt3rInformativoBot` (`fetch.USER_AGENT` without the version),
+compared case-insensitively and EXACTLY (no prefix or substring: a group named
+`bot` or `H4tt3r` is another crawler's) are merged. If there is none, the
+groups of `*` are merged; if there is none either, everything is allowed. When
+a group for our token exists, `*` is not consulted even if ours is more
+permissive.
+
+Matching (section 2.2.2) on the feed's path plus query: every rule of the
+merged group that matches is a candidate; the longest pattern wins (its length
+in characters after canonicalization, `*` and `$` included); on a tie `Allow`
+wins; with no match the path is allowed. `*` matches any run of characters
+and a final `$` anchors the end of path+query (so `/x.xml$` does not match
+`/x.xml?a=1`). The match is a linear scan over the pieces between the stars,
+so a hostile pattern cannot make it exponential.
+
+Percent-encoding: rules and path are compared in one canonical form: the text
+is taken as UTF-8 octets, each octet outside printable ASCII is written
+`%XX`, existing escapes get uppercase hex, and an escape of an unreserved
+character (letters, digits, `-._~`) is decoded. Reserved escapes stay escaped,
+so `%2F` is not `/` and `%2A` is a literal star, not a wildcard.
 
 Outcome per RFC 9309 section 2.3.1, with the reason code of the decision:
 
@@ -36,9 +59,10 @@ network access was used to write this); the manual run of task T6 confirms it.
 """
 
 import logging
-import urllib.robotparser
+import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from urllib.parse import urlsplit
 
 from worker_noticias import fetch
 from worker_noticias.feeds import Source
@@ -102,12 +126,98 @@ def _download(source: Source, fetcher: Fetcher) -> tuple[RobotsDecision | None, 
     return None, _capped_text(result.body)
 
 
+_UNRESERVED = frozenset(
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+)
+_ESCAPE = re.compile(rb"%([0-9A-Fa-f]{2})")
+_LINE_END = re.compile(r"\r\n|\r|\n")
+
+
+def _canonical(text: str) -> str:
+    """The one form rules and paths are compared in (see the module docstring)."""
+    out = []
+    raw = text.encode("utf-8")
+    position = 0
+    while position < len(raw):
+        escape = _ESCAPE.match(raw, position)
+        if escape:
+            octet = int(escape.group(1), 16)
+            position += 3
+        else:
+            octet = raw[position]
+            position += 1
+            if 0x21 <= octet <= 0x7E and octet != 0x25:  # printable, not "%"
+                out.append(chr(octet))
+                continue
+        out.append(chr(octet) if octet in _UNRESERVED else f"%{octet:02X}")
+    return "".join(out)
+
+
+def _rules_for(text: str) -> list[tuple[bool, str]]:
+    """(allow, canonical pattern) of the groups that apply to our token."""
+    ours: list[tuple[bool, str]] = []
+    wildcard: list[tuple[bool, str]] = []
+    found_ours = False
+    agents: list[str] = []
+    in_rules = False
+    for line in _LINE_END.split(text):
+        field, sep, value = line.partition("#")[0].partition(":")
+        field, value = field.strip().lower(), value.strip()
+        if not sep:
+            continue
+        if field == "user-agent":
+            if in_rules:
+                agents, in_rules = [], False
+            agents.append(value.lower())
+        elif field in ("allow", "disallow") and agents:
+            in_rules = True
+            if value:
+                rule = (field == "allow", _canonical(value))
+                if PRODUCT_TOKEN.lower() in agents:
+                    ours.append(rule)
+                if "*" in agents:
+                    wildcard.append(rule)
+            if PRODUCT_TOKEN.lower() in agents:
+                found_ours = True
+    return ours if found_ours else wildcard
+
+
+def _matches(pattern: str, path: str) -> bool:
+    """RFC 9309 pattern: prefix match with `*` and a final `$` anchor."""
+    anchored = pattern.endswith("$")
+    if anchored:
+        pattern = pattern[:-1]
+    first, *rest = pattern.split("*")
+    if not path.startswith(first):
+        return False
+    if not rest:
+        return not anchored or path == first
+    position = len(first)
+    for middle in rest[:-1]:
+        found = path.find(middle, position)
+        if found < 0:
+            return False
+        position = found + len(middle)
+    last = rest[-1]
+    if anchored:
+        return path[position:].endswith(last) and len(path) - position >= len(last)
+    return path.find(last, position) >= 0
+
+
 def _decide(source: Source, text: str) -> RobotsDecision:
-    parser = urllib.robotparser.RobotFileParser()
-    parser.parse(text.splitlines())
-    if parser.can_fetch(PRODUCT_TOKEN, source.url):
-        return RobotsDecision(True, ALLOWED)
-    return RobotsDecision(False, DISALLOWED)
+    path = _canonical(_path_and_query(source.url))
+    best_length, allowed = -1, True
+    for allow, pattern in _rules_for(text):
+        if _matches(pattern, path) and (
+            len(pattern) > best_length or (len(pattern) == best_length and allow)
+        ):
+            best_length, allowed = len(pattern), allow
+    return RobotsDecision(allowed, ALLOWED if allowed else DISALLOWED)
+
+
+def _path_and_query(url: str) -> str:
+    parts = urlsplit(url)
+    return parts.path + (f"?{parts.query}" if parts.query else "")
 
 
 def _record(source: Source, decision: RobotsDecision) -> RobotsDecision:
@@ -137,9 +247,15 @@ class RobotsCache:
         self._fetcher = fetcher
         self._by_host: dict[str, tuple[RobotsDecision | None, str]] = {}
 
-    def check(self, source: Source) -> RobotsDecision:
+    def check(self, source: Source, url: str | None = None) -> RobotsDecision:
+        """Decide `source`, or `url` (same host) when it is given.
+
+        `url` is the final URL of a redirect: the rules of the source's host
+        apply to the path the content was really served from.
+        """
         host = fetch.validate_url(source.url).host
         if host not in self._by_host:
             self._by_host[host] = _download(source, self._fetcher)
         decision, text = self._by_host[host]
-        return _record(source, decision or _decide(source, text))
+        target = replace(source, url=url) if url else source
+        return _record(source, decision or _decide(target, text))

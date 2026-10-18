@@ -16,10 +16,12 @@ error can carry the connection URL or the content of the failing row.
 Creating the role for development and CI: scripts/create_role.sql.
 """
 
+import logging
 import os
 from collections.abc import Iterable
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
+from typing import NamedTuple
 
 from sqlalchemy import (
     BigInteger,
@@ -34,17 +36,23 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import DataError, IntegrityError, SQLAlchemyError
 
 from worker_noticias.feeds import NewsItem
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_RETENTION_DAYS = 30
 MIN_RETENTION_DAYS = 1
 MAX_RETENTION_DAYS = 365
-RETENTION_MESSAGE = "WORKER_NOTICIAS_RETENTION_DAYS must be an integer from 1 to 365"
+RETENTION_MESSAGE = (
+    "WORKER_NOTICIAS_RETENTION_DAYS must be an integer from "
+    f"{MIN_RETENTION_DAYS} to {MAX_RETENTION_DAYS}"
+)
 
 # Declared here, not reflected: reflection needs privileges the role lacks on
-# purpose. The tests check the grants against the real table.
+# purpose. The tests check the grants against the real table. `fetched_at` is
+# filled by the database default, never written by the worker.
 news_items = Table(
     "news_items",
     MetaData(schema="noticias"),
@@ -56,6 +64,7 @@ news_items = Table(
     Column("published_at", DateTime(timezone=True), nullable=False),
     Column("summary", Text),
     Column("author", Text),
+    Column("fetched_at", DateTime(timezone=True), server_default=func.now()),
 )
 
 
@@ -101,32 +110,70 @@ def get_engine() -> Engine:
         raise ConfigError("WORKER_NOTICIAS_DATABASE_URL is not valid") from None
 
 
-def save(items: Iterable[NewsItem], *, engine: Engine | None = None) -> int:
-    """Store the items; returns how many were new (known links are skipped)."""
-    rows = [
-        {
-            "source_id": i.source_id,
-            "outlet": i.outlet,
-            "title": i.title,
-            "link": i.link,
-            "published_at": i.published_at,
-            "summary": i.summary,
-            "author": i.author,
-        }
-        for i in items
-    ]
-    if not rows:
-        return 0
+class SaveResult(NamedTuple):
+    """`new` rows inserted; `skipped` = items expired or rejected by the database.
+
+    A link that is already stored is neither: it is a harmless duplicate.
+    """
+
+    new: int
+    skipped: int
+
+
+def _row(item: NewsItem) -> dict:
+    return {
+        "source_id": item.source_id,
+        "outlet": item.outlet,
+        "title": item.title,
+        "link": item.link,
+        "published_at": item.published_at,
+        "summary": item.summary,
+        "author": item.author,
+    }
+
+
+def save(
+    items: Iterable[NewsItem],
+    retention: timedelta,
+    *,
+    engine: Engine | None = None,
+    now: datetime | None = None,
+) -> SaveResult:
+    """Store the items not older than `retention`; known links are ignored.
+
+    An item already past the retention window is dropped here, so the purge
+    does not make the next read insert it again (it would be deleted again at
+    the next purge: churn, and a "new" count that lies). Each row goes in its
+    own SAVEPOINT: a row the database rejects (a CHECK on a length, say) is
+    counted as skipped and the rest of the feed is still stored. Connection and
+    other errors still abort the whole save with a StoreError.
+    """
+    cutoff = (now or datetime.now(UTC)) - retention
+    batch = list(items)
+    rows = [_row(i) for i in batch if i.published_at >= cutoff]
+    skipped = len(batch) - len(rows)
+    new = 0
+    rejected = 0
     statement = (
         insert(news_items)
         .on_conflict_do_nothing(index_elements=["link"])
         .returning(news_items.c.id)
     )
-    try:
-        with (engine or get_engine()).begin() as conn:
-            return len(conn.execute(statement, rows).all())
-    except SQLAlchemyError, OSError:
-        raise StoreError("could not save the news") from None
+    if rows:
+        try:
+            with (engine or get_engine()).begin() as conn:
+                for row in rows:
+                    try:
+                        with conn.begin_nested():
+                            new += len(conn.execute(statement, row).all())
+                    except IntegrityError, DataError:
+                        rejected += 1
+        except SQLAlchemyError, OSError:
+            raise StoreError("could not save the news") from None
+    if rejected:
+        # Fixed text: the rejected row's content is never logged.
+        logger.warning("save: %d row(s) rejected by the database", rejected)
+    return SaveResult(new, skipped + rejected)
 
 
 def purge(older_than: timedelta, *, engine: Engine | None = None) -> int:

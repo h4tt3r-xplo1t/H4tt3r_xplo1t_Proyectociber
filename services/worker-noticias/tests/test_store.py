@@ -4,14 +4,16 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from alembic import command
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from tests.dbsupport import APP_ROLE, alembic_config
 from worker_noticias import store
 from worker_noticias.feeds import NewsItem
 
-NOW = datetime(2026, 10, 16, 12, 0, tzinfo=UTC)
+# Fresh on purpose: `save` drops items older than the retention window.
+NOW = datetime.now(UTC).replace(microsecond=0)
+RETENTION = timedelta(days=30)
 
 
 def item(**kwargs) -> NewsItem:
@@ -42,7 +44,7 @@ def rows(engine):
 
 
 def test_save_stores_every_field_and_returns_the_new_rows(app_engine):
-    assert store.save([item()], engine=app_engine) == 1
+    assert store.save([item()], RETENTION, engine=app_engine).new == 1
     (row,) = rows(app_engine)
     assert row.source_id == "rcn-rss"
     assert row.outlet == "RCN"
@@ -55,40 +57,85 @@ def test_save_stores_every_field_and_returns_the_new_rows(app_engine):
 
 
 def test_optional_fields_are_stored_as_null(app_engine):
-    store.save([item(summary=None, author=None)], engine=app_engine)
+    store.save([item(summary=None, author=None)], RETENTION, engine=app_engine)
     (row,) = rows(app_engine)
     assert row.summary is None
     assert row.author is None
 
 
 def test_reading_a_source_twice_does_not_duplicate_rows(app_engine):
-    assert store.save([item()], engine=app_engine) == 1
-    assert store.save([item()], engine=app_engine) == 0
+    assert store.save([item()], RETENTION, engine=app_engine).new == 1
+    assert store.save([item()], RETENTION, engine=app_engine).new == 0
     assert len(rows(app_engine)) == 1
 
 
 def test_the_same_link_from_the_rcn_rss_and_sitemap_is_stored_once(app_engine):
     rss = item(source_id="rcn-rss")
     sitemap = item(source_id="rcn-sitemap", author=None)
-    assert store.save([rss, sitemap], engine=app_engine) == 1
+    assert store.save([rss, sitemap], RETENTION, engine=app_engine).new == 1
     (row,) = rows(app_engine)
     assert row.source_id == "rcn-rss"
 
 
 def test_save_of_nothing_returns_zero(app_engine):
-    assert store.save([], engine=app_engine) == 0
+    assert store.save([], RETENTION, engine=app_engine) == (0, 0)
 
 
-def test_a_database_error_is_reported_without_row_content(app_engine):
-    bad = item(title="X" * 301)
+def test_a_database_error_is_reported_without_row_content():
+    engine = create_engine(
+        "postgresql+psycopg://worker_noticias:not-a-real-secret@127.0.0.1:1/none",
+        hide_parameters=True,
+        connect_args={"connect_timeout": 1},
+    )
     with pytest.raises(store.StoreError) as excinfo:
-        store.save([bad], engine=app_engine)
+        store.save([item(title="XXXX secret title")], RETENTION, engine=engine)
     text_ = f"{excinfo.value!s} {excinfo.value!r}"
     assert "XXXX" not in text_
     assert "noticiasrcn" not in text_
+    assert "not-a-real-secret" not in text_
     assert excinfo.value.__cause__ is None
     assert excinfo.value.__suppress_context__
-    assert rows(app_engine) == []
+
+
+def test_an_item_older_than_the_retention_is_neither_stored_nor_counted(app_engine):
+    old = item(
+        link="https://www.noticiasrcn.com/old", published_at=NOW - timedelta(days=31)
+    )
+    fresh = item(link="https://www.noticiasrcn.com/fresh")
+    result = store.save([old, fresh], RETENTION, engine=app_engine)
+    assert result == (1, 1)
+    assert [r.link for r in rows(app_engine)] == ["https://www.noticiasrcn.com/fresh"]
+
+
+def test_after_a_purge_the_same_feed_inserts_nothing_again(app_engine):
+    feed = [
+        item(link="https://www.noticiasrcn.com/a", published_at=NOW),
+        item(
+            link="https://www.noticiasrcn.com/b", published_at=NOW - timedelta(days=40)
+        ),
+    ]
+    assert store.save(feed, timedelta(days=365), engine=app_engine).new == 2
+    assert store.purge(timedelta(days=30), engine=app_engine) == 1
+    again = store.save(feed, RETENTION, engine=app_engine)
+    assert again == (0, 1)  # known link skipped as a duplicate, old one expired
+    assert len(rows(app_engine)) == 1
+
+
+def test_one_rejected_row_does_not_drop_the_rest_of_the_feed(app_engine, caplog):
+    feed = [
+        item(link="https://www.noticiasrcn.com/ok-1"),
+        item(link="https://www.noticiasrcn.com/bad", title="SENTINEL" * 60),
+        item(link="https://www.noticiasrcn.com/ok-2"),
+    ]
+    with caplog.at_level("DEBUG"):
+        result = store.save(feed, RETENTION, engine=app_engine)
+    assert result == (2, 1)
+    assert [r.link for r in rows(app_engine)] == [
+        "https://www.noticiasrcn.com/ok-1",
+        "https://www.noticiasrcn.com/ok-2",
+    ]
+    assert "SENTINEL" not in caplog.text
+    assert "1 row" in caplog.text
 
 
 # --- CHECK constraints (mirror feeds.py caps) -------------------------------
@@ -141,6 +188,7 @@ def test_purge_deletes_only_the_rows_older_than_the_retention(app_engine):
                 published_at=now - timedelta(days=5),
             ),
         ],
+        timedelta(days=365),
         engine=app_engine,
     )
     assert store.purge(timedelta(days=30), engine=app_engine) == 2
@@ -148,14 +196,16 @@ def test_purge_deletes_only_the_rows_older_than_the_retention(app_engine):
 
 
 def test_purge_with_nothing_old_deletes_nothing(app_engine):
-    store.save([item(published_at=datetime.now(UTC))], engine=app_engine)
+    store.save([item(published_at=datetime.now(UTC))], RETENTION, engine=app_engine)
     assert store.purge(timedelta(days=30), engine=app_engine) == 0
     assert len(rows(app_engine)) == 1
 
 
 def test_purge_refuses_a_retention_shorter_than_a_day(app_engine):
     store.save(
-        [item(published_at=datetime.now(UTC) - timedelta(days=2))], engine=app_engine
+        [item(published_at=datetime.now(UTC) - timedelta(days=2))],
+        RETENTION,
+        engine=app_engine,
     )
     with pytest.raises(ValueError, match="retention"):
         store.purge(timedelta(0), engine=app_engine)
@@ -427,7 +477,22 @@ def test_the_engine_hides_parameters_and_never_echoes_the_url(monkeypatch):
         engine = store.get_engine()
         assert engine.hide_parameters is True
         with pytest.raises(store.StoreError) as excinfo:
-            store.save([item()], engine=engine)
+            store.save([item()], RETENTION, engine=engine)
         assert "not-a-real-secret" not in f"{excinfo.value!s}{excinfo.value!r}"
     finally:
         store.get_engine.cache_clear()
+
+
+def test_an_unparsable_database_url_is_reported_without_the_password(monkeypatch):
+    store.get_engine.cache_clear()
+    monkeypatch.setenv(
+        "WORKER_NOTICIAS_DATABASE_URL", "not a url://user:SENTINEL-PASSWORD@@host"
+    )
+    try:
+        with pytest.raises(store.ConfigError) as excinfo:
+            store.get_engine()
+    finally:
+        store.get_engine.cache_clear()
+    assert str(excinfo.value) == "WORKER_NOTICIAS_DATABASE_URL is not valid"
+    assert excinfo.value.__cause__ is None
+    assert "SENTINEL" not in f"{excinfo.value!s}{excinfo.value!r}"

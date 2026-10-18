@@ -18,47 +18,28 @@ Las entradas de issues cerrados se mueven a `docs/bitacora/` para no superar el 
 - [2026-10-05 a 2026-10-11](bitacora/2026-10-05_11.md): MFA con TOTP (issue #39) y cierre de A3a (issue #43). Decisiones que conviene conocer: el secreto TOTP se cifra con transit de OpenBao (ADR 0006), un rol con privilegios sin MFA solo recibe un JWT de alcance `enroll-mfa`, `current_user` y `refresh` rechazan la sesión con privilegios sin MFA, y el trabajo lento (transit, Argon2) se hace fuera del bloqueo de filas con una comprobación final.
 - [2026-10-12](bitacora/2026-10-12.md): administración del gateway (issue #45, A3b1) y seguimiento de su revisión (issue #47), endurecimiento del gateway (issue #49) y gestión del MFA (issue #51). Decisiones que conviene conocer: contador de generación `gen` en cada JWT (los tokens sin `gen` se rechazan una vez), el hash del login se verifica sin bloqueo de fila, el MFA solo lo desactivan los lectores, la cuota de altas (5 por hora) se consume aunque transit falle, y el arranque del primer administrador lee su contraseña solo de OpenBao con un AppRole aparte y se niega si ya hay un administrador, `busy_guard` traduce los bloqueos a 503, y `bootstrap-seed` solo se crea con `CI=true` o `OPENBAO_DEV_BOOTSTRAP_SEED=1`.
 - [2026-10-15](bitacora/2026-10-15.md): recuperación asistida y restablecimiento del MFA (issue #56). Decisiones que conviene conocer: opción B con la marca `privileged_at` y dos administradores distintos para las cuentas que tienen o tuvieron privilegios, segundo factor del código solo con el MFA activo y vencimiento de 1 h de las solicitudes.
+- [2026-10-16](bitacora/2026-10-16.md): procedimiento de emergencia (break-glass, issue #58). Decisiones que conviene conocer: el break-glass cubre toda cuenta que tiene o tuvo privilegios, tiene AppRole propio, destruye el secreto antes de confirmar la transacción y no reinicia el contador de bloqueo del login.
 
-## 2026-10-16 · Issue #58: procedimiento de emergencia (break-glass)
+## 2026-10-17 · Issue #60: worker-noticias (ingesta de RSS y sitemaps)
 
-Rama `feat/58-procedimiento-emergencia`. Cierra A3b2b (ADR 0004, decisión 11; amenazas 46 y 47).
+Rama `feat/60-worker-noticias`. El worker lee los RSS de RCN y Semana y los sitemaps de noticias de RCN, Caracol, Blu Radio y Citytv (seis fuentes de cinco medios) y guarda titular, enlace, fecha, resumen, medio y autor (amenazas 15, 17, 20, 21 y 22). Detalle por tarea, evidencias RED y mutaciones: `odd/tasks/worker-noticias.md`.
 
-- **Revisión del #56 (T0, `08fd6c7`):** registro de la revisión y recuento de pruebas de 978 a 988.
-- **Sugerencias del #56 (T1, `473718e`):** de la revisión de Gentle AI.
-  - Renombres `ApprovalRequest`, `ApprovalPendingOut` y `APPROVAL_REQUEST_TTL` (el nombre de la tabla se conserva).
-  - `_claim_request` compartido por las dos rutas de aprobación; el vencimiento se calcula una sola vez; `issue_reset_code` no calcula el hash antes de la comprobación de los dos administradores; pruebas movidas y añadidas.
-  - Desviación de TDD declarada en el documento de la tarea: un elemento se implementó antes de su prueba, sin RED previo; se sustituye por evidencia de mutación (forzar el hash hizo fallar la prueba).
-- **Comando de emergencia (T2, `9bf60e6`):** `python -m gateway.breakglass --username <nombre> --break-glass`.
-  - AppRole propio `breakglass`, con una política que solo permite leer `secret/data/breakglass/account` y borrar sus metadatos; el AppRole `breakglass-seed` solo se crea con `CI=true` o `OPENBAO_DEV_BOOTSTRAP_SEED=1`. Políticas en `deploy/openbao/` y script de inicialización.
-  - Guarda contra el objetivo equivocado: se rechaza un secreto cuyo `username` no coincide con `--username`.
-  - Efectos en una sola transacción bajo el bloqueo de la fila: contraseña sembrada con `must_change_password`, MFA y códigos de recuperación borrados, ventana de alta de 24 h, solicitudes y código de restablecimiento pendientes borrados, sesiones revocadas y aviso en el siguiente inicio de sesión.
-  - El secreto se destruye antes de confirmar la transacción; códigos de salida 0/1/2/3/4/5; evento `break_glass_reset`.
-  - `gateway/oneshot.py` con `destroy_secret` compartido, que usa también `bootstrap`.
-  - R3-001 de la revisión de T1: comentario reformulado y prueba añadida.
-  - Cierra L1 del #45 (ventana de alta del primer administrador caducada).
-- **ADR (T3, `afbba7d`):** decisiones 10 y 11 del ADR 0004 con lo decidido en el #56 y el #58. Se aclara la discrepancia del arranque: el código se niega ante cualquier `administrador`, y el ADR decía activo.
-- **Decisiones:** (persona, 2026-10-16) el break-glass cubre toda cuenta que tiene o tuvo privilegios, no solo los administradores.
-- **Residuales:**
-  - El contador de bloqueo del login no se reinicia: la cuenta espera como máximo 30 min o la desbloquea un administrador.
-  - Resultado desconocido de la confirmación tras destruir el secreto: la cuenta puede estar o no restablecida; hay que volver a sembrar y repetir.
-  - Dos ejecuciones simultáneas sobre la misma cuenta se serializan en el bloqueo de la fila (sin prueba).
-  - El empaquetado como Job de Kubernetes queda para E5.
-- **Gentle AI:** T0 aprobada (`review-cff36e38c7d7e756`); T1 aprobada (`review-e56d424c59d58206`); T2 de riesgo alto, cuatro lentes, aprobada (`review-21632641453f603c`) con 5 sugerencias no bloqueantes que se incorporan en T5:
-  - R4: el docstring y el texto de `RESET_FAILED` deben decir que la cuenta puede o no haberse restablecido.
-  - R2: `except` sin paréntesis en `breakglass.py:251`; `mark_privileged` falta en la lista del docstring; parámetro `shared` sin uso en el `FakeBao` de `test_breakglass.py`; `OPENBAO_DEV_BOOTSTRAP_SEED` también crea el rol escritor del break-glass.
-  - T3 pasiva.
-- **Correcciones (T5, `8a92417`):** las 5 sugerencias de Gentle AI.
-  - R4: el docstring y `RESET_FAILED` dicen que la cuenta puede o no haberse restablecido y que el secreto ya no existe (comprobar la cuenta o volver a sembrar; el restablecimiento es idempotente); prueba nueva con RED y prueba de la confirmación fallida renombrada.
-  - R2: el `except` sin paréntesis se mantiene porque `ruff format` lo normaliza a la forma de Python 3.14 (PEP 758); `mark_privileged` en el docstring, parámetro `shared` sin uso quitado del `FakeBao`, y el acoplamiento de `OPENBAO_DEV_BOOTSTRAP_SEED` con `breakglass-seed` documentado en `scripts/openbao-dev-init.sh` (la variable no se renombra).
-- **Revisión de seguridad (`revisor-seguridad`):** lista para PR, sin críticos, altos ni medios.
-  - Bajo: los AppRoles de desarrollo `breakglass` y `breakglass-seed` tienen `secret_id` permanente y reutilizable (`secret_id_ttl=0`, `secret_id_num_uses=0`), igual que `bootstrap`; solo desarrollo. En producción, un solo uso y TTL corto (pendiente E5).
-  - Informativos: `REFUSED` es idéntico para un usuario desconocido y uno nunca privilegiado (intencional); el evento va al registro local con el UUID, y E8 define el destino de solo anexado; la clase `ApprovalRequest` conserva la tabla `mfa_reset_requests`.
-- **TDD:** RED observado en T1 (salvo la desviación declarada), T2 y T5; T0, T3 y T4 son solo documentación. De 988 a 1066 pruebas (1066 passed localmente, 521 s).
+- **T1 (`80e280e`):** esqueleto con `uv.lock`, ruff `S` y pytest; trabajo `worker-noticias` obligatorio en CI y en el ruleset local; Dependabot; ADR 0007.
+- **T2 (`255dd24`, corrección `6176730`):** `fetch.py`: lista fija de hosts, solo https, toda IP resuelta pública y conexión fijada a la IP validada con SNI, redirecciones al mismo host, plazo comprobado tras cada lectura y tope de 5 MiB descomprimido.
+- **T3 (`9c5ba16`, `d4240cb`):** seguimientos de T2 y `feeds.py` con `defusedxml` (sin DTD ni entidades), texto plano acotado, enlace del propio medio y fecha UTC; un `sitemapindex` no se sigue.
+- **T4 (`7c0f21e`):** `robots.py` (RFC 9309) con un `User-Agent` propio.
+- **T5 (`5037336`):** esquema `noticias`, tabla `news_items` con enlace único, migraciones propias, rol `worker_noticias` con `SELECT`, `INSERT` y `DELETE` solo en su tabla y purga por retención.
+- **T6 (`5d30e04`, `993905d`):** `cycle.py` y `__main__.py` (`run`, `once`, `check-live`) con aislamiento por fuente; `5d30e04` incluye los seguimientos de T5 y `993905d` los de la revisión de T6.
+- **Decisiones:** (persona, 2026-10-16) bucle propio sin Celery (ADR 0007) y un solo PR; (persona) se autoriza editar `tests/rulesets/main_ruleset_test.sh`; `urllib3` y `defusedxml` verificados en PyPI (riesgo aceptado: poca actividad de `defusedxml`; prueba de Expat >= 2.7.2); `robots.txt`: 4xx permite, 5xx, 429 y fallos prohíben durante el ciclo; el `<author>` con `@` se descarta (dato personal).
+- **Incidente (2026-10-17):** una prueba del redactor llamó a `once` con el cliente real y envió un ciclo de peticiones a los medios sin autorización (unos 4,6 s; no se leyó la salida). Se corrigió y se añadió la guarda `no_network` en `tests/conftest.py`, con sus pruebas.
+- **Residuales:** `check-live` (2026-10-17, autorizado por la persona, una ejecución): los 6 `robots.txt` permiten y 5 de 6 fuentes se leen (RCN RSS 150, RCN sitemap 257, Semana 100, Blu Radio 228, Citytv 25); Caracol falla con `feed_unknown_format` (issue #61). NO VERIFICADO: el trabajo de CI, migraciones junto a las tablas reales del gateway y SIGTERM real. Una sola réplica (ADR 0007). El plazo puede excederse en una lectura (10 s). Con un operador solo CREATEROLE, `create_role.sql` depende de su idempotencia y de un servidor sin registro de sentencias.
+- **Gentle AI:** T1 `review-a940d05cfd519d3d`; T2 `review-587bdbdb2bce1b06` (una corrección: un servidor que enviaba un byte cada 9 s eludía el plazo, CRÍTICO); T3 `review-25174e7c8efc294d`; T4 `review-eba8829d59158a74` (dos falsos positivos sustentados por mutación); T5 `review-c2f0de0a079a4e73`; T6 `review-860038808ca0fae8`.
+- **TDD:** RED por comportamiento desde T3; en T2 solo a nivel de archivo (desviación declarada, sustituida por mutaciones). De 0 a 324 pruebas.
 
 ## Pendientes
 
 ### E3: primer flujo (búsqueda por tema) y autenticación
-- [ ] **E3:** añadir a `.claude/settings.json` los comandos de prueba y lint de cada servicio nuevo (los del `gateway` ya están, issue #25).
+- [ ] **E3:** añadir a `.claude/settings.json` los comandos de prueba y lint de cada servicio nuevo (los del `gateway` ya están, issue #25; falta `worker-noticias`, issue #60).
 - [ ] Verificar las versiones del resto del stack (React, workers, PostgreSQL, RabbitMQ, Vault) antes de fijarlas; las del `gateway` se verificaron en el issue #25.
 - [ ] Revisar periódicamente las versiones de `uv`, gitleaks y actionlint fijadas por sha256 en CI: Dependabot no las actualiza (hallazgo del #25).
 - [ ] **E3:** elegir y verificar una lista de contraseñas filtradas y su licencia (ASVS 6.2.12, L2, pendiente hasta entonces).
@@ -77,6 +58,9 @@ Rama `feat/58-procedimiento-emergencia`. Cierra A3b2b (ADR 0004, decisión 11; a
 - [ ] Rotación de la clave transit `totp` con `rewrap` de los textos cifrados (ADR 0006).
 - [ ] **E3:** implementar la renovación de sesión de un solo vuelo en el frontend.
 - [ ] **E3:** antes de añadir `pysentimiento`, verificar nombre, mantenedor, licencia y actividad (AGENTS.md §3) y fijar el modelo de Hugging Face por hash de commit (riesgo de deserialización con `torch`) (hallazgo B5 del #15).
+- [ ] **E3:** aplicar en GitHub el ruleset con la comprobación obligatoria `worker-noticias` después de la fusión del #60 (operación remota, a petición de la persona).
+- [ ] **E3:** `check-live` contra los medios (decisión de la persona) para verificar los formatos de los sitemaps y del RSS de RCN, los `robots.txt` reales y la cobertura del `Allow` de Semana (NO VERIFICADO, #60).
+- [ ] **E3:** publicación en RabbitMQ y `worker-analisis` (siguiente issue).
 
 ### E3: pendientes del registro (issue #29)
 - [ ] Límite de tasa en `POST /api/auth/register` y tope de tamaño del cuerpo (Ingress, E5); hoy solo hay el límite de 4 hashes simultáneos.
@@ -98,14 +82,19 @@ Rama `feat/58-procedimiento-emergencia`. Cierra A3b2b (ADR 0004, decisión 11; a
 
 ### E5: plataforma, red y cifrado
 - [ ] ADR de cifrado dentro del clúster (TLS/mTLS para Vault, PostgreSQL y RabbitMQ), antes de E5.
+- [ ] **E5 (worker-noticias, #60):** la resolución DNS (`socket.getaddrinfo`) no tiene plazo y puede bloquear más de los 30 s de `fetch` (B2): tiempos del resolvedor en el pod o resolución en un hilo acotado por el tiempo restante.
+- [ ] **E5 (worker-noticias, #60):** un feed de 5 MiB muy anidado puede llegar a ~260 MB de RSS (B3): límite de memoria del pod y, si hace falta, un tope menor o de profundidad.
+- [ ] **E5 (worker-noticias, #60):** SIGTERM espera al ciclo en curso (informativo): comprobar `stop` entre feeds o fijar `terminationGracePeriodSeconds`.
 - [ ] **E5:** `/readyz` no debe exponerse fuera del clúster y debe quedar cubierto por el límite de tasa: es anónimo y, con la base caída, cada sonda tarda hasta unos 5 s y puede agotar el threadpool (L2 de la revisión del #49).
 - [ ] **E5:** los 10 hashes de `/mfa/recovery-codes` toman el semáforo de Argon2id uno a uno (hasta unos 10 × 5 s de hilo); misma clase que L6 del #33, depende del límite de tasa (L3 de la revisión del #51).
 - [ ] Prueba de concurrencia del límite de altas del MFA: lo cierra el bloqueo de la fila del usuario, sin prueba que lo demuestre (#51).
+- [ ] **E5:** proxy de salida o política por nombre de dominio para el worker de noticias (amenaza 21): hoy solo hay controles en código (#60).
+- [ ] **E5:** CronJob o Deployment de Kubernetes con una sola réplica para `worker-noticias` (ADR 0007), con las credenciales de base de datos del worker en OpenBao y la contraseña del rol `worker_noticias` desde el gestor de secretos (#60).
 
 ### E4/E7: CI/CD y cadena de suministro
 - [ ] Modelar la cadena de suministro de CI/CD (E4/E7).
 - [ ] **E7:** referenciar las imágenes por digest, no solo por `vX.Y.Z` y `latest` (hallazgo B4 del #15).
-- [ ] **E7:** la imagen del `gateway` redistribuye `psycopg-binary` (LGPL-3.0 con libpq y OpenSSL empaquetados): incluir el aviso de licencia y declararlo en el SBOM (issue #29).
+- [ ] **E7:** la imagen del `gateway` redistribuye `psycopg-binary` (LGPL-3.0 con libpq y OpenSSL empaquetados): incluir el aviso de licencia y declararlo en el SBOM (issue #29); la imagen de `worker-noticias` también lo redistribuye (issue #60).
 
 ### E8: operación
 - [ ] **E8:** respaldo y restauración probados de PostgreSQL y Vault (declarado en `docs/threat-model.md`).

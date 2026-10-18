@@ -33,7 +33,8 @@
           { "context": "secretos", "integration_id": 15368 },
           { "context": "workflows", "integration_id": 15368 },
           { "context": "pruebas", "integration_id": 15368 },
-          { "context": "gateway", "integration_id": 15368 }
+          { "context": "gateway", "integration_id": 15368 },
+          { "context": "worker-noticias", "integration_id": 15368 }
         ]
       }
     }

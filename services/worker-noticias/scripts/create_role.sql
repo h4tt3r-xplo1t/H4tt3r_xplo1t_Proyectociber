@@ -1,5 +1,6 @@
 -- Creates the least-privilege login role of the news worker (threat 15).
--- Run once per database cluster by an operator with CREATEROLE, BEFORE the
+-- Run once per database cluster by an operator with CREATEROLE (or a
+-- superuser; see the logging note below), BEFORE the
 -- migrations: they only grant to this role and never create it.
 --
 --   psql -v ON_ERROR_STOP=1 -v app_password="$WORKER_NOTICIAS_DB_PASSWORD" \
@@ -17,13 +18,19 @@
 
 -- The CREATE ROLE statement below carries the password in clear text. If it
 -- failed, the server would write the whole statement, password included, to
--- its error log, and `log_statement` could log it too. These session-level
--- settings (superuser only, so they apply to the operator running this
--- script) keep the statement out of the server log. Everything is skipped
--- when the role already exists, so a rerun cannot fail with the password in
--- the failing statement either.
+-- its error log, and `log_statement` could log it too.
+--  * Superuser: the session also disables statement logging (the two SETs
+--    below need superuser, so they run only when current_user is one).
+--  * CREATEROLE-only operator: protection relies on idempotence (an existing
+--    role is skipped, so a rerun never fails with the password in the failing
+--    statement), and the operator must make sure the server does not log
+--    statements (`log_statement` other than `all` or `ddl`). Production uses
+--    the secret manager (E5).
+SELECT rolsuper AS is_superuser FROM pg_roles WHERE rolname = current_user \gset
+\if :is_superuser
 SET log_min_error_statement = panic;
 SET log_statement = 'none';
+\endif
 
 SELECT format(
     'CREATE ROLE worker_noticias LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB '

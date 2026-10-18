@@ -17,6 +17,17 @@ from worker_noticias.fetch import FetchError
 USAGE = "usage: python -m worker_noticias {run|once|check-live}"
 
 
+@pytest.fixture(autouse=True)
+def process_signal_handlers_stay_untouched():
+    """No test may leave its own SIGTERM/SIGINT handlers in the test process."""
+    before = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGINT)}
+    yield
+    after = {s: signal.getsignal(s) for s in before}
+    for sig, handler in before.items():
+        signal.signal(sig, handler)  # restore, so one leak fails one test only
+    assert after == before
+
+
 def report(*statuses):
     return cycle.CycleReport(
         tuple(

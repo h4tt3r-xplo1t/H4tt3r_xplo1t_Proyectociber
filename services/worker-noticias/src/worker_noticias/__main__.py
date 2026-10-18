@@ -79,6 +79,9 @@ def _exit_code(report: cycle.CycleReport) -> int:
 def _run_forever(cycle_for, loop) -> int:
     wait_for = cycle.interval()
     store.retention()  # fail now, not at the first purge
+    # Build the cycle before touching process state: a configuration error
+    # (no database URL) must leave the signal handlers as they were.
+    one_cycle = cycle_for("run")
     stop = threading.Event()
 
     def request_stop(signum, frame):
@@ -88,7 +91,7 @@ def _run_forever(cycle_for, loop) -> int:
     signal.signal(signal.SIGINT, request_stop)
     loop(
         wait_for,
-        cycle=cycle_for("run"),
+        cycle=one_cycle,
         purge=_purge,
         sleep=stop.wait,
         stop=stop.is_set,

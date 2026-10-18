@@ -394,3 +394,31 @@ def test_invalid_intervals_refuse_to_start_with_a_fixed_message(monkeypatch, raw
     with pytest.raises(ConfigError) as excinfo:
         cycle.interval()
     assert str(excinfo.value) == MESSAGE
+
+
+def test_a_stop_event_set_during_the_wait_wakes_the_real_loop_at_once():
+    """The wiring of `__main__`: `sleep=stop.wait`, `stop=stop.is_set`."""
+    import threading
+    import time
+
+    stop = threading.Event()
+    starts = []
+
+    def fake_cycle():
+        starts.append(1)
+        return cycle.CycleReport(())
+
+    timer = threading.Timer(0.1, stop.set)
+    timer.start()
+    began = time.monotonic()
+    try:
+        cycle.run_forever(
+            timedelta(seconds=30),
+            cycle=fake_cycle,
+            sleep=stop.wait,
+            stop=stop.is_set,
+        )
+    finally:
+        timer.cancel()
+    assert time.monotonic() - began < 2
+    assert starts == [1]

@@ -9,6 +9,7 @@ import gzip
 import http.server
 import io
 import socket
+import ssl
 import threading
 
 import pytest
@@ -18,6 +19,7 @@ from urllib3.exceptions import (
     NewConnectionError,
     ReadTimeoutError,
 )
+from urllib3.util.ssl_match_hostname import CertificateError
 
 from worker_noticias import fetch
 from worker_noticias.fetch import FetchError
@@ -586,11 +588,39 @@ def test_timeouts_are_retried_and_reported():
     assert result.status == 200
 
 
-def test_tls_failures_fail_at_once_with_their_own_reason():
-    # Changed from "retried as a connection error": a certificate or hostname
-    # verification failure does not heal with a retry, so it is not retried.
-    err = urllib3.exceptions.SSLError("bad certificate")
+def _wrapped(inner):
+    # urllib3 wraps what the handshake raised as SSLError(inner); with
+    # retries=False the wrapper is what reaches the caller.
+    return urllib3.exceptions.SSLError(inner)
+
+
+def _verification_failures():
+    return [
+        _wrapped(ssl.SSLCertVerificationError(1, "certificate verify failed")),
+        _wrapped(CertificateError("hostname 'x' doesn't match 'y'")),
+    ]
+
+
+@pytest.mark.parametrize("err", _verification_failures())
+def test_verification_failures_fail_at_once_with_their_own_reason(err):
+    # A certificate or hostname verification failure does not heal with a
+    # retry, nor with another address: no retry, no fallback.
     factory = FakeFactory(err, err, err)
+    sleeps = []
+    with pytest.raises(FetchError) as excinfo:
+        do_fetch(
+            URL,
+            resolver=resolver_to(PUBLIC_IP, "93.184.216.35"),
+            pool_factory=factory,
+            sleep=sleeps.append,
+        )
+    assert excinfo.value.reason == "tls"
+    assert len(factory.requests) == 1 and sleeps == []
+
+
+def test_handshake_eof_is_transient_and_ends_as_connection():
+    err = _wrapped(ssl.SSLEOFError(8, "EOF occurred in violation of protocol"))
+    factory = FakeFactory(*[err] * 10)
     sleeps = []
     with pytest.raises(FetchError) as excinfo:
         do_fetch(
@@ -599,8 +629,27 @@ def test_tls_failures_fail_at_once_with_their_own_reason():
             pool_factory=factory,
             sleep=sleeps.append,
         )
-    assert excinfo.value.reason == "tls"
-    assert len(factory.requests) == 1 and sleeps == []
+    assert excinfo.value.reason == "connection"
+    assert len(factory.requests) == fetch.MAX_ATTEMPTS
+    assert len(sleeps) == fetch.MAX_ATTEMPTS - 1
+
+
+def test_handshake_eof_tries_the_next_validated_address():
+    err = _wrapped(ssl.SSLEOFError(8, "EOF"))
+    result, factory, _ = run(
+        URL,
+        err,
+        response(body=b"fine"),
+        resolver=resolver_to(PUBLIC_IP, "93.184.216.35"),
+    )
+    assert result.body == b"fine"
+    assert len(factory.calls) == 2
+
+
+def test_handshake_reset_is_retried_with_backoff():
+    err = _wrapped(ssl.SSLError("tlsv1 alert internal error"))
+    result, _, sleeps = run(URL, err, response(body=b"fine"))
+    assert result.body == b"fine" and sleeps == [1.0]
 
 
 def test_validation_errors_are_not_retried():

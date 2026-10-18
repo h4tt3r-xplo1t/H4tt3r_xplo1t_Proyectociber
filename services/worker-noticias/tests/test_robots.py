@@ -225,6 +225,17 @@ def test_field_names_are_case_insensitive_and_comments_are_ignored():
     assert decide(SEMANA, txt).allowed is False
 
 
+def test_an_empty_group_for_our_token_is_still_our_group():
+    # RFC 9309: a group with no rules allows everything; no fallback to `*`.
+    txt = f"User-agent: *\nDisallow: /\nUser-agent: {BOT_NAME}\n"
+    assert decide(SEMANA, txt).allowed is True
+
+
+def test_a_group_for_our_token_with_only_unknown_lines_is_still_ours():
+    txt = f"User-agent: *\nDisallow: /\nUser-agent: {BOT_NAME}\nCrawl-delay: 5\n"
+    assert decide(SEMANA, txt).allowed is True
+
+
 def test_unknown_lines_do_not_break_a_group():
     txt = "User-agent: *\nCrawl-delay: 10\nSitemap: https://x/s.xml\nDisallow: /\n"
     assert decide(SEMANA, txt).allowed is False

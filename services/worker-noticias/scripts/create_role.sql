@@ -23,12 +23,21 @@
 -- failed, the server would write the whole statement, password included, to
 -- its error log, and `log_statement` could log it too.
 --  * Superuser: the session also disables statement logging (the two SETs
---    below need superuser, so they run only when current_user is one).
+--    below need superuser, so they run only when current_user is one). They
+--    run first, before the weak-password check and every other statement
+--    that carries the password.
 --  * CREATEROLE-only operator: protection relies on idempotence (an existing
 --    role is skipped, so a rerun never fails with the password in the failing
 --    statement), and the operator must make sure the server does not log
 --    statements (`log_statement` other than `all` or `ddl`). Production uses
 --    the secret manager (E5).
+-- Must stay before ANY statement that mentions the password.
+SELECT rolsuper AS is_superuser FROM pg_roles WHERE rolname = current_user \gset
+\if :is_superuser
+SET log_min_error_statement = panic;
+SET log_statement = 'none';
+\endif
+
 -- Weak or empty password: fail, and create nothing even without ON_ERROR_STOP
 -- (`\quit` would exit with status 0, so an error is raised instead).
 SELECT length(:'app_password') < 16 AS weak \gset
@@ -36,12 +45,6 @@ SELECT length(:'app_password') < 16 AS weak \gset
 DO $$ BEGIN
     RAISE EXCEPTION 'app_password must have at least 16 characters';
 END $$;
-\endif
-
-SELECT rolsuper AS is_superuser FROM pg_roles WHERE rolname = current_user \gset
-\if :is_superuser
-SET log_min_error_statement = panic;
-SET log_statement = 'none';
 \endif
 
 SELECT format(

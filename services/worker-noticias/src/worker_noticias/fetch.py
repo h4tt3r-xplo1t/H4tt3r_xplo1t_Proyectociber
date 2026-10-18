@@ -29,6 +29,7 @@ verification failed) is final: it is never retried.
 import ipaddress
 import logging
 import socket
+import ssl
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -44,6 +45,7 @@ from urllib3.exceptions import (
     SSLError,
 )
 from urllib3.util import parse_url
+from urllib3.util.ssl_match_hostname import CertificateError
 
 logger = logging.getLogger(__name__)
 
@@ -293,6 +295,31 @@ class _Hop:
     location: str | None
 
 
+def _is_verification_failure(exc: BaseException) -> bool:
+    """True when a certificate or hostname check failed (it never heals).
+
+    urllib3 2.x wraps what the handshake raised as `SSLError(inner)`, so the
+    original sits in `args` (and possibly in the cause or context chain):
+    `ssl.SSLCertVerificationError` from the `ssl` module, or urllib3's own
+    `CertificateError` from its hostname matching. Any other SSLError (EOF,
+    reset or alert during the handshake) is transient.
+    """
+    seen: set[int] = set()
+    pending: list[BaseException] = [exc]
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, (ssl.SSLCertVerificationError, CertificateError)):
+            return True
+        pending.extend(a for a in current.args if isinstance(a, BaseException))
+        for link in (current.__cause__, current.__context__):
+            if link is not None:
+                pending.append(link)
+    return False
+
+
 def _attempt(url, *, resolver, pool_factory, timeout, max_bytes, deadline_at, clock):
     host, request, _ = validate_url(url)
     ips = resolve_public(host, resolver)
@@ -301,10 +328,13 @@ def _attempt(url, *, resolver, pool_factory, timeout, max_bytes, deadline_at, cl
             return _attempt_on(
                 ip, host, request, pool_factory, timeout, max_bytes, deadline_at, clock
             )
-        except ConnectTimeoutError:
-            # Includes NewConnectionError. Only a failure to connect moves on to
-            # the next validated address; a read timeout, an HTTP status or a
-            # validation error does not.
+        except (ConnectTimeoutError, SSLError) as exc:
+            # Includes NewConnectionError. Only a failure to connect (or a
+            # transient handshake failure) moves on to the next validated
+            # address; a read timeout, an HTTP status, a validation error or a
+            # certificate verification failure does not.
+            if isinstance(exc, SSLError) and _is_verification_failure(exc):
+                raise
             if position == len(ips) - 1 or clock() > deadline_at:
                 raise
     raise AssertionError("unreachable")  # pragma: no cover
@@ -365,9 +395,13 @@ def _hop_with_retries(url, *, sleep, clock, deadline_at, **kwargs) -> _Hop:
             # matched before the timeouts.
             reason, status = "connection", None
         except SSLError as exc:
-            # Certificate or hostname verification failed: a retry gives the
-            # same answer, so fail at once (and do not try other addresses).
-            raise FetchError("tls") from exc
+            if _is_verification_failure(exc):
+                # Certificate or hostname verification failed: a retry gives
+                # the same answer, so fail at once (and do not try other
+                # addresses).
+                raise FetchError("tls") from exc
+            # Any other handshake failure is transient, like a lost connection.
+            reason, status = "connection", None
         except ConnectTimeoutError, ReadTimeoutError:
             reason, status = "timeout", None
         except HTTPError:

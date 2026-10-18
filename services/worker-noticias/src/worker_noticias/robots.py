@@ -169,6 +169,10 @@ def _rules_for(text: str) -> list[tuple[bool, str]]:
             if in_rules:
                 agents, in_rules = [], False
             agents.append(value.lower())
+            if value.lower() == PRODUCT_TOKEN.lower():
+                # Our group exists even if it has no rules (RFC 9309): it
+                # allows everything and `*` must not apply.
+                found_ours = True
         elif field in ("allow", "disallow") and agents:
             in_rules = True
             if value:
@@ -177,8 +181,6 @@ def _rules_for(text: str) -> list[tuple[bool, str]]:
                     ours.append(rule)
                 if "*" in agents:
                     wildcard.append(rule)
-            if PRODUCT_TOKEN.lower() in agents:
-                found_ours = True
     return ours if found_ours else wildcard
 
 

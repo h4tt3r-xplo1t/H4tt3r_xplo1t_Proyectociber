@@ -182,14 +182,8 @@ jobs:
       # The tests create the app role and run the migrations themselves.
       WORKER_NOTICIAS_TEST_ADMIN_URL: postgresql+psycopg://gateway:ci-only-throwaway@localhost:5432/worker_noticias_ci
       # RabbitMQ is started by docker compose below and listens on loopback
-      # only. CI-only throwaway credentials: the broker is ephemeral, lives on
-      # this runner and is not reachable from outside. Not real secrets.
-      # scripts/rabbitmq-dev-init.sh creates the users from these variables and
-      # the tests read the same variables.
+      # only. The throwaway passwords are set only on the steps that need them.
       WORKER_NOTICIAS_TEST_AMQP_HOST: 127.0.0.1
-      RABBITMQ_WORKER_NOTICIAS_PASSWORD: ci-only-throwaway-worker-noticias
-      RABBITMQ_WORKER_ANALISIS_PASSWORD: ci-only-throwaway-worker-analisis
-      RABBITMQ_ADMIN_PASSWORD: ci-only-throwaway-admin
     # Same image and digest as the gateway job and docker-compose.yml.
     services:
       postgres:
@@ -220,6 +214,11 @@ jobs:
           POSTGRES_USER: unused
           POSTGRES_PASSWORD: unused
           POSTGRES_DB: unused
+          # CI-only throwaway credentials: the broker is ephemeral, lives on
+          # this runner and is not reachable from outside. Not real secrets.
+          RABBITMQ_WORKER_NOTICIAS_PASSWORD: ci-only-throwaway-worker-noticias
+          RABBITMQ_WORKER_ANALISIS_PASSWORD: ci-only-throwaway-worker-analisis
+          RABBITMQ_ADMIN_PASSWORD: ci-only-throwaway-admin
         run: |
           docker compose up -d --wait rabbitmq
           scripts/rabbitmq-dev-init.sh
@@ -249,5 +248,13 @@ jobs:
       - name: Formato
         run: uv run --locked ruff format --check
 
+      # The tests read the same variables scripts/rabbitmq-dev-init.sh used to
+      # create the users.
       - name: Pruebas
+        env:
+          # CI-only throwaway credentials: the broker is ephemeral, lives on
+          # this runner and is not reachable from outside. Not real secrets.
+          RABBITMQ_WORKER_NOTICIAS_PASSWORD: ci-only-throwaway-worker-noticias
+          RABBITMQ_WORKER_ANALISIS_PASSWORD: ci-only-throwaway-worker-analisis
+          RABBITMQ_ADMIN_PASSWORD: ci-only-throwaway-admin
         run: uv run --locked pytest

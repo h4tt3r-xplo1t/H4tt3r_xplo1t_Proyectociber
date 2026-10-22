@@ -8,13 +8,14 @@ careless edit of the JSON fails in review before it reaches a broker.
 import json
 import re
 import shlex
-from pathlib import Path
+import subprocess
 
 import pytest
 
-DEPLOY_DIR = Path(__file__).resolve().parents[3] / "deploy" / "rabbitmq"
+from tests.brokersupport import DEPLOY_DIR, REPO_ROOT
+
 VHOST = "h4tt3r"
-INIT_SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "rabbitmq-dev-init.sh"
+INIT_SCRIPT = REPO_ROOT / "scripts" / "rabbitmq-dev-init.sh"
 EXPECTED_PERMISSIONS = {
     "worker_noticias": ("^$", "^noticias$", "^$"),
     "worker_analisis": ("^$", "^$", r"^analisis\.noticias$"),
@@ -138,7 +139,58 @@ def test_compose_pins_a_fixed_hostname_for_the_broker():
     A random container hostname would make a recreated container boot with an
     empty node directory and lose the users created by the init script.
     """
-    compose = (DEPLOY_DIR.parents[1] / "docker-compose.yml").read_text(encoding="utf-8")
+    compose = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     block = re.search(r"^  rabbitmq:\n((?:    .*\n|\n)+)", compose, re.MULTILINE)
     assert block, "rabbitmq service not found in docker-compose.yml"
     assert re.search(r"^    hostname: rabbitmq$", block.group(1), re.MULTILINE)
+
+
+def _run_init_script(tmp_path, *, list_users_fails: bool):
+    """Run the init script with a stub `docker` on PATH; return (result, calls)."""
+    log = tmp_path / "docker-calls.log"
+    stub = tmp_path / "docker"
+    stub.write_text(
+        "#!/usr/bin/env bash\n"
+        'printf \'%s\\n\' "$*" >> "$STUB_LOG"\n'
+        'if [[ "$*" == *list_users* ]]; then\n'
+        f"  {'echo broker-down >&2; exit 1' if list_users_fails else 'exit 0'}\n"
+        "fi\n",
+        encoding="utf-8",
+    )
+    stub.chmod(0o700)
+    env = {
+        "PATH": f"{tmp_path}:/usr/bin:/bin",
+        "STUB_LOG": str(log),
+        "RABBITMQ_WORKER_NOTICIAS_PASSWORD": "-starts-with-dash",
+        "RABBITMQ_WORKER_ANALISIS_PASSWORD": "x",
+        "RABBITMQ_ADMIN_PASSWORD": "x",
+    }
+    result = subprocess.run(  # noqa: S603 - fixed local script and stub
+        ["/usr/bin/env", "bash", str(INIT_SCRIPT)],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    calls = log.read_text(encoding="utf-8") if log.exists() else ""
+    return result, calls
+
+
+def test_the_init_script_aborts_when_the_user_listing_fails(tmp_path):
+    """A broker that cannot list users must not be read as "user missing"."""
+    result, calls = _run_init_script(tmp_path, list_users_fails=True)
+    assert result.returncode != 0
+    assert "cannot list" in result.stderr
+    assert "add_user" not in calls
+    assert "change_password" not in calls
+
+
+def test_the_init_script_passes_passwords_after_an_option_terminator(tmp_path):
+    """A password starting with `-` must not be parsed as an rabbitmqctl option."""
+    result, calls = _run_init_script(tmp_path, list_users_fails=False)
+    assert result.returncode == 0, result.stderr
+    add_user_calls = [ln for ln in calls.splitlines() if "add_user" in ln]
+    assert len(add_user_calls) == 3
+    for line in add_user_calls:
+        assert 'add_user -- "$0"' in line

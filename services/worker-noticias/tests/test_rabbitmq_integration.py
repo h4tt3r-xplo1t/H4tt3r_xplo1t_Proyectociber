@@ -11,22 +11,20 @@ RABBITMQ_WORKER_NOTICIAS_PASSWORD, RABBITMQ_WORKER_ANALISIS_PASSWORD and
 RABBITMQ_ADMIN_PASSWORD.
 """
 
-import json
 import os
 import time
 import uuid
-from pathlib import Path
 
 import pika
 import pytest
 from pika.exceptions import (
     ChannelClosedByBroker,
-    ProbableAccessDeniedError,
     ProbableAuthenticationError,
 )
 
+from tests.brokersupport import main_queue_policy_value
+
 AMQP_PORT = 5672
-DEFINITIONS = Path(__file__).resolve().parents[3] / "deploy/rabbitmq/definitions.json"
 VHOST = "h4tt3r"
 LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 PASSWORD_VARIABLES = {
@@ -36,13 +34,8 @@ PASSWORD_VARIABLES = {
 }
 MAIN_QUEUE = "analisis.noticias"
 DEAD_LETTER_QUEUE = "analisis.noticias.dlq"
-MAX_LENGTH = 10000
-# Single source of truth: the broker policy in deploy/rabbitmq/definitions.json.
-DELIVERY_LIMIT = next(
-    p["definition"]["delivery-limit"]
-    for p in json.loads(DEFINITIONS.read_text(encoding="utf-8"))["policies"]
-    if p["pattern"] == r"^analisis\.noticias$"
-)
+# Messages published beyond the max-length policy in the overflow test.
+OVERFLOW_COUNT = 3
 ACCESS_REFUSED = 403
 
 
@@ -138,7 +131,7 @@ def test_guest_is_rejected_by_authentication_while_the_broker_is_up(connect):
     # The broker must be reachable (and the real users work) so that the
     # failure below is an authentication rejection, not a connection error.
     assert connect("h4tt3r_admin").is_open
-    with pytest.raises((ProbableAuthenticationError, ProbableAccessDeniedError)):
+    with pytest.raises(ProbableAuthenticationError):
         connect(("guest", "guest"))
 
 
@@ -208,14 +201,17 @@ def test_consumer_can_consume_the_analysis_queue(connect, admin):
 def test_full_queue_drops_the_head_into_the_dead_letter_queue(connect, admin):
     """Threat 19, criterion 7: the max-length policy applies on a full queue."""
     channel = connect("worker_noticias").channel()
-    total = MAX_LENGTH + 3
+    max_length = main_queue_policy_value("max-length")
+    total = max_length + OVERFLOW_COUNT
     for n in range(total):
         channel.basic_publish("noticias", "news.saved", str(n).encode())
-    assert _wait_for(lambda: _count(admin, DEAD_LETTER_QUEUE) >= 3, timeout=60)
-    assert _wait_for(lambda: _count(admin, MAIN_QUEUE) == MAX_LENGTH, timeout=60)
+    assert _wait_for(
+        lambda: _count(admin, DEAD_LETTER_QUEUE) >= OVERFLOW_COUNT, timeout=60
+    )
+    assert _wait_for(lambda: _count(admin, MAIN_QUEUE) == max_length, timeout=60)
     _, _, oldest = admin.basic_get(DEAD_LETTER_QUEUE, auto_ack=True)
     assert oldest == b"0"
-    assert _count(admin, MAIN_QUEUE) <= MAX_LENGTH
+    assert _count(admin, MAIN_QUEUE) <= max_length
 
 
 def test_a_rejected_message_goes_to_the_dead_letter_queue(connect, admin):
@@ -237,7 +233,9 @@ def test_a_message_over_the_delivery_limit_goes_to_the_dead_letter_queue(
     without settling it (a crash); `basic.nack` with requeue is not counted.
     """
     _publish_confirmed(connect("worker_noticias").channel(), b"retried")
-    for _ in range(DELIVERY_LIMIT + 2):
+    # Limit + 1 disconnects must dead-letter the message; one more attempt
+    # proves the queue is then empty (the loop stops when nothing is delivered).
+    for _ in range(main_queue_policy_value("delivery-limit") + 2):
         connection = connect("worker_analisis")
         channel = connection.channel()
         got = _wait_for(

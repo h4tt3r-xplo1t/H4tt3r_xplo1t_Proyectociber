@@ -44,13 +44,18 @@ Strategy `ask-on-risk` (default). Forecast: above 400 authored lines (T3-T5 of 1
 ## Tasks
 - [x] **T1** (`fa9bdf5`; Gentle AI passive) ADR 0008: message contract, exchange/queues, users and permissions, queue policy, delivery semantics, lost-notice handling. Accepted by the person.
 - [x] **T2** Verify the RabbitMQ image (version, digest, official source) and the AMQP client (`pika` on PyPI: name, maintainer, license, activity). Evidence in "Dependencies".
-- [ ] **T3** RabbitMQ in `docker-compose.yml` and CI, definitions file (per-service users, per-queue permissions, no `guest`, max-length/TTL/dead-letter policy), integration tests skipped without a broker (threats 18, 19).
+- [x] **T3** (commit `feat(worker-noticias): rabbitmq for development and ci with least-privilege users (#67)`, sha in `git log`; Gentle AI T1-T2 docs `review-f32745e98f7cb60d` low, approved) RabbitMQ in `docker-compose.yml` and CI, definitions file (per-service users, per-queue permissions, no `guest`, max-length/TTL/dead-letter policy), integration tests skipped without a broker (threats 18, 19).
+  - RED (2026-10-21): `test_rabbitmq_definitions.py` 10 tests failed/errored with `FileNotFoundError` (`deploy/rabbitmq/{definitions.json,rabbitmq.conf}` missing); `test_rabbitmq_integration.py` with `WORKER_NOTICIAS_TEST_AMQP_HOST=127.0.0.1` and no broker: 4 failed + 7 errors with `AMQPConnectionError` (the `guest` test passed vacuously without a broker; its real proof is GREEN against the broker).
+  - GREEN: with the compose broker up, `uv run --locked pytest -q`: 348 passed, 32 skipped (only the database tests, `WORKER_NOTICIAS_TEST_ADMIN_URL` unset); two consecutive runs. Without the env var: 336 passed, 44 skipped; with `CI=true` and no var the broker tests fail; a non-loopback host is refused.
+  - Finding: on RabbitMQ 4.4.0 `delivery-limit` does not count `basic.nack` with requeue; it counts a consumer disconnecting without settling. The test simulates a crashing consumer; documented in `deploy/rabbitmq/README.md`.
+  - Design: limits as policies (not queue arguments); DLX is `fanout`.
+  - Decision (person, 2026-10-21): gitleaks `generic-api-key` flagged the password hashes in `definitions.json`; the person chose an init script (`scripts/rabbitmq-dev-init.sh`, passwords from env, users and permissions created with `rabbitmqctl`, `guest` deleted) over a gitleaks allowlist. No password or hash is committed; CI uses `ci-only-throwaway-*` env values. A unit test parses the script's `set_permissions` lines against the ADR.
 - [ ] **T4** Message module: encode and validate (JSON only, versioned schema, bounded size, no `pickle`) (threat 33), plus a lint or test guard that fails on any `pickle` use in the service (threat 33 test of the threat model: ruff `S301`/`S403` or a Semgrep rule).
 - [ ] **T5** `store.save()` returns the new ids; `cycle.py` publishes after saving; `broker_error` isolation per source.
 - [ ] **T6** Threat model, PROJECT_CONTEXT (stack) and BITACORA.
 
 ## Progress
-- 2026-10-21: branch `feat/67-mensajeria-rabbitmq` from `origin/main` `2c7526c`. T1 and T2 done.
+- 2026-10-21: branch `feat/67-mensajeria-rabbitmq` from `origin/main` `2c7526c`. T1 and T2 done. T3 done.
 
 ## Next step
-T3: RabbitMQ in compose and CI with the definitions file and integration tests (delegated writer).
+T4: message module (encode and validate), delegated writer.

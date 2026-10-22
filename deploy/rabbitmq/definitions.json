@@ -1,0 +1,93 @@
+{
+  "rabbit_version": "4.4.0",
+  "vhosts": [
+    {
+      "name": "h4tt3r"
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "noticias",
+      "vhost": "h4tt3r",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "noticias.dlx",
+      "vhost": "h4tt3r",
+      "type": "fanout",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "queues": [
+    {
+      "name": "analisis.noticias",
+      "vhost": "h4tt3r",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "analisis.noticias.dlq",
+      "vhost": "h4tt3r",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    }
+  ],
+  "bindings": [
+    {
+      "source": "noticias",
+      "vhost": "h4tt3r",
+      "destination": "analisis.noticias",
+      "destination_type": "queue",
+      "routing_key": "news.saved",
+      "arguments": {}
+    },
+    {
+      "source": "noticias.dlx",
+      "vhost": "h4tt3r",
+      "destination": "analisis.noticias.dlq",
+      "destination_type": "queue",
+      "routing_key": "",
+      "arguments": {}
+    }
+  ],
+  "policies": [
+    {
+      "name": "analisis-noticias-limits",
+      "vhost": "h4tt3r",
+      "pattern": "^analisis\\.noticias$",
+      "apply-to": "queues",
+      "priority": 0,
+      "definition": {
+        "max-length": 10000,
+        "overflow": "drop-head",
+        "message-ttl": 86400000,
+        "delivery-limit": 3,
+        "dead-letter-exchange": "noticias.dlx"
+      }
+    },
+    {
+      "name": "analisis-noticias-dlq-limits",
+      "vhost": "h4tt3r",
+      "pattern": "^analisis\\.noticias\\.dlq$",
+      "apply-to": "queues",
+      "priority": 0,
+      "definition": {
+        "max-length": 10000,
+        "overflow": "drop-head"
+      }
+    }
+  ]
+}

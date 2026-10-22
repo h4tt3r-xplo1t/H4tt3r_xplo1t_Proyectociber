@@ -19,22 +19,16 @@ Las entradas de issues cerrados se mueven a `docs/bitacora/` para no superar el 
 - [2026-10-12](bitacora/2026-10-12.md): administración del gateway (issue #45, A3b1) y seguimiento de su revisión (issue #47), endurecimiento del gateway (issue #49) y gestión del MFA (issue #51). Decisiones que conviene conocer: contador de generación `gen` en cada JWT (los tokens sin `gen` se rechazan una vez), el hash del login se verifica sin bloqueo de fila, el MFA solo lo desactivan los lectores, la cuota de altas (5 por hora) se consume aunque transit falle, y el arranque del primer administrador lee su contraseña solo de OpenBao con un AppRole aparte y se niega si ya hay un administrador, `busy_guard` traduce los bloqueos a 503, y `bootstrap-seed` solo se crea con `CI=true` o `OPENBAO_DEV_BOOTSTRAP_SEED=1`.
 - [2026-10-15](bitacora/2026-10-15.md): recuperación asistida y restablecimiento del MFA (issue #56). Decisiones que conviene conocer: opción B con la marca `privileged_at` y dos administradores distintos para las cuentas que tienen o tuvieron privilegios, segundo factor del código solo con el MFA activo y vencimiento de 1 h de las solicitudes.
 - [2026-10-16](bitacora/2026-10-16.md): procedimiento de emergencia (break-glass, issue #58). Decisiones que conviene conocer: el break-glass cubre toda cuenta que tiene o tuvo privilegios, tiene AppRole propio, destruye el secreto antes de confirmar la transacción y no reinicia el contador de bloqueo del login.
+- [2026-10-17](bitacora/2026-10-17.md): worker-noticias (issue #60, ADR 0007). Decisiones que conviene conocer: un `sitemapindex` nunca se sigue (amenaza 21), `robots.txt` con 4xx permite y con 5xx, 429 o fallo prohíbe durante el ciclo, el `<author>` con `@` se descarta, y la guarda `no_network` de las pruebas (incidente del 2026-10-17).
 
-## 2026-10-17 · Issue #60: worker-noticias (ingesta de RSS y sitemaps)
+## 2026-10-21 · Issue #61: fuente de Caracol (feed_unknown_format)
 
-Rama `feat/60-worker-noticias`. El worker lee los RSS de RCN y Semana y los sitemaps de noticias de RCN, Caracol, Blu Radio y Citytv (seis fuentes de cinco medios) y guarda titular, enlace, fecha, resumen, medio y autor (amenazas 15, 17, 20, 21 y 22). Detalle por tarea, evidencias RED y mutaciones: `odd/tasks/worker-noticias.md`.
+Rama `fix/61-fuente-caracol`.
 
-- **T1 (`80e280e`):** esqueleto con `uv.lock`, ruff `S` y pytest; trabajo `worker-noticias` obligatorio en CI y en el ruleset local; Dependabot; ADR 0007.
-- **T2 (`255dd24`, corrección `6176730`):** `fetch.py`: lista fija de hosts, solo https, toda IP resuelta pública y conexión fijada a la IP validada con SNI, redirecciones al mismo host, plazo comprobado tras cada lectura y tope de 5 MiB descomprimido.
-- **T3 (`9c5ba16`, `d4240cb`):** seguimientos de T2 y `feeds.py` con `defusedxml` (sin DTD ni entidades), texto plano acotado, enlace del propio medio y fecha UTC; un `sitemapindex` no se sigue.
-- **T4 (`7c0f21e`):** `robots.py` (RFC 9309) con un `User-Agent` propio.
-- **T5 (`5037336`):** esquema `noticias`, tabla `news_items` con enlace único, migraciones propias, rol `worker_noticias` con `SELECT`, `INSERT` y `DELETE` solo en su tabla y purga por retención.
-- **T6 (`5d30e04`, `993905d`):** `cycle.py` y `__main__.py` (`run`, `once`, `check-live`) con aislamiento por fuente; `5d30e04` incluye los seguimientos de T5 y `993905d` los de la revisión de T6.
-- **Decisiones:** (persona, 2026-10-16) bucle propio sin Celery (ADR 0007) y un solo PR; (persona) se autoriza editar `tests/rulesets/main_ruleset_test.sh`; `urllib3` y `defusedxml` verificados en PyPI (riesgo aceptado: poca actividad de `defusedxml`; prueba de Expat >= 2.7.2); `robots.txt`: 4xx permite, 5xx, 429 y fallos prohíben durante el ciclo; el `<author>` con `@` se descarta (dato personal).
-- **Incidente (2026-10-17):** una prueba del redactor llamó a `once` con el cliente real y envió un ciclo de peticiones a los medios sin autorización (unos 4,6 s; no se leyó la salida). Se corrigió y se añadió la guarda `no_network` en `tests/conftest.py`, con sus pruebas.
-- **Residuales:** `check-live` (2026-10-17, autorizado por la persona, una ejecución): los 6 `robots.txt` permiten y 5 de 6 fuentes se leen (RCN RSS 150, RCN sitemap 257, Semana 100, Blu Radio 228, Citytv 25); Caracol falla con `feed_unknown_format` (issue #61). NO VERIFICADO: el trabajo de CI, migraciones junto a las tablas reales del gateway y SIGTERM real. Una sola réplica (ADR 0007). El plazo puede excederse en una lectura (10 s). Con un operador solo CREATEROLE, `create_role.sql` depende de su idempotencia y de un servidor sin registro de sentencias.
-- **Gentle AI:** T1 `review-a940d05cfd519d3d`; T2 `review-587bdbdb2bce1b06` (una corrección: un servidor que enviaba un byte cada 9 s eludía el plazo, CRÍTICO); T3 `review-25174e7c8efc294d`; T4 `review-eba8829d59158a74` (dos falsos positivos sustentados por mutación); T5 `review-c2f0de0a079a4e73`; T6 `review-860038808ca0fae8`.
-- **TDD:** RED por comportamiento desde T3; en T2 solo a nivel de archivo (desviación declarada, sustituida por mutaciones). De 0 a 324 pruebas.
+- **Diagnóstico (autorizado por la persona, una petición cada vez, sin reintentos, con `fetch.py`):** `content-sitemap.xml` responde 200 con un `sitemapindex` de 217 archivos mensuales (`content-sitemap-YYYYMM.xml`, desde 2008-11), sin `news:`; por eso `unknown_format`. `robots.txt` permite `content-sitemap-latest.xml`, que es un `urlset` de Google News: 106 entradas con `news:news`, 106 noticias leídas por `parse_feed`, 0 descartadas, sin autor. Solo se imprimieron estructura y conteos.
+- **Decisión (persona):** opción A, cambiar la URL del catálogo a `content-sitemap-latest.xml` (mismo formato que Blu Radio). El host no cambia; el índice sigue sin seguirse (amenaza 21).
+- **TDD:** RED observado en `test_the_catalog_has_the_six_feeds_of_the_project_context` y en la prueba nueva de la URL de Caracol; GREEN con 326 pruebas (32 de base de datos omitidas sin PostgreSQL local).
+- **Residual:** `check-live` completo de los 6 medios no se ejecutó (necesita autorización); la petición del diagnóstico cubre el análisis de Caracol.
 
 ## Pendientes
 
@@ -59,7 +53,7 @@ Rama `feat/60-worker-noticias`. El worker lee los RSS de RCN y Semana y los site
 - [ ] **E3:** implementar la renovación de sesión de un solo vuelo en el frontend.
 - [ ] **E3:** antes de añadir `pysentimiento`, verificar nombre, mantenedor, licencia y actividad (AGENTS.md §3) y fijar el modelo de Hugging Face por hash de commit (riesgo de deserialización con `torch`) (hallazgo B5 del #15).
 - [ ] **E3:** aplicar en GitHub el ruleset con la comprobación obligatoria `worker-noticias` después de la fusión del #60 (operación remota, a petición de la persona).
-- [ ] **E3:** `check-live` contra los medios (decisión de la persona) para verificar los formatos de los sitemaps y del RSS de RCN, los `robots.txt` reales y la cobertura del `Allow` de Semana (NO VERIFICADO, #60).
+- [ ] **E3:** `check-live` contra los medios (decisión de la persona) para verificar los formatos de los sitemaps y del RSS de RCN, los `robots.txt` reales y la cobertura del `Allow` de Semana (NO VERIFICADO, #60). Caracol: resuelto en el #61 (`content-sitemap-latest.xml`).
 - [ ] **E3:** publicación en RabbitMQ y `worker-analisis` (siguiente issue).
 
 ### E3: pendientes del registro (issue #29)

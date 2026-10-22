@@ -22,8 +22,11 @@ Restricciones ya decididas: sin Celery para la programación (ADR 0007), una
 sola réplica de `worker-noticias`, el rol `worker_noticias` no tiene `UPDATE`
 y los logs no llevan contenido de las noticias.
 
-Las versiones de RabbitMQ y del cliente AMQP están **NO VERIFICADO**: se
-verifican en la tarea T2 del issue #67 antes de fijarlas.
+Versiones verificadas el 2026-10-21 (tarea T2 del issue #67): RabbitMQ 4.4.0
+(imagen oficial `rabbitmq:4.4.0-alpine`, sin el plugin de gestión, fijada por
+digest) y `pika` 1.4.4 (PyPI, BSD-3-Clause, mantenedores Gavin M. Roy y Luke
+Bakken, Python 3.14 declarado). El detalle está en
+`odd/tasks/mensajeria-rabbitmq.md`.
 
 ## Opciones consideradas
 
@@ -148,8 +151,16 @@ periódica de `worker-analisis` las recupera.
 - Cambiar el esquema exige una versión nueva (`noticias.saved/v2`); el
   consumidor rechaza las versiones que no conoce.
 - Las colas quorum consumen más recursos que las clásicas, aunque en un solo
-  nodo; se eligen por `x-delivery-limit` y por ser el tipo durable recomendado
-  (**NO VERIFICADO** hasta T2).
+  nodo; se eligen por `x-delivery-limit`. Según la documentación de
+  RabbitMQ 4.4 (verificado en T2): admiten `drop-head`, `reject-publish` y TTL
+  por mensaje, y su límite de entregas vale 20 por defecto (aquí se fija en 3).
+- `drop-head` solo funciona con el reenvío a mensajes muertos «como mucho una
+  vez» (`at-most-once`, el valor por defecto); el «al menos una vez» exige
+  `reject-publish`. Por tanto, un mensaje descartado por la longitud máxima
+  puede no llegar a `analisis.noticias.dlq`. Se acepta porque PostgreSQL manda
+  y la búsqueda periódica recupera esas noticias.
+- Al importar definiciones en el arranque, RabbitMQ no crea el usuario `guest`
+  ni el vhost por defecto (documentación 4.4).
 - AMQP viaja sin TLS dentro del clúster hasta el ADR de cifrado interno
   (antes de E5); en desarrollo solo escucha en 127.0.0.1.
 - Celery se puede reconsiderar si aparecen varios tipos de trabajo con

@@ -24,8 +24,12 @@ y los logs no llevan contenido de las noticias.
 
 Versiones verificadas el 2026-10-21 (tarea T2 del issue #67): RabbitMQ 4.4.0
 (imagen oficial `rabbitmq:4.4.0-alpine`, sin el plugin de gestión, fijada por
-digest) y `pika` 1.4.4 (PyPI, BSD-3-Clause, mantenedores Gavin M. Roy y Luke
-Bakken, Python 3.14 declarado). El detalle está en
+digest, comprobado en local con `docker buildx imagetools inspect`) y `pika`
+1.4.4 (BSD-3-Clause, mantenedores Gavin M. Roy y Luke Bakken, Python 3.14
+declarado, según los metadatos del paquete cuyo sha256 verifica `uv.lock`
+contra PyPI). El comportamiento de RabbitMQ 4.4 citado abajo sale de su
+documentación oficial, leída mediante resúmenes de una herramienta web (no
+de la fuente primaria completa). El detalle está en
 `odd/tasks/mensajeria-rabbitmq.md`.
 
 ## Opciones consideradas
@@ -42,10 +46,13 @@ Bakken, Python 3.14 declarado). El detalle está en
 ### Cliente y marco
 
 1. **Celery.** Descartada: el ADR 0007 la rechazó para la programación y aquí
-   solo hace falta publicar y consumir un tipo de mensaje; su `pickle` por
-   defecto es justo el riesgo de la amenaza 33.
+   solo hace falta publicar y consumir un tipo de mensaje, sin tareas ni
+   reintentos programados. Celery serializa en JSON por defecto desde la
+   versión 4.0 (`accept_content` por defecto `{'json'}`, documentación de
+   Celery 5.6.3); `pickle` solo se activa si se añade a esa lista, que es el
+   riesgo de la amenaza 33.
 2. **Cliente AMQP directo (`pika`, síncrono, como el bucle del worker).**
-   Elegida, sujeta a la verificación de T2.
+   Elegida.
 
 ### Mensajes perdidos
 
@@ -90,14 +97,21 @@ Bakken, Python 3.14 declarado). El detalle está en
 
 Valores iniciales, revisables con datos reales:
 
-- `x-max-length` de 10 000 mensajes con `overflow: drop-head`: el más antiguo
-  se descarta y va a `analisis.noticias.dlq`.
-- `x-message-ttl` de 24 h: un mensaje caducado va a la cola de mensajes
+Se aplican como política de RabbitMQ (claves sin el prefijo `x-` de los
+argumentos de cola):
+
+- `dead-letter-exchange` `noticias.dlx`: destino de los mensajes muertos.
+- `max-length` de 10 000 mensajes con `overflow` `drop-head`: el más antiguo
+  se descarta y se intenta reenviar a `analisis.noticias.dlq`. Con
+  `drop-head` el reenvío es «como mucho una vez» (`at-most-once`): el
+  mensaje puede no llegar a la cola de mensajes muertos (ver Consecuencias).
+- `message-ttl` de 24 h: un mensaje caducado va a la cola de mensajes
   muertos.
-- `x-delivery-limit` de 3 entregas: un mensaje que falla repetidamente va a
+- `delivery-limit` de 3 entregas: un mensaje que falla repetidamente va a
   la cola de mensajes muertos (mensaje envenenado).
-- `analisis.noticias.dlq` también tiene longitud máxima, para que no crezca
-  sin límite.
+- `analisis.noticias.dlq` también tiene `max-length` con `drop-head`, para
+  que no crezca sin límite; cuando se llena, descarta sus mensajes más
+  antiguos sin aviso.
 
 Como PostgreSQL manda, un mensaje descartado no pierde noticias: la búsqueda
 periódica de `worker-analisis` las recupera.

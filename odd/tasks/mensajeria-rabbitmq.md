@@ -63,7 +63,10 @@ Strategy `ask-on-risk` (default). Forecast: above 400 authored lines (T3-T5 of 1
   - RED: guest present with a password but no vhost permission made the guest test fail (`ProbableAccessDeniedError`, NOT_ALLOWED), which the old test accepted; with the broker stopped the old script went on to `add_user` after a failed `list_users` (trace); two new stub-`docker` unit tests (listing failure aborts with "cannot list" and no add_user/change_password; `add_user -- "$0"` for a password starting with `-`) failed.
   - Finding: rabbitmqctl 4.4 accepts `--` after the command name (`add_user`, `change_password`, `authenticate_user`); without it `add_user u -secret` prints usage. Verified end to end with a password starting with `-`.
   - GREEN: script run twice (exit 0), with a `-` password, and against a stopped broker (exit 1, clear message, no add_user); `pytest -q` with the broker env: all passed; ruff check/format pass.
-- [ ] **T4** Message module: encode and validate (JSON only, versioned schema, bounded size, no `pickle`) (threat 33), plus a lint or test guard that fails on any `pickle` use in the service (threat 33 test of the threat model: ruff `S301`/`S403` or a Semgrep rule).
+- [x] **T4** (commit: see `git log`, `feat(worker-noticias): strict json notice schema for saved news (#67)`) Message module: encode and validate (JSON only, versioned schema, bounded size, no `pickle`) (threat 33), plus a lint or test guard that fails on any `pickle` use in the service (threat 33 test of the threat model: ruff `S301`/`S403` or a Semgrep rule).
+  - Design: `messages.py` is pure (`SavedNotice` frozen dataclass validating in `__post_init__`, `encode_saved(notice)`, `decode_saved(body)`, `MessageError(reason)` with fixed codes, no input echo); size checked before parsing; stdlib `json` with NaN/Infinity and duplicate keys refused; `MAX_IDS` is `feeds.MAX_ITEMS_PER_FEED`; ids also capped at the bigint maximum; `message_id` only in canonical lowercase form; `saved_at` only `...Z`.
+  - RED: `test_messages.py` failed at import (no `messages` module); the pickle-guard scanner tests (12 detection cases) failed against a stub scanner returning no findings.
+  - GREEN: new tests pass (messages table of ~50 malformed bodies, round trips, no echo, nesting, ruff `S` config guard, AST scan of `src/`); full suite with the broker env: all passed, ruff check/format pass.
 - [ ] **T5** `store.save()` returns the new ids; `cycle.py` publishes after saving; `broker_error` isolation per source.
 - [ ] **T6** Threat model, PROJECT_CONTEXT (stack) and BITACORA.
 
@@ -71,4 +74,4 @@ Strategy `ask-on-risk` (default). Forecast: above 400 authored lines (T3-T5 of 1
 - 2026-10-21: branch `feat/67-mensajeria-rabbitmq` from `origin/main` `2c7526c`. T1 and T2 done. T3 done.
 
 ## Next step
-T4: message module (encode and validate), delegated writer.
+T5: publish from `cycle.py` after saving, delegated writer.

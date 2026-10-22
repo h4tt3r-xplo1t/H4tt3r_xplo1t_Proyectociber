@@ -28,23 +28,34 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 rmq() { docker compose exec -T rabbitmq rabbitmqctl --quiet "$@"; }
 
-# Capture the listing first: with `pipefail`, `grep -q` closing the pipe early
-# could turn a match into a SIGPIPE failure of the writer.
-user_exists() {
+# The listing is captured in its own statement so a failure aborts the script.
+# Inside `if`, errexit is off: a failing `list_users` (broker down) would
+# otherwise read as "user missing". Capturing first also avoids a
+# `pipefail` + `grep -q` SIGPIPE hazard.
+EXISTING_USERS=""
+refresh_users() {
   local listing
-  listing=$(rmq list_users --silent)
-  cut -f1 <<<"$listing" | grep -xF -- "$1" >/dev/null
+  listing=$(rmq list_users --silent) || {
+    echo "error: cannot list RabbitMQ users; is the broker up and healthy?" >&2
+    exit 1
+  }
+  EXISTING_USERS=$(cut -f1 <<<"$listing")
 }
 
+user_exists() { grep -xF -- "$1" <<<"$EXISTING_USERS" >/dev/null; }
+
+# `--` ends option parsing, so a password starting with `-` is data (checked on
+# rabbitmqctl 4.4: add_user, change_password and authenticate_user accept it).
 # ensure_user <user> <password variable name> <tags>
 ensure_user() {
   local user=$1 variable=$2 tags=$3
+  refresh_users
   if user_exists "$user"; then
     docker compose exec -T -e "$variable" rabbitmq sh -c \
-      "rabbitmqctl --quiet change_password \"\$0\" \"\$$variable\"" "$user"
+      "rabbitmqctl --quiet change_password -- \"\$0\" \"\$$variable\"" "$user"
   else
     docker compose exec -T -e "$variable" rabbitmq sh -c \
-      "rabbitmqctl --quiet add_user \"\$0\" \"\$$variable\"" "$user"
+      "rabbitmqctl --quiet add_user -- \"\$0\" \"\$$variable\"" "$user"
   fi
   # shellcheck disable=SC2086 # $tags is empty or a single word on purpose
   rmq set_user_tags "$user" $tags
@@ -59,6 +70,7 @@ rmq set_permissions -p h4tt3r worker_noticias '^$' '^noticias$' '^$'
 rmq set_permissions -p h4tt3r worker_analisis '^$' '^$' '^analisis\.noticias$'
 rmq set_permissions -p h4tt3r h4tt3r_admin '.*' '.*' '.*'
 
+refresh_users
 if user_exists guest; then
   rmq delete_user guest
 fi

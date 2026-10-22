@@ -6,6 +6,7 @@ careless edit of the JSON fails in review before it reaches a broker.
 """
 
 import json
+import re
 import shlex
 from pathlib import Path
 
@@ -57,10 +58,6 @@ def test_the_init_script_has_no_default_passwords_and_removes_guest():
 @pytest.fixture(scope="module")
 def definitions() -> dict:
     return json.loads((DEPLOY_DIR / "definitions.json").read_text(encoding="utf-8"))
-
-
-def _permissions(definitions: dict) -> dict[str, dict]:
-    return {p["user"]: p for p in definitions["permissions"]}
 
 
 def test_definitions_carry_no_users_permissions_or_passwords(definitions):
@@ -133,3 +130,15 @@ def test_the_broker_config_imports_the_definitions_at_boot():
     assert "definitions.import_backend = local_filesystem" in lines
     assert any(ln.startswith("definitions.local.path = ") for ln in lines)
     assert not any("management" in ln for ln in lines)
+
+
+def test_compose_pins_a_fixed_hostname_for_the_broker():
+    """RabbitMQ keys its data directory by node name (derived from the hostname).
+
+    A random container hostname would make a recreated container boot with an
+    empty node directory and lose the users created by the init script.
+    """
+    compose = (DEPLOY_DIR.parents[1] / "docker-compose.yml").read_text(encoding="utf-8")
+    block = re.search(r"^  rabbitmq:\n((?:    .*\n|\n)+)", compose, re.MULTILINE)
+    assert block, "rabbitmq service not found in docker-compose.yml"
+    assert re.search(r"^    hostname: rabbitmq$", block.group(1), re.MULTILINE)

@@ -28,7 +28,13 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 rmq() { docker compose exec -T rabbitmq rabbitmqctl --quiet "$@"; }
 
-user_exists() { rmq list_users --silent | cut -f1 | grep -qxF -- "$1"; }
+# Capture the listing first: with `pipefail`, `grep -q` closing the pipe early
+# could turn a match into a SIGPIPE failure of the writer.
+user_exists() {
+  local listing
+  listing=$(rmq list_users --silent)
+  cut -f1 <<<"$listing" | grep -xF -- "$1" >/dev/null
+}
 
 # ensure_user <user> <password variable name> <tags>
 ensure_user() {

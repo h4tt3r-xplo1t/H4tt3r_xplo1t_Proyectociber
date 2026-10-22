@@ -11,19 +11,22 @@ RABBITMQ_WORKER_NOTICIAS_PASSWORD, RABBITMQ_WORKER_ANALISIS_PASSWORD and
 RABBITMQ_ADMIN_PASSWORD.
 """
 
+import json
 import os
 import time
 import uuid
+from pathlib import Path
 
 import pika
 import pytest
 from pika.exceptions import (
-    AMQPConnectionError,
     ChannelClosedByBroker,
+    ProbableAccessDeniedError,
     ProbableAuthenticationError,
 )
 
 AMQP_PORT = 5672
+DEFINITIONS = Path(__file__).resolve().parents[3] / "deploy/rabbitmq/definitions.json"
 VHOST = "h4tt3r"
 LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 PASSWORD_VARIABLES = {
@@ -34,6 +37,12 @@ PASSWORD_VARIABLES = {
 MAIN_QUEUE = "analisis.noticias"
 DEAD_LETTER_QUEUE = "analisis.noticias.dlq"
 MAX_LENGTH = 10000
+# Single source of truth: the broker policy in deploy/rabbitmq/definitions.json.
+DELIVERY_LIMIT = next(
+    p["definition"]["delivery-limit"]
+    for p in json.loads(DEFINITIONS.read_text(encoding="utf-8"))["policies"]
+    if p["pattern"] == r"^analisis\.noticias$"
+)
 ACCESS_REFUSED = 403
 
 
@@ -125,8 +134,11 @@ def _publish_confirmed(channel, body: bytes) -> None:
     )
 
 
-def test_guest_cannot_connect(connect):
-    with pytest.raises((ProbableAuthenticationError, AMQPConnectionError)):
+def test_guest_is_rejected_by_authentication_while_the_broker_is_up(connect):
+    # The broker must be reachable (and the real users work) so that the
+    # failure below is an authentication rejection, not a connection error.
+    assert connect("h4tt3r_admin").is_open
+    with pytest.raises((ProbableAuthenticationError, ProbableAccessDeniedError)):
         connect(("guest", "guest"))
 
 
@@ -225,7 +237,7 @@ def test_a_message_over_the_delivery_limit_goes_to_the_dead_letter_queue(
     without settling it (a crash); `basic.nack` with requeue is not counted.
     """
     _publish_confirmed(connect("worker_noticias").channel(), b"retried")
-    for _ in range(6):
+    for _ in range(DELIVERY_LIMIT + 2):
         connection = connect("worker_analisis")
         channel = connection.channel()
         got = _wait_for(

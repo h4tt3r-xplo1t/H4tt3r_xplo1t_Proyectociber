@@ -48,12 +48,16 @@ services:
       retries: 10
 
   # Message broker (ADR 0008). The alpine image has no management plugin, so
-  # there is no web UI or HTTP API. Users, queues and policies are imported at
-  # boot from deploy/rabbitmq. Users and their passwords are NOT in the repo:
-  # scripts/rabbitmq-dev-init.sh creates them from your environment and removes
-  # `guest` (see deploy/rabbitmq/README.md).
+  # there is no web UI or HTTP API. The vhost, exchanges, queues and policies
+  # are imported at boot from deploy/rabbitmq. Users and their passwords are
+  # NOT in the repo: scripts/rabbitmq-dev-init.sh creates them from your
+  # environment and removes `guest` (see deploy/rabbitmq/README.md).
   rabbitmq:
     image: docker.io/library/rabbitmq:4.4.0-alpine@sha256:61d004549357eff7c90187ebbc9fe6f1280b49c32099e16745b4087bfddf9edf
+    # Fixed hostname: RabbitMQ keys its data directory by node name, which comes
+    # from the hostname. A random one would make a recreated container boot with
+    # an empty node directory and lose the users created by the init script.
+    hostname: rabbitmq
     # Bound to loopback only: not reachable from the network.
     ports:
       - "127.0.0.1:5672:5672"

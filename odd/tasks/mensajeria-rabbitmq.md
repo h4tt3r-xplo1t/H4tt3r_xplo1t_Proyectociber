@@ -34,6 +34,12 @@ Mode: strict, enabled (global user configuration). Runner: `uv run --locked pyte
 
 ## Delivery
 Strategy `ask-on-risk` (default). Forecast: above 400 authored lines (T3-T5 of 150-300 each); the chain strategy is asked once when the running count passes ~400. Gentle AI assessment per task commit. revisor-seguridad before the PR. Push and PR only on the person's request.
+- 2026-10-21 (person): chain strategy `stacked-to-main`, asked once when the running count reached ~866 lines (T1-T2 223, T3 646 incl. 11 generated `uv.lock`).
+- Slices (each PR targets `main`; after a squash merge the next branch is rebased onto `main`; every PR says `Refs #67` except the last, `Closes #67`):
+  1. PR 1, branch `docs/67-adr-mensajeria` at `587fcbb`: T1-T2 (ADR 0008 and verified facts), 223 lines.
+  2. PR 2, branch `feat/67-mensajeria-rabbitmq`: T3 and its review follow-ups (T3b), ~680 lines. One slicing pass found no cohesive split (deploy files, init script, CI step and the tests that verify them form one unit; the 373 test lines stay with it), so `size:exception` is recommended for this PR.
+  3. PR 3: T4 (message module).
+  4. PR 4: T5 and T6 (publication, `broker_error`, docs); closes #67.
 
 ## Route
 - T1: inline (one documentation file, decisions owned by the person).
@@ -50,6 +56,9 @@ Strategy `ask-on-risk` (default). Forecast: above 400 authored lines (T3-T5 of 1
   - Finding: on RabbitMQ 4.4.0 `delivery-limit` does not count `basic.nack` with requeue; it counts a consumer disconnecting without settling. The test simulates a crashing consumer; documented in `deploy/rabbitmq/README.md`.
   - Design: limits as policies (not queue arguments); DLX is `fanout`.
   - Decision (person, 2026-10-21): gitleaks `generic-api-key` flagged the password hashes in `definitions.json`; the person chose an init script (`scripts/rabbitmq-dev-init.sh`, passwords from env, users and permissions created with `rabbitmqctl`, `guest` deleted) over a gitleaks allowlist. No password or hash is committed; CI uses `ci-only-throwaway-*` env values. A unit test parses the script's `set_permissions` lines against the ADR.
+- [x] **T3b** (commit: see `git log`, `fix(worker-noticias): rabbitmq review follow-ups (#67)`) Non-blocking follow-ups of `review-a4758803d2bf902b`: fixed RabbitMQ `hostname` in compose (node data dir survives recreation), a `guest` test that proves rejection by authentication rather than any connection error, stale comments in `rabbitmq.conf` and `docker-compose.yml`, dead `_permissions` helper, named delivery-limit constant, `pipefail`-safe user lookup in the init script.
+  - RED: `test_compose_pins_a_fixed_hostname_for_the_broker` failed (no `hostname`); without it, `docker compose up -d --force-recreate` left `list_users` empty (users lost); with `guest` present the new guest test failed with `DID NOT RAISE` (ProbableAuthenticationError, ProbableAccessDeniedError).
+  - GREEN: with `hostname: rabbitmq`, after the init script and `--force-recreate` the three users are still listed without re-running it; init script run twice (exit 0) and removes a re-added `guest`; `pytest -q` with broker env: 347 passed, 32 skipped (database tests only), twice; ruff check/format pass; shell syntax check OK.
 - [ ] **T4** Message module: encode and validate (JSON only, versioned schema, bounded size, no `pickle`) (threat 33), plus a lint or test guard that fails on any `pickle` use in the service (threat 33 test of the threat model: ruff `S301`/`S403` or a Semgrep rule).
 - [ ] **T5** `store.save()` returns the new ids; `cycle.py` publishes after saving; `broker_error` isolation per source.
 - [ ] **T6** Threat model, PROJECT_CONTEXT (stack) and BITACORA.

@@ -44,7 +44,7 @@ Estado al 2026-09-29. Las URL son las verificadas en la investigación.
 |---|---|---|---|
 | RCN | RSS `https://www.noticiasrcn.com/feed-kiosko-google` y sitemap de noticias `https://www.noticiasrcn.com/sitemapnews` | `robots.txt` permite `/` para `*` (no `/buscar`) | Incluida |
 | Semana | RSS `https://www.semana.com/arc/outboundfeeds/rss/?outputType=xml` | `robots.txt` tiene `Allow: /rss/` | Incluida |
-| Caracol | Sin RSS encontrado; sitemap `https://www.noticiascaracol.com/content-sitemap.xml` | `robots.txt` bloquea por nombre a GPTBot y ChatGPT-user; los bots genéricos están permitidos | Incluida |
+| Caracol | Sin RSS encontrado; sitemap de noticias `https://www.noticiascaracol.com/content-sitemap-latest.xml` (`content-sitemap.xml` es un índice de archivos mensuales y no se sigue, issue #61) | `robots.txt` bloquea por nombre a GPTBot y ChatGPT-user; los bots genéricos están permitidos (ruta comprobada el 2026-10-21) | Incluida |
 | Blu Radio | Sin RSS encontrado; sitemap `https://www.bluradio.com/content-sitemap-latest.xml` | `robots.txt` bloquea GPTBot y ChatGPT-user | Incluida |
 | Citytv (citytv.eltiempo.com) | Sin RSS; sitemap de noticias `https://citytv.eltiempo.com/sitemap-news.xml` | `robots.txt` bloquea por nombre varios rastreadores de IA | Incluida |
 | YouTube Data API | `videos.list` con `chart=mostPopular`: 1 unidad de cuota; cuota por defecto de 10 000 unidades/día ([fuente](https://developers.google.com/youtube/v3/determine_quota_cost)) | `regionCode=CO`: **NO VERIFICADO**. Costo de la búsqueda por palabra clave con `search.list`: **NO VERIFICADO** | Incluida |

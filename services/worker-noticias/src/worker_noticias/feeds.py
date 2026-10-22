@@ -25,10 +25,11 @@ it is skipped rather than fetching the page to find one. A `sitemapindex` is
 rejected (`unknown_format`) and never followed: following it would fetch URLs
 taken from content (threat 21).
 
-NOT VERIFIED: the real formats of the Caracol and Blu Radio sitemaps (no
-network access was used to write this). They are assumed to be Google News
-sitemaps; the manual run of task T6 will confirm it, and a different format
-will show up as `unknown_format` or as skipped entries, never as bad data.
+The Caracol and Blu Radio sitemaps are Google News sitemaps (`check-live` of
+issue #60 and diagnosis of issue #61). Caracol's `content-sitemap.xml` is a
+`sitemapindex` of monthly archives, so the catalog uses its latest sitemap. A
+format change will show up as `unknown_format` or as skipped entries, never as
+bad data.
 """
 
 import html
@@ -83,7 +84,7 @@ SOURCES = (
         "caracol-sitemap",
         "Caracol",
         "sitemap",
-        "https://www.noticiascaracol.com/content-sitemap.xml",
+        "https://www.noticiascaracol.com/content-sitemap-latest.xml",
     ),
     Source(
         "blu-radio-sitemap",

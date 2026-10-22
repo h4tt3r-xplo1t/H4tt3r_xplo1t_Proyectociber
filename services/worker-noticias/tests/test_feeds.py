@@ -106,7 +106,7 @@ def test_the_catalog_has_the_six_feeds_of_the_project_context():
         "https://www.noticiasrcn.com/feed-kiosko-google",
         "https://www.noticiasrcn.com/sitemapnews",
         "https://www.semana.com/arc/outboundfeeds/rss/?outputType=xml",
-        "https://www.noticiascaracol.com/content-sitemap.xml",
+        "https://www.noticiascaracol.com/content-sitemap-latest.xml",
         "https://www.bluradio.com/content-sitemap-latest.xml",
         "https://citytv.eltiempo.com/sitemap-news.xml",
     }
@@ -115,6 +115,22 @@ def test_the_catalog_has_the_six_feeds_of_the_project_context():
         ("caracol-sitemap", "sitemap"),
     }
     assert len({s.id for s in feeds.SOURCES}) == 6
+
+
+def test_caracol_reads_its_latest_news_sitemap_not_the_monthly_index():
+    # Issue #61: content-sitemap.xml is a `sitemapindex` of monthly archives,
+    # which is never followed; the latest sitemap is a Google News `urlset`.
+    assert CARACOL.url == "https://www.noticiascaracol.com/content-sitemap-latest.xml"
+    assert CARACOL.kind == "sitemap"
+
+
+def test_an_entry_shaped_like_the_caracol_latest_sitemap_is_read():
+    # Structure observed on 2026-10-21 (issue #61): loc, lastmod, news:news.
+    lastmod = "<lastmod>2026-10-15T15:00:00Z</lastmod>"
+    entry = news_url().replace("</loc>", f"</loc>{lastmod}")
+    result = parse_sitemap(entry)
+    assert (len(result.items), result.skipped) == (1, 0)
+    assert result.items[0].source_id == "caracol-sitemap"
 
 
 @pytest.mark.parametrize("source", feeds.SOURCES, ids=lambda s: s.id)

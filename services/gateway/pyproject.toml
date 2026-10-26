@@ -5,7 +5,7 @@ description = "API gateway of H4tt3r_1nf0rm4t1v0: authentication, search API and
 license = "Apache-2.0"
 requires-python = ">=3.14"
 dependencies = [
-    "alembic>=1.20.0",
+    "alembic>=1.20.1",
     "argon2-cffi>=25.1.0",
     "fastapi>=0.143.3",
     "hvac>=2.4.0",
